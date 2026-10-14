@@ -1,0 +1,174 @@
+import 'package:fitbit_air/fitbit_air.dart';
+import 'package:flutter/material.dart';
+
+void main() => runApp(const DemoApp());
+
+class DemoApp extends StatelessWidget {
+  const DemoApp({super.key});
+
+  @override
+  Widget build(BuildContext context) => MaterialApp(
+    title: 'Fitbit Air demo',
+    theme: ThemeData(
+      colorSchemeSeed: const Color(0xff405e91),
+      useMaterial3: true,
+    ),
+    home: const DemoPage(),
+  );
+}
+
+class DemoPage extends StatefulWidget {
+  const DemoPage({super.key});
+
+  @override
+  State<DemoPage> createState() => _DemoPageState();
+}
+
+class _DemoPageState extends State<DemoPage> {
+  bool _busy = false;
+  bool? _paired;
+  String _status = 'Check for an Air paired to this phone.';
+
+  Future<void> _run(String pending, Future<String> Function() operation) async {
+    setState(() {
+      _busy = true;
+      _status = pending;
+    });
+    try {
+      final status = await operation();
+      if (mounted) setState(() => _status = status);
+    } on FitbitAirException catch (error) {
+      if (mounted) setState(() => _status = error.toString());
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _check() async {
+    setState(() {
+      _busy = true;
+      _status = 'Checking Android paired devices…';
+    });
+    try {
+      final paired = await FitbitAir.isAirPaired();
+      if (!mounted) return;
+      setState(() {
+        _paired = paired;
+        _status = paired
+            ? 'Fitbit Air is paired to this phone.'
+            : 'No paired Fitbit Air found. Pair it in Google Health first.';
+      });
+    } on FitbitAirException catch (error) {
+      if (mounted) setState(() => _status = error.toString());
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _vibrate() async {
+    await _run('Sending a restore-safe two-pulse preview…', () async {
+      final result = await FitbitAir.vibrate();
+      return 'Two-pulse preview complete. Prior intensity '
+          '${result.originalIntensity}; restored and verified: '
+          '${result.restored && result.verified}.';
+    });
+  }
+
+  Future<void> _pulse() async {
+    await _run('Sending one haptic pulse…', () async {
+      final result = await FitbitAir.pulse();
+      return 'One pulse sent: ${result.previousIntensity.name} → '
+          '${result.currentIntensity.name}; verified: ${result.verified}.';
+    });
+  }
+
+  Future<void> _setIntensity(HapticIntensity intensity) async {
+    await _run('Setting ${intensity.name} vibration strength…', () async {
+      final result = await FitbitAir.setHapticIntensity(intensity);
+      return result.changed
+          ? 'Intensity changed to ${intensity.name} with one pulse and verified.'
+          : 'Intensity was already ${intensity.name}; no pulse was sent.';
+    });
+  }
+
+  Widget _button({
+    required VoidCallback? onPressed,
+    required IconData icon,
+    required String label,
+  }) => Padding(
+    padding: const EdgeInsets.only(bottom: 12),
+    child: FilledButton.icon(
+      onPressed: onPressed,
+      icon: Icon(icon),
+      label: Text(label),
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('Fitbit Air · direct BLE demo')),
+    body: Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 480),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: ListView(
+            children: [
+              const Icon(Icons.watch, size: 64),
+              const SizedBox(height: 20),
+              Text(
+                _status,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 28),
+              _button(
+                onPressed: _busy ? null : _check,
+                icon: Icons.bluetooth_searching,
+                label: _paired == true ? 'Check again' : 'Check paired Air',
+              ),
+              _button(
+                onPressed: _busy ? null : _pulse,
+                icon: Icons.touch_app,
+                label: 'Single pulse (alternates strength)',
+              ),
+              Row(
+                children: [
+                  Expanded(
+                    child: _button(
+                      onPressed: _busy
+                          ? null
+                          : () => _setIntensity(HapticIntensity.low),
+                      icon: Icons.volume_down,
+                      label: 'Set low',
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _button(
+                      onPressed: _busy
+                          ? null
+                          : () => _setIntensity(HapticIntensity.high),
+                      icon: Icons.volume_up,
+                      label: 'Set high',
+                    ),
+                  ),
+                ],
+              ),
+              _button(
+                onPressed: _busy ? null : _vibrate,
+                icon: Icons.settings_backup_restore,
+                label: 'Two-pulse preview + restore',
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'The single pulse works by changing and retaining the vibration strength. The restore-safe preview changes it and changes it back, so it produces two pulses. Wrist-tap detection is not implemented.',
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}

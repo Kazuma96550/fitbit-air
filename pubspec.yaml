@@ -1,0 +1,31 @@
+name: fitbit_air
+description: Direct Android Bluetooth haptics for a Fitbit Air already paired in Google Health.
+version: 0.1.0
+homepage: https://github.com/ThoreKoritzius/fitbit-air
+repository: https://github.com/ThoreKoritzius/fitbit-air
+issue_tracker: https://github.com/ThoreKoritzius/fitbit-air/issues
+topics:
+  - bluetooth
+  - wearable
+  - fitbit
+  - haptics
+
+environment:
+  sdk: ^3.11.4
+  flutter: '>=3.3.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: dev.airpulse.fitbit_air
+        pluginClass: FitbitAirPlugin
