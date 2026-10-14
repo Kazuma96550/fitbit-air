@@ -94,8 +94,9 @@ flutter run
 | Restore/verify prior vibration intensity | Physically verified |
 | Root/OAuth/private PSK required | No, for the bootstrap haptic path |
 | Detect taps on the Air | Not implemented |
-| Headless haptics | Release-mode service/Flutter engine verified with the app backgrounded; screen-off reliability unresolved |
+| Headless haptics | Release-mode background and one controlled screen-off command verified; long-term/idle reliability unresolved |
 | Raw diagnostic events | Opt-in research stream; no confirmed tap decoder |
+| Battery resource | Bootstrap read access verified; selected raw fields available in diagnostics, units/scale unverified |
 | Heart rate | Standard BLE readings and continuous updates verified; requires an active Google Health sharing session |
 | Google Health coexistence | Plugin releases GATT; Google Health remains connected. Concurrent Goldengate sessions produced packet-sequence warnings, so uninterrupted sync is not yet proven |
 | iOS | Not implemented |
@@ -146,13 +147,21 @@ inconclusive: subscriptions succeeded, but the connection ended before any
 tap-related payload could be established. Cancel the stream before using
 other SDK operations. Health Connect and historical stats are deferred.
 
+`FitbitAirDiagnostics.probeBatteryAccess()` opens a separate Golden Gate
+session and performs a read-only GET of the device-info resource. Access was
+verified on the tested Air. It returns CoAP status and selected raw battery
+fields, not a verified percentage or voltage unit. This is an explicit research
+operation with the same Google Health coexistence caveat as other secure
+sessions; it is never run automatically by standard GATT reads.
+
 ## Background and notification integration
 
 For notification-triggered commands and the headless Android test, see
 [`doc/background.md`](doc/background.md). A release-mode headless haptic was
-physically verified with the demo backgrounded. An earlier display-off trial
-timed out during session establishment, so reliable screen-off delivery is not
-proven. The host app must provide message reception and lifecycle management;
+physically verified with the demo backgrounded. A controlled screen-off command
+also completed with duplicate suppression. An earlier trial timed out during
+session establishment; long-term and deep-idle reliability remain unproven.
+The host app must provide message reception and lifecycle management;
 a phone notification alone does not trigger the Air.
 
 ## Native compatibility and provenance
@@ -175,6 +184,8 @@ updates in this package.
 ## Safety and compatibility
 
 - The operation is serialized; concurrent calls return `BUSY`.
+- Starting with 0.1.1, that transport guard also covers separate Flutter engines
+  in the same Android process. It cannot lock Google Health's separate process.
 - A 45-second deadline closes the GATT connection.
 - Google Health remains the pairing owner. This plugin opens a short-lived
   connection and does not unregister, factory-reset, or alter pairing keys.

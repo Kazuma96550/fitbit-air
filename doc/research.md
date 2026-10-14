@@ -127,10 +127,20 @@ The tested Air has no standard Battery Service. Decompiled Google Health
 `/md/` resource paths, and `ProtobufTranslatorsRegistry` maps decimal 1542
 (0x606) to `DeviceInfoTranslator`. This identifies `/md/606` as a candidate
 device-information resource, with `DeviceInfo.Info` fields `onCharger = 10`,
-`voltage = 12`, and `batteryLevel = 13`. Neither bootstrap access nor the
-units/scale of batteryLevel have been verified. This is not yet an SDK battery
-API. No additional Goldengate session was opened just to probe it, given the
-known session-coexistence concerns.
+`voltage = 12`, and `batteryLevel = 13`.
+
+A read-only hardware probe subsequently returned CoAP `2.05 Content` through
+the bootstrap path. This resource is therefore accessible on the tested Air;
+it must not be grouped with the rejected `liveactivity` resource. The optional
+diagnostic API exposes only access status and these selected battery fields,
+not the original body or its device identifiers. The selected fields were also
+decoded on hardware; battery level was close to Google Health's displayed
+percentage, but no across-firmware scale or voltage calibration was established.
+Its small protobuf decoder
+skips unrelated fields, rejects malformed/truncated data and preserves missing
+values as absent. Units and scale remain unverified, so no percent conversion
+or voltage units are claimed yet. Standard GATT device-info reads still do not
+open a Golden Gate session merely to populate batteryPercent.
 
 Other candidates—notifications, alarms, battery alerts, sync status, and the
 ping characteristic—must be traced and tested individually. They should not be

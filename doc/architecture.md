@@ -77,7 +77,23 @@ an EventChannel stream are available. Streaming retains one Bluetooth client
 until the listener cancels, the Air disconnects, or the plugin detaches.
 The initial measurement has a 45-second deadline; no-data reads can be cancelled.
 
-The plugin serializes reads, scans, streams, and haptics. Stop the heart-rate
+The plugin serializes reads, scans, streams, and haptics. From 0.1.1, a
+process-wide identity-based lease prevents a separate Flutter engine in the
+same app process from opening another SDK transport. A non-owner's cleanup
+cannot release another engine's lease. This does not coordinate with Google
+Health or another application/process.
+
+Stop the heart-rate
 subscription before another operation; concurrent requests receive `BUSY`.
 Cancelling a read does not disable other apps' CCCD subscriptions. Cancelling
 a haptic write is rejected so its verification/restore sequence can finish.
+
+## Notification command dispatch
+
+`fitbit_air_commands.dart` is a provider-neutral Dart helper. A bounded queue
+serializes accepted haptic commands, rejects stale IDs/expired commands, limits
+the interval between attempts, and remembers IDs after failures to avoid blind
+replay. Its deduplication cache is finite and isolate-local. The host app owns
+authentication, durable replay protection, push delivery, and background
+execution. The Android lease guards the device transport across engines but
+does not supply a cross-engine message queue. See [background integration](background.md).

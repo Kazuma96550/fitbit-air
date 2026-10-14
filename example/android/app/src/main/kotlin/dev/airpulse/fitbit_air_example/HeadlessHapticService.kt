@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.PowerManager
 import android.util.Log
 import io.flutter.FlutterInjector
 import io.flutter.embedding.engine.FlutterEngine
@@ -20,6 +21,7 @@ import io.flutter.plugin.common.MethodChannel
 class HeadlessHapticService : Service() {
     private val handler = Handler(Looper.getMainLooper())
     private var engine: FlutterEngine? = null
+    private var wakeLock: PowerManager.WakeLock? = null
     private var operation = "vibrate"
     private val deadline = Runnable {
         Log.e(TAG, "Headless test exceeded its deadline")
@@ -44,6 +46,11 @@ class HeadlessHapticService : Service() {
         if (Build.VERSION.SDK_INT >= 29)
             startForeground(901, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
         else startForeground(901, notification)
+        // Foreground service status alone does not keep the CPU awake.
+        // Bound this example's lock, and release it as soon as work finishes.
+        wakeLock = getSystemService(PowerManager::class.java)
+            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "fitbit_air_example:HeadlessTest")
+            .apply { acquire(70_000) }
         handler.postDelayed(deadline, 65_000)
         try {
             val loader = FlutterInjector.instance().flutterLoader()
@@ -81,6 +88,8 @@ class HeadlessHapticService : Service() {
         handler.removeCallbacks(deadline)
         engine?.destroy()
         engine = null
+        wakeLock?.let { if (it.isHeld) it.release() }
+        wakeLock = null
         stopForeground(STOP_FOREGROUND_REMOVE)
         super.onDestroy()
     }

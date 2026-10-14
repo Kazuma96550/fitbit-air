@@ -3,6 +3,49 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  const methods = MethodChannel('fitbit_air');
+  tearDown(
+    () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(methods, null),
+  );
+
+  test(
+    'battery probe distinguishes denied access from a battery measurement',
+    () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(methods, (call) async {
+            expect(call.method, 'probeBatteryAccess');
+            return {'responseClass': 4, 'detail': 1, 'bodyLength': 0};
+          });
+      final result = await FitbitAirDiagnostics.probeBatteryAccess();
+      expect(result.responseCode, '4.01');
+      expect(result.granted, isFalse);
+      expect(result.bodyLength, 0);
+    },
+  );
+
+  test(
+    'battery probe formats successful access without interpreting contents',
+    () {
+      final result = AirBatteryAccessResult.fromMap({
+        'responseClass': 2,
+        'detail': 5,
+        'bodyLength': 42,
+        'rawBatteryLevel': 77,
+        'rawVoltage': 4000,
+        'rawOnCharger': 0,
+      });
+      expect(result.responseCode, '2.05');
+      expect(result.granted, isTrue);
+      expect(result.bodyLength, 42);
+      expect(result.rawBatteryLevel, 77);
+      expect(result.rawVoltage, 4000);
+      expect(result.rawOnCharger, 0);
+      expect(result.decodeError, isNull);
+    },
+  );
+
   test(
     'notification copies the codec payload without interpreting it as a tap',
     () {

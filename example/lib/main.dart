@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:fitbit_air/fitbit_air.dart';
+import 'package:fitbit_air/fitbit_air_commands.dart';
 import 'package:fitbit_air/fitbit_air_diagnostics.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -23,11 +24,23 @@ Future<void> airHeadlessTest() async {
         'hasModelNumber': info.model != null,
       });
     } else {
-      final result = await FitbitAir.vibrate();
+      final dispatcher = AirHapticDispatcher();
+      final command = AirHapticCommand(
+        id: 'headless-${DateTime.now().microsecondsSinceEpoch}',
+        expiresAt: DateTime.now().add(const Duration(seconds: 30)),
+      );
+      final delivery = dispatcher.submit(command);
+      // Simulate the same notification being delivered twice. Only one may run.
+      final duplicate = await dispatcher.submit(command);
+      final result = await delivery;
+      dispatcher.close();
       await resultChannel.invokeMethod('complete', {
-        'success': result.restored && result.verified,
-        'restored': result.restored,
-        'verified': result.verified,
+        'success': result.status == AirHapticDispatchStatus.completed,
+        'status': result.status.name,
+        'errorCode': result.error?.code,
+        'error': result.error?.toString(),
+        'duplicateDropped':
+            duplicate.status == AirHapticDispatchStatus.duplicate,
       });
     }
   } catch (error) {
@@ -109,6 +122,14 @@ class _DemoPageState extends State<DemoPage> {
       if (mounted) setState(() => _busy = false);
     }
   }
+
+  Future<void>
+  _probeBattery() => _run('Probing read-only battery resource access…', () async {
+    final result = await FitbitAirDiagnostics.probeBatteryAccess();
+    return 'Battery access: CoAP ${result.responseCode}, ${result.bodyLength} response bytes.\n'
+        '${result.granted ? "Raw level: ${result.rawBatteryLevel}; raw voltage: ${result.rawVoltage}; raw charger: ${result.rawOnCharger}. Units/scale unverified." : "Not accessible through this session."}'
+        '${result.decodeError == null ? "" : "\n${result.decodeError}"}';
+  });
 
   @override
   void dispose() {
@@ -416,6 +437,11 @@ class _DemoPageState extends State<DemoPage> {
                 onPressed: _busy ? null : _watchDeviceEvents,
                 icon: Icons.sensors,
                 label: 'Diagnostic device-event monitor',
+              ),
+              _button(
+                onPressed: _busy ? null : _probeBattery,
+                icon: Icons.battery_unknown,
+                label: 'Research: battery access (secure session)',
               ),
               for (final device in _heartRateDevices)
                 _button(

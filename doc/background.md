@@ -28,6 +28,13 @@ forwarded to the Air.
   engine had no attached Activity, and the service stopped after completion.
   This confirms the existing SDK can perform haptics headlessly under these
   conditions, but not guaranteed delivery in arbitrary background/idle states.
+- With the bounded wake lock and dispatcher in the release example, a controlled
+  trial completed while Android's screen-state event log showed no wake between
+  display-off and command completion. The SDK returned completed, the simulated
+  duplicate was dropped, and the service/wake lock were released. The user also
+  confirmed feeling the pulses while the phone was untouched. This is one
+  screen-off success, not a deep-idle, reboot, or reliability guarantee. The
+  wake-lock change has not been proven to explain the earlier timeout.
 
 ## Reproduce locally
 
@@ -56,15 +63,60 @@ it is a separate integration, not provided here.
 
 Grant Bluetooth permissions while a screen is visible. Queue/deduplicate
 commands, expire stale messages, rate-limit haptics and avoid simultaneous SDK
-operations across engines. Serialization in version 0.1.0 is per plugin
-instance, **not a process-wide queue**. Neither FCM delivery nor foreground
-service startup from arbitrary background states is guaranteed. Do not rely
+operations across engines. Version 0.1.1 adds a process-wide transport lease:
+another engine gets BUSY instead of opening a competing session. This is not
+a queue shared across processes and does not coordinate with Google Health.
+Neither FCM delivery nor foreground-service startup from arbitrary background
+states is guaranteed. Do not rely
 on a bare background callback for an operation that can take 45 seconds.
 
-Remaining validation before promising reliable delivery: screen-off/idle
-operation, process restart,
-duplicate messages, unavailable-device cleanup, and Google Health coexistence.
+Remaining validation before promising reliable delivery: repeated screen-off and
+deep-idle operation, process restart, duplicate messages across restarts,
+unavailable-device cleanup, and Google Health coexistence.
 No push provider or end-to-end remote delivery has been tested by this example.
+
+## Command dispatcher (0.1.1)
+
+The optional `fitbit_air_commands.dart` library provides a bounded queue in one
+Dart isolate. It rejects expired commands, rechecks expiry after queue/rate-limit
+delays, remembers accepted IDs even after ambiguous failures, and does not
+automatically retry a device command. Deduplication is bounded by both a time
+window and cache capacity; it is not a durable at-most-once delivery guarantee.
+
+```dart
+import 'package:fitbit_air/fitbit_air_commands.dart';
+
+// Keep one dispatcher for this message-handling isolate.
+final haptics = AirHapticDispatcher();
+
+// Call from your host app's authenticated, authorized message pipeline.
+Future<AirHapticDispatchResult> handleTouch(
+  String messageId,
+  DateTime expiresAt,
+) => haptics.submit(AirHapticCommand(
+  id: messageId,
+  expiresAt: expiresAt,
+  kind: AirHapticKind.singlePulse, // Retains the alternate persistent strength.
+));
+```
+
+Omit `kind` for the two-pulse preview with best-effort restoration. A completed
+result means the SDK's verification passed, not that the recipient felt it.
+`failed` carries the SDK error, including BUSY. `duplicate`, `expired`,
+`queueFull`, and `closed` send no new device command. `close()` drops queued
+work but lets an already-started write finish; it is not haptic cancellation.
+Freshness is checked before starting; expiry never interrupts a restore write.
+
+This helper does not authenticate network data. The host must authorize the
+sender/recipient, persist replay protection across restarts if required, and
+keep an engine alive under Android's background rules. Do not pass arbitrary
+notification text to the device or grant notification-listener access when
+only your own app's messages are needed.
+
+The demo's haptic test submits the same command twice and reports whether the
+duplicate was dropped. Its example-only wake lock has a 70-second maximum and
+is released on completion; it keeps the CPU running, not the display awake.
+See [Android wake-lock guidance](https://developer.android.com/develop/background-work/background-tasks/awake/wakelock/set).
 
 References:
 

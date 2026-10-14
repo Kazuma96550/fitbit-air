@@ -67,6 +67,7 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
         true
     }
     private var pendingResult: MethodChannel.Result? = null
+    private val transportOwner = Any()
     private val handler = Handler(Looper.getMainLooper())
     private var gatt: BluetoothGatt? = null
     private var txCharacteristic: BluetoothGattCharacteristic? = null
@@ -148,6 +149,7 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
                             eventMonitor?.close()
                             eventMonitor = null
                             diagnosticEvents = null
+                            AirTransportLease.release(transportOwner)
                         }
                         events.error(code, message, details)
                         events.endOfStream()
@@ -160,19 +162,29 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
                     if (device == null) {
                         permissionResult.error("AIR_NOT_FOUND", "Pair your Air in Google Health first.", null)
                     } else {
+                        if (!AirTransportLease.tryAcquire(transportOwner)) {
+                            permissionResult.error("BUSY", "Another Flutter engine owns the Bluetooth transport.", null)
+                            return@withBluetoothPermission
+                        }
                         val monitor = AirEventMonitor(appContext, { event ->
                             if (diagnosticEvents === events) events.success(event)
                         }, { code, message -> permissionResult.error(code, message, null) })
                         eventMonitor = monitor
-                        monitor.start(device)
+                        try {
+                            monitor.start(device)
+                        } catch (error: Exception) {
+                            permissionResult.error("EVENT_CONNECT", error.message ?: "Could not start diagnostic connection.", null)
+                        }
                     }
                 }
             }
 
             override fun onCancel(arguments: Any?) {
+                val wasActive = diagnosticEvents != null
                 diagnosticEvents = null
                 eventMonitor?.close()
                 eventMonitor = null
+                if (wasActive) AirTransportLease.release(transportOwner)
             }
         })
     }
@@ -185,6 +197,7 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
                     eventMonitor = null
                     diagnosticEvents?.endOfStream()
                     diagnosticEvents = null
+                    AirTransportLease.release(transportOwner)
                 }
                 if (activeOperation == Operation.PreviewHaptic ||
                     activeOperation == Operation.SinglePulse || activeOperation is Operation.SetHapticIntensity) {
@@ -212,6 +225,9 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
             }
             "getHapticIntensity" -> withBluetoothPermission(result) {
                 startOperation(result, Operation.ReadHapticIntensity)
+            }
+            "probeBatteryAccess" -> withBluetoothPermission(result) {
+                startOperation(result, Operation.ProbeBatteryAccess)
             }
             "setHapticIntensity" -> {
                 val intensity = call.argument<Int>("intensity")
@@ -265,6 +281,10 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
             result.error("BLUETOOTH_OFF", "Enable Bluetooth before scanning.", null)
             return
         }
+        if (!AirTransportLease.tryAcquire(transportOwner)) {
+            result.error("BUSY", "Another Flutter engine owns the Bluetooth transport.", null)
+            return
+        }
         pendingResult = result
         val found = mutableMapOf<String, Map<String, Any>>()
         val callback = object : ScanCallback() {
@@ -286,11 +306,15 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
         val deadline = Runnable { finishSuccess(mapOf("devices" to found.values.toList())) }
         timeout = deadline
         handler.postDelayed(deadline, 8_000)
-        scanner.startScan(
-            listOf(ScanFilter.Builder().setServiceUuid(ParcelUuid(HEART_RATE_SERVICE)).build()),
-            ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build(),
-            callback,
-        )
+        try {
+            scanner.startScan(
+                listOf(ScanFilter.Builder().setServiceUuid(ParcelUuid(HEART_RATE_SERVICE)).build()),
+                ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build(),
+                callback,
+            )
+        } catch (error: Exception) {
+            finishError("SCAN_FAILED", error.message ?: "Could not start Bluetooth scan.")
+        }
     }
 
     @SuppressLint("MissingPermission")
@@ -313,6 +337,10 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
         }
         if (device == null) {
             result.error("AIR_NOT_FOUND", "No bonded Fitbit Air found. Pair it in Google Health first.", null)
+            return
+        }
+        if (!AirTransportLease.tryAcquire(transportOwner)) {
+            result.error("BUSY", "Another Flutter engine owns the Bluetooth transport.", null)
             return
         }
         pendingResult = result
@@ -430,7 +458,12 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
                 }
             }
         }
-        val connection = device.connectGatt(appContext, false, callback, BluetoothDevice.TRANSPORT_LE)
+        val connection = try {
+            device.connectGatt(appContext, false, callback, BluetoothDevice.TRANSPORT_LE)
+        } catch (error: Exception) {
+            finishError("GATT_CONNECT", error.message ?: "Could not start Bluetooth connection.")
+            return
+        }
         if (connection == null) {
             finishError("GATT_CONNECT", "Android did not create a Bluetooth connection.")
         } else {
@@ -619,10 +652,32 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
             Operation.ReadHeartRate -> finishError("INTERNAL", "Standard heart rate does not use DTLS.")
             Operation.PreviewHaptic -> runBoundedHaptic(coap)
             Operation.ReadHapticIntensity -> runReadHapticIntensity(coap)
+            Operation.ProbeBatteryAccess -> runBatteryAccessProbe(coap)
             is Operation.SetHapticIntensity -> runSetHapticIntensity(coap, operation.intensity)
             Operation.SinglePulse -> runSinglePulse(coap)
             null -> finishError("INTERNAL", "No Fitbit Air operation was selected.")
         }
+    }
+
+    /** Read-only research probe. Never exposes device identifiers or raw body. */
+    private fun runBatteryAccessProbe(coap: CoapEndpoint) {
+        val request = OutgoingRequestBuilder("/md/606", Method.GET)
+            .expectSuccess(false).forceNonBlockwise(true).maxResendCount(0).build()
+        disposables.add(coap.responseFor(request).timeout(5, TimeUnit.SECONDS)
+            .flatMap { response -> response.body.asData().map { bytes ->
+                mutableMapOf<String, Any>(
+                    "responseClass" to response.responseCode.responseClass.toInt(),
+                    "detail" to response.responseCode.detail.toInt(),
+                    "bodyLength" to bytes.size,
+                ).apply {
+                    if (response.responseCode.responseClass.toInt() == 2) {
+                        try { putAll(AirBatteryDecoder.decode(bytes)) }
+                        catch (_: Exception) { put("decodeError", "Could not decode battery fields.") }
+                    }
+                }
+            } }.subscribe({ result -> finishSuccess(result) }, { error ->
+                finishError("BATTERY_PROBE_FAILED", error.message ?: "Battery access probe failed.")
+            }))
     }
 
     private fun intensityProbe() = OutgoingRequestBuilder("/settings", Method.PUT)
@@ -786,24 +841,28 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
 
     @SuppressLint("MissingPermission")
     private fun closeTransport() {
-        scanCallback?.let { callback ->
-            val manager = appContext.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
-            manager.adapter?.bluetoothLeScanner?.stopScan(callback)
+        runCatching {
+            scanCallback?.let { callback ->
+                val manager = appContext.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
+                manager.adapter?.bluetoothLeScanner?.stopScan(callback)
+            }
         }
         scanCallback = null
         infoReads.clear()
         deviceInfo.clear()
         timeout?.let(handler::removeCallbacks)
         timeout = null
-        disposables.clear()
-        endpoint?.close(); endpoint = null
-        stack?.close(); stack = null
-        rxSource?.close(); rxSource = null
-        txSink?.close(); txSink = null
+        runCatching { disposables.clear() }
+        runCatching { endpoint?.close() }; endpoint = null
+        runCatching { stack?.close() }; stack = null
+        runCatching { rxSource?.close() }; rxSource = null
+        runCatching { txSink?.close() }; txSink = null
         txCharacteristic = null
         synchronized(txQueue) { txQueue.clear() }
         writeInFlight = false
-        gatt?.disconnect(); gatt?.close(); gatt = null
+        runCatching { gatt?.disconnect() }
+        runCatching { gatt?.close() }; gatt = null
+        AirTransportLease.release(transportOwner)
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
@@ -859,6 +918,7 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
         data object ReadDeviceInfo : Operation
         data object PreviewHaptic : Operation
         data object ReadHapticIntensity : Operation
+        data object ProbeBatteryAccess : Operation
         data class SetHapticIntensity(val intensity: Int) : Operation
         data object SinglePulse : Operation
     }

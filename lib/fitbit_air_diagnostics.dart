@@ -7,6 +7,32 @@ class FitbitAirDiagnostics {
   FitbitAirDiagnostics._();
 
   static const _channel = EventChannel('fitbit_air/device_events');
+  static const _methods = MethodChannel('fitbit_air');
+
+  /// Research-only GET of the device-info resource that includes battery data.
+  /// Opens a Golden Gate session, so Google Health coexistence is NOT assured.
+  /// Sends no setting writes. Returns response status and selected raw battery
+  /// fields, never identifiers or the original body. Units are unverified;
+  /// rawBatteryLevel must not be assumed to be a percentage.
+  static Future<AirBatteryAccessResult> probeBatteryAccess() async {
+    try {
+      final value = await _methods.invokeMapMethod<String, Object?>(
+        'probeBatteryAccess',
+      );
+      if (value == null) {
+        throw const FitbitAirException(
+          'EMPTY_RESPONSE',
+          'Battery probe returned no result.',
+        );
+      }
+      return AirBatteryAccessResult.fromMap(value);
+    } on PlatformException catch (error) {
+      throw FitbitAirException(
+        error.code,
+        error.message ?? 'Battery probe failed.',
+      );
+    }
+  }
 
   /// Watches notification characteristics in the Air's link-status and
   /// unclassified services. Excludes the Goldengate tracker channel and HR.
@@ -29,6 +55,28 @@ class FitbitAirDiagnostics {
         }
         throw error;
       });
+}
+
+/// Access status and selected battery fields with unverified scale/units.
+class AirBatteryAccessResult {
+  AirBatteryAccessResult.fromMap(Map<String, Object?> map)
+    : responseClass = map['responseClass']! as int,
+      detail = map['detail']! as int,
+      bodyLength = map['bodyLength']! as int,
+      rawBatteryLevel = map['rawBatteryLevel'] as int?,
+      rawVoltage = map['rawVoltage'] as int?,
+      rawOnCharger = map['rawOnCharger'] as int?,
+      decodeError = map['decodeError'] as String?;
+  final int responseClass;
+  final int detail;
+  final int bodyLength;
+  final int? rawBatteryLevel;
+  final int? rawVoltage;
+  final int? rawOnCharger;
+  final String? decodeError;
+  bool get granted => responseClass == 2;
+  String get responseCode =>
+      '$responseClass.${detail.toString().padLeft(2, '0')}';
 }
 
 /// A subscription result, monitor readiness message, or unclassified BLE value.

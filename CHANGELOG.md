@@ -1,11 +1,20 @@
 ## 0.1.1
 
+- Add bounded haptic command dispatch with expiry, duplicate suppression,
+  rate limiting, and no automatic retry of ambiguous device failures.
+- Guard transport ownership across Flutter engines in the same process.
+- Add bounded CPU wake-lock handling to the example headless service.
+- Verify one controlled screen-off haptic with physical user confirmation and
+  simulated duplicate suppression; deep-idle/restart reliability remains open.
+- Add research-only battery-resource access and selected raw-field decoding;
+  bootstrap GET access verified, units/percentage scale not yet claimed.
 - Update installation instructions for the published 0.1.0 package and describe
   the broader Bluetooth API beyond haptics.
 - Add user-started, headless read/haptic tests to the Android example and
   document background integration limitations. Headless reads and release-mode
   haptics verified on Pixel 7 Pro; user physically confirmed the pulses.
 - Include the full Apache-2.0 license for the adapted JNI bindings.
+- Add Dart dispatcher regression tests and native lease/protobuf tests to CI.
 
 ## 0.1.0
 

@@ -146,8 +146,8 @@ internal class AirEventMonitor(
         descriptors.clear()
         val connection = gatt
         gatt = null
-        connection?.disconnect()
-        connection?.close()
+        runCatching { connection?.disconnect() }
+        runCatching { connection?.close() }
     }
 
     companion object {
