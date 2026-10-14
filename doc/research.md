@@ -120,6 +120,12 @@ with the existing bond. No tap-correlated payload was established. The cause
 and exact timing relative to the taps remain unresolved; this is inconclusive,
 not proof that taps cannot be observed.
 
+A later passive observation stayed connected through the observation window
+with all seven subscriptions accepted. It received only one link-configuration
+notification and no identifiable tap payload. The requested physical sequence
+was not confirmed before cleanup, so this is not a completed negative tap
+trial. The monitor was explicitly stopped to release its Bluetooth client.
+
 ## Battery source lead
 
 The tested Air has no standard Battery Service. Decompiled Google Health
