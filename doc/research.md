@@ -10,8 +10,51 @@ to expose through the package yet.
 - Haptic setting write: `POST /settings` with the protobuf value `2` (low) or
   `3` (high).
 - A changed setting produces one physical pulse. Restoring it produces another.
-- Short-lived coexistence with Google Health: the plugin closes its GATT client
-  after every operation and does not alter pairing.
+- The plugin closes its GATT client after every operation and does not alter
+  pairing. Google Health remains registered and connected, but its logs show
+  Gattlink sequence warnings during overlapping Goldengate sessions. A connected
+  client is not proof that syncing is uninterrupted; coexistence needs further
+  validation before production use.
+
+## GATT information and standard heart rate
+
+The current Air reports model `67`, firmware `67.20001.253.2`, manufacturer
+`Fitbit`, and eight services. Standard Device Information reads are verified.
+There is no `180F` Battery Service, so a battery percentage is not inferred.
+
+`ABBAFD01` is the current connection configuration (interval, latency, timeout,
+MTU, mode). `ABBAFD02` is connection status (bonded/encrypted flags and data length
+limits). Both are read without subscribing to tracker traffic or opening DTLS.
+
+The Air exposes standard heart-rate `180D` / `2A37`. Before activating its
+sharing session, subscriptions returned GATT success but produced no data,
+including while worn. Scanning while Google Health's “Share heart rate” page
+was open discovered the Air. Connecting then produced a three-byte standard
+measurement decoded to a non-zero BPM reading on 2026-10-14. Google Health
+simultaneously displayed that it was sharing heart rate with the test phone.
+
+Android's GATT history resolves the selected advertisement to the same bonded
+Air connection, so this is evidence for a sharing-session prerequisite, not a
+second physical address. The “Always visible” switch was off throughout and
+was not changed. No private PSK or Goldengate session is needed for standard HR.
+
+The package includes one-shot reads and a stream. Streaming was verified with
+successive non-zero BPM samples roughly once per second.
+Cancelling the stream removed the demo's GATT client; Google Health's client
+remained connected. The read-only link status returned encrypted=true,
+MTU=247, interval=150 ms. It decodes standard UINT8 or
+UINT16 BPM, optional contact state, energy, and RR intervals. The observed sample
+did not contain contact state or RR intervals; those optional fields remain
+untested on hardware. Streaming must be stopped before a haptic operation.
+
+References:
+
+- [Bluetooth Heart Rate Service specification](https://www.bluetooth.com/wp-content/uploads/Files/Specification/HTML/HRS_v1.0/out/en/index-en.html)
+- [Google Health heart-rate sharing instructions](https://support.google.com/googlehealth/answer/14236705?hl=en)
+
+The Google Health source uses `aspen/request/adv_on`,
+`aspen/request/session/accept`, and `aspen/info` for its sharing flow. These
+resources have not been probed or exposed through this package.
 
 ## Live activity and heart rate
 

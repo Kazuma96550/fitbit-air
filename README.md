@@ -74,11 +74,14 @@ flutter run
 | Trigger a short Air haptic | Physically verified from this package on Pixel 7 Pro (2026-10-14) |
 | Exactly one pulse | Implemented and protocol-verified; alternates the persistent strength |
 | Read/set low or high vibration strength | Implemented and verified |
+| Device model, firmware, manufacturer | GATT read verified on Pixel 7 Pro / Air firmware 67.20001.253.2 |
+| BLE services and connection status | Read-only discovery and link status decoder implemented |
+| Scan advertised heart-rate sensors | Experimental; requires Nearby devices scan permission |
 | Restore/verify prior vibration intensity | Physically verified |
 | Root/OAuth/private PSK required | No, for the bootstrap haptic path |
 | Detect taps on the Air | Not implemented |
-| Live heart rate | Not implemented |
-| Google Health coexistence | Verified after the haptic test; plugin released GATT and Google Health remained connected |
+| Heart rate | Standard BLE readings and continuous updates verified; requires an active Google Health sharing session |
+| Google Health coexistence | Plugin releases GATT; Google Health remains connected. Concurrent Goldengate sessions produced packet-sequence warnings, so uninterrupted sync is not yet proven |
 | iOS | Not implemented |
 | Non-arm64 Android | Untested; requires a compatible library in the installed Google Health APK |
 
@@ -87,6 +90,31 @@ steps, activity, and heart-rate fields, but the Air rejects it with CoAP `4.01`
 in the bootstrap session available to this plugin. It is therefore documented
 as research rather than exposed as a misleading public API. See
 [`doc/research.md`](doc/research.md).
+
+`readDeviceInfo()` returns available standard fields, the actual GATT service
+inventory, and the read-only connection configuration/status. Battery is
+nullable: the tested Air does not expose the standard Battery Service.
+
+Heart rate uses the separate standard Bluetooth Heart Rate Service. Start the
+sharing flow in Google Health (Connections → Air → Share heart rate). Keep that
+page open during initial discovery. `scanHeartRateDevices()` finds advertised
+sensors, and `readHeartRate(deviceId: ...)` reads one measurement. With sharing
+already active for this phone, `readHeartRate()` uses the paired Air directly.
+
+`watchHeartRate()` keeps one Bluetooth client open and streams measurements;
+cancel its subscription to release that client before sending a haptic:
+
+```dart
+final subscription = FitbitAir.watchHeartRate().listen((sample) {
+  print('${sample.beatsPerMinute} bpm');
+});
+// Later:
+await subscription.cancel();
+```
+
+An accepted subscription alone does not guarantee data: the Air accepted it
+but sent nothing before sharing was active. `cancelOperation()` cancels reads
+and scans; haptic writes finish their verification before returning.
 
 ## Native compatibility and provenance
 

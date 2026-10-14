@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:fitbit_air/fitbit_air.dart';
 import 'package:flutter/material.dart';
 
@@ -27,6 +29,43 @@ class DemoPage extends StatefulWidget {
 class _DemoPageState extends State<DemoPage> {
   bool _busy = false;
   bool? _paired;
+  AirDeviceInfo? _deviceInfo;
+  List<AirHeartRateDevice> _heartRateDevices = [];
+  StreamSubscription<AirHeartRate>? _heartRateSubscription;
+
+  @override
+  void dispose() {
+    _heartRateSubscription?.cancel();
+    super.dispose();
+  }
+
+  void _watchHeartRate([AirHeartRateDevice? device]) {
+    setState(() {
+      _busy = true;
+      _status = 'Connecting to ${device?.name ?? "paired Air"}…';
+    });
+    _heartRateSubscription =
+        FitbitAir.watchHeartRate(deviceId: device?.deviceId).listen(
+          (heart) {
+            if (mounted) {
+              setState(
+                () => _status =
+                    '${heart.beatsPerMinute} bpm\n'
+                    'Updated: ${heart.receivedAt.toLocal()}\n'
+                    'Skin contact: ${heart.contactDetected ?? "Not reported"}',
+              );
+            }
+          },
+          onError: (Object error) {
+            if (mounted) setState(() => _status = error.toString());
+          },
+          onDone: () {
+            _heartRateSubscription = null;
+            if (mounted) setState(() => _busy = false);
+          },
+        );
+  }
+
   String _status = 'Check for an Air paired to this phone.';
 
   Future<void> _run(String pending, Future<String> Function() operation) async {
@@ -82,6 +121,43 @@ class _DemoPageState extends State<DemoPage> {
     });
   }
 
+  Future<void> _readDeviceInfo() async {
+    await _run('Reading device information…', () async {
+      final info = await FitbitAir.readDeviceInfo();
+      if (mounted) setState(() => _deviceInfo = info);
+      return '${info.name}\n'
+          'Battery: ${info.batteryPercent == null ? "Not exposed" : "${info.batteryPercent}%"}\n'
+          'Model: ${info.model ?? "Not exposed"}\n'
+          'Firmware: ${info.firmware ?? "Not exposed"}\n'
+          'Manufacturer: ${info.manufacturer ?? "Not exposed"}\n'
+          'Link encrypted: ${info.connectionStatus?.encrypted ?? "Not reported"}\n'
+          'MTU: ${info.connectionConfiguration?.mtu ?? "Not reported"}\n'
+          'Interval: ${info.connectionConfiguration?.intervalMillis ?? "Not reported"} ms\n'
+          '${info.services.length} BLE services discovered\n'
+          '${info.readErrors.entries.map((e) => "${e.key}: ${e.value}").join("\n")}';
+    });
+  }
+
+  Future<void> _scanHeartRate() async {
+    await _run('Scanning for heart-rate sensors…', () async {
+      final devices = await FitbitAir.scanHeartRateDevices();
+      if (mounted) setState(() => _heartRateDevices = devices);
+      return devices.isEmpty
+          ? 'No heart-rate advertisements found. Open Share heart rate in Google Health, then scan again.'
+          : 'Select your Air below to receive heart rate.';
+    });
+  }
+
+  Future<void> _readHeartRate({required String deviceId}) async {
+    await _run('Waiting for heart rate… Wear the Air on your wrist.', () async {
+      final heart = await FitbitAir.readHeartRate(deviceId: deviceId);
+      return '${heart.beatsPerMinute} bpm\n'
+          'Skin contact: ${heart.contactDetected ?? "Not reported"}\n'
+          'Received: ${heart.receivedAt.toLocal()}\n'
+          'RR intervals: ${heart.rrIntervalsMillis.join(", ")} ms';
+    });
+  }
+
   Future<void> _setIntensity(HapticIntensity intensity) async {
     await _run('Setting ${intensity.name} vibration strength…', () async {
       final result = await FitbitAir.setHapticIntensity(intensity);
@@ -122,11 +198,86 @@ class _DemoPageState extends State<DemoPage> {
                 style: Theme.of(context).textTheme.titleMedium,
               ),
               const SizedBox(height: 28),
+              if (_busy)
+                TextButton(
+                  onPressed: () async {
+                    try {
+                      if (_heartRateSubscription != null) {
+                        await _heartRateSubscription!.cancel();
+                        _heartRateSubscription = null;
+                        if (mounted) {
+                          setState(() {
+                            _busy = false;
+                            _status = 'Heart-rate stream stopped.';
+                          });
+                        }
+                      } else {
+                        await FitbitAir.cancelOperation();
+                      }
+                    } on FitbitAirException catch (error) {
+                      if (mounted) {
+                        setState(() => _status = error.message);
+                      }
+                    }
+                  },
+                  child: const Text('Cancel operation'),
+                ),
+              if (_deviceInfo != null)
+                ExpansionTile(
+                  title: const Text('Bluetooth service details'),
+                  children: [
+                    for (final service in _deviceInfo!.services)
+                      ListTile(
+                        title: Text(
+                          service.uuid,
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                        subtitle: Text(
+                          service.characteristics
+                              .map(
+                                (c) =>
+                                    '${c.uuid}\nread=${c.canRead}, notify=${c.canNotify}',
+                              )
+                              .join('\n'),
+                          style: const TextStyle(fontSize: 11),
+                        ),
+                      ),
+                  ],
+                ),
               _button(
                 onPressed: _busy ? null : _check,
                 icon: Icons.bluetooth_searching,
                 label: _paired == true ? 'Check again' : 'Check paired Air',
               ),
+              _button(
+                onPressed: _busy ? null : _readDeviceInfo,
+                icon: Icons.info_outline,
+                label: 'Read device info + services',
+              ),
+              _button(
+                onPressed: _busy ? null : _scanHeartRate,
+                icon: Icons.radar,
+                label: 'Scan heart-rate sensors',
+              ),
+              _button(
+                onPressed: _busy ? null : () => _watchHeartRate(),
+                icon: Icons.monitor_heart,
+                label: 'Live heart rate (paired Air)',
+              ),
+              for (final device in _heartRateDevices)
+                _button(
+                  onPressed: _busy
+                      ? null
+                      : () => _readHeartRate(deviceId: device.deviceId),
+                  icon: Icons.favorite,
+                  label: '${device.name} (${device.rssi} dBm) · read once',
+                ),
+              for (final device in _heartRateDevices)
+                _button(
+                  onPressed: _busy ? null : () => _watchHeartRate(device),
+                  icon: Icons.monitor_heart,
+                  label: '${device.name} · live stream',
+                ),
               _button(
                 onPressed: _busy ? null : _pulse,
                 icon: Icons.touch_app,

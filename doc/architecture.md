@@ -63,5 +63,21 @@ stored setting after this short-lived connection closes.
 - The haptic operation works through the bootstrap session observed on the Air.
 - The JNI ABI is private and version-sensitive. A Google Health update may
   require updated Kotlin bindings.
-- Incoming wrist taps and live heart-rate data have not been semantically decoded
-  and are not represented in the public API.
+- Incoming wrist taps and complete activity statistics remain unimplemented.
+
+## Standard GATT reads and heart rate
+
+Device information and connection status use their GATT characteristics directly.
+They do not initialize the native library or subscribe to the tracker channel.
+Unavailable optional fields remain null, with rejected reads in `readErrors`.
+
+The standard Heart Rate Measurement (`180D` / `2A37`) is a separate path that
+requires Google Health's sharing session to be active. Both a one-shot read and
+an EventChannel stream are available. Streaming retains one Bluetooth client
+until the listener cancels, the Air disconnects, or the plugin detaches.
+The initial measurement has a 45-second deadline; no-data reads can be cancelled.
+
+The plugin serializes reads, scans, streams, and haptics. Stop the heart-rate
+subscription before another operation; concurrent requests receive `BUSY`.
+Cancelling a read does not disable other apps' CCCD subscriptions. Cancelling
+a haptic write is rejected so its verification/restore sequence can finish.

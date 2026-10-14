@@ -1,5 +1,8 @@
 ## 0.1.0
 
+- Add read-only device information, BLE service inventory, and link diagnostics.
+- Add standard heart-rate discovery, verified readings, continuous streaming,
+  and read cancellation. Google Health heart-rate sharing must be active.
 - Add direct Android BLE discovery for an already-paired Fitbit Air.
 - Add bounded haptic command with best-effort restoration and verification.
 - Add typed read/set intensity controls and a verified single-pulse toggle.

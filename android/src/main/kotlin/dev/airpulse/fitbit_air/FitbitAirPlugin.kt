@@ -9,11 +9,17 @@ import android.bluetooth.BluetoothGattCallback
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothManager
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.ScanFilter
+import android.bluetooth.le.ScanResult
+import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.ParcelUuid
 import com.fitbit.goldengate.bindings.coap.CoapEndpoint
 import com.fitbit.goldengate.bindings.coap.data.Method
 import com.fitbit.goldengate.bindings.coap.data.OutgoingRequestBuilder
@@ -28,6 +34,7 @@ import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.PluginRegistry.RequestPermissionsResultListener
 import io.reactivex.Single
 import io.reactivex.disposables.CompositeDisposable
@@ -39,6 +46,9 @@ import java.util.concurrent.TimeUnit
 class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHandler {
     private lateinit var appContext: Context
     private lateinit var channel: MethodChannel
+    private lateinit var heartRateChannel: EventChannel
+    private var heartRateEvents: EventChannel.EventSink? = null
+    private var heartRateStreamGeneration = 0
     private var activity: Activity? = null
     private var activityBinding: ActivityPluginBinding? = null
     private var pendingPermissionResult: MethodChannel.Result? = null
@@ -49,7 +59,7 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
         pendingPermissionResult = null
         val action = pendingAction
         pendingAction = null
-        if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) action?.invoke()
+        if (grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) action?.invoke()
         else result?.error("BLUETOOTH_PERMISSION", "Nearby devices permission is required.", null)
         true
     }
@@ -67,15 +77,81 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
     private var sessionStarted = false
     private var timeout: Runnable? = null
     private var activeOperation: Operation? = null
+    private val infoReads = ArrayDeque<BluetoothGattCharacteristic>()
+    private val deviceInfo = mutableMapOf<String, Any>()
+    private var heartRateSubscribed = false
+    private var scanCallback: ScanCallback? = null
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         appContext = binding.applicationContext
         channel = MethodChannel(binding.binaryMessenger, CHANNEL)
         channel.setMethodCallHandler(this)
+        heartRateChannel = EventChannel(binding.binaryMessenger, "fitbit_air/heart_rate")
+        heartRateChannel.setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(arguments: Any?, events: EventChannel.EventSink) {
+                val address = (arguments as? Map<*, *>)?.get("deviceId") as? String
+                if (address != null && !BluetoothAdapter.checkBluetoothAddress(address)) {
+                    events.error("INVALID_DEVICE", "Select a discovered heart-rate sensor first.", null)
+                    events.endOfStream()
+                    return
+                }
+                if (pendingResult != null || pendingPermissionResult != null) {
+                    events.error("BUSY", "Another Bluetooth operation is running.", null)
+                    events.endOfStream()
+                    return
+                }
+                heartRateEvents = events
+                val generation = ++heartRateStreamGeneration
+                val streamResult = object : MethodChannel.Result {
+                    override fun success(result: Any?) { }
+                    override fun error(code: String, message: String?, details: Any?) {
+                        if (heartRateEvents === events) heartRateEvents = null
+                        events.error(code, message, details)
+                        events.endOfStream()
+                    }
+                    override fun notImplemented() = error("INTERNAL", "Heart-rate stream unavailable.", null)
+                }
+                withBluetoothPermission(streamResult) {
+                    if (generation == heartRateStreamGeneration && heartRateEvents === events) {
+                        startOperation(streamResult, Operation.ReadHeartRate, address)
+                    }
+                }
+            }
+
+            override fun onCancel(arguments: Any?) {
+                heartRateStreamGeneration++
+                heartRateEvents = null
+                if (activeOperation == Operation.ReadHeartRate) {
+                    // Do not emit an error into a stream the consumer cancelled.
+                    pendingResult = null
+                    activeOperation = null
+                    closeTransport()
+                }
+            }
+        })
     }
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
+            "cancelOperation" -> {
+                if (activeOperation == Operation.PreviewHaptic ||
+                    activeOperation == Operation.SinglePulse || activeOperation is Operation.SetHapticIntensity) {
+                    result.error("CANNOT_CANCEL_WRITE", "Wait for the haptic write and verification to finish.", null)
+                    return
+                }
+                finishError("CANCELLED", "Fitbit Air operation cancelled.")
+                result.success(null)
+            }
+            "scanHeartRateDevices" -> withBluetoothPermission(result, needsScan = true) { scanHeartRateDevices(result) }
+            "readHeartRate" -> withBluetoothPermission(result) {
+                val address = call.argument<String>("deviceId")
+                if (address != null && !BluetoothAdapter.checkBluetoothAddress(address)) {
+                    result.error("INVALID_DEVICE", "Select a discovered heart-rate sensor first.", null)
+                } else startOperation(result, Operation.ReadHeartRate, address)
+            }
+            "readDeviceInfo" -> withBluetoothPermission(result) {
+                startOperation(result, Operation.ReadDeviceInfo)
+            }
             "isAirPaired" -> withBluetoothPermission(result) {
                 result.success(findBondedAir() != null)
             }
@@ -102,10 +178,12 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
         }
     }
 
-    private fun withBluetoothPermission(result: MethodChannel.Result, action: () -> Unit) {
-        if (Build.VERSION.SDK_INT < 31 ||
-            appContext.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
-        ) {
+    private fun withBluetoothPermission(result: MethodChannel.Result, needsScan: Boolean = false, action: () -> Unit) {
+        val permissions = if (Build.VERSION.SDK_INT >= 31) {
+            if (needsScan) arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
+            else arrayOf(Manifest.permission.BLUETOOTH_CONNECT)
+        } else if (needsScan) arrayOf(Manifest.permission.ACCESS_FINE_LOCATION) else emptyArray()
+        if (permissions.all { appContext.checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }) {
             action()
             return
         }
@@ -120,7 +198,47 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
         }
         pendingPermissionResult = result
         pendingAction = action
-        host.requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT), PERMISSION_REQUEST)
+        host.requestPermissions(permissions, PERMISSION_REQUEST)
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun scanHeartRateDevices(result: MethodChannel.Result) {
+        if (pendingResult != null) {
+            result.error("BUSY", "A Fitbit Air operation is already running.", null)
+            return
+        }
+        val manager = appContext.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
+        val scanner = manager.adapter?.bluetoothLeScanner
+        if (scanner == null) {
+            result.error("BLUETOOTH_OFF", "Enable Bluetooth before scanning.", null)
+            return
+        }
+        pendingResult = result
+        val found = mutableMapOf<String, Map<String, Any>>()
+        val callback = object : ScanCallback() {
+            override fun onScanResult(callbackType: Int, scan: ScanResult) {
+                handler.post {
+                    if (scanCallback !== this) return@post
+                    found[scan.device.address] = mapOf(
+                        "deviceId" to scan.device.address,
+                        "name" to (scan.scanRecord?.deviceName ?: scan.device.name ?: "Heart-rate sensor"),
+                        "rssi" to scan.rssi,
+                    )
+                }
+            }
+            override fun onScanFailed(errorCode: Int) {
+                finishError("SCAN_FAILED", "Bluetooth scan failed (status $errorCode).")
+            }
+        }
+        scanCallback = callback
+        val deadline = Runnable { finishSuccess(mapOf("devices" to found.values.toList())) }
+        timeout = deadline
+        handler.postDelayed(deadline, 8_000)
+        scanner.startScan(
+            listOf(ScanFilter.Builder().setServiceUuid(ParcelUuid(HEART_RATE_SERVICE)).build()),
+            ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build(),
+            callback,
+        )
     }
 
     @SuppressLint("MissingPermission")
@@ -132,34 +250,56 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
     }
 
     @SuppressLint("MissingPermission")
-    private fun startOperation(result: MethodChannel.Result, operation: Operation) {
+    private fun startOperation(result: MethodChannel.Result, operation: Operation, deviceId: String? = null) {
         if (pendingResult != null) {
             result.error("BUSY", "A Fitbit Air operation is already running.", null)
             return
         }
-        val device = findBondedAir()
+        val device = if (deviceId == null) findBondedAir() else {
+            val manager = appContext.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
+            manager.adapter?.getRemoteDevice(deviceId)
+        }
         if (device == null) {
             result.error("AIR_NOT_FOUND", "No bonded Fitbit Air found. Pair it in Google Health first.", null)
             return
         }
         pendingResult = result
+        heartRateSubscribed = false
         activeOperation = operation
         sessionStarted = false
-        val deadline = Runnable { finishError("TIMEOUT", "Timed out connecting to Fitbit Air.") }
+        val deadline = Runnable {
+            if (activeOperation == Operation.ReadHeartRate) {
+                finishError("HEART_RATE_TIMEOUT", if (heartRateSubscribed)
+                    "Air accepted the heart-rate subscription but sent no measurements. Heart-rate sharing may be disabled or paused."
+                else "Heart-rate subscription was not acknowledged before the deadline.")
+            } else finishError("TIMEOUT", "Fitbit Air operation timed out.")
+        }
         timeout = deadline
         handler.postDelayed(deadline, OPERATION_TIMEOUT_MS)
         val callback = object : BluetoothGattCallback() {
             override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
+                if (g !== gatt) return
                 if (status != BluetoothGatt.GATT_SUCCESS) {
                     finishError("GATT_CONNECT", "Bluetooth connection failed (status $status).")
                 } else if (newState == android.bluetooth.BluetoothProfile.STATE_CONNECTED) {
                     g.discoverServices()
+                } else if (newState == android.bluetooth.BluetoothProfile.STATE_DISCONNECTED) {
+                    finishError("GATT_DISCONNECTED", "Air disconnected before the operation finished.")
                 }
             }
 
             override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
+                if (g !== gatt) return
                 if (status != BluetoothGatt.GATT_SUCCESS) {
                     finishError("GATT_DISCOVERY", "Could not discover Air services (status $status).")
+                    return
+                }
+                if (activeOperation == Operation.ReadDeviceInfo) {
+                    readDeviceInformation(g, device)
+                    return
+                }
+                if (activeOperation == Operation.ReadHeartRate) {
+                    subscribeHeartRate(g)
                     return
                 }
                 val rx = g.getService(TRACKER_SERVICE)?.getCharacteristic(TRACKER_RX)
@@ -180,31 +320,61 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
             }
 
             override fun onDescriptorWrite(g: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
+                if (g !== gatt) return
+                android.util.Log.d("FitbitAir", "CCCD ${descriptor.characteristic.uuid} status=$status")
                 if (descriptor.uuid != CCCD) return
                 if (status != BluetoothGatt.GATT_SUCCESS) {
                     finishError("SUBSCRIBE", "Tracker channel subscription failed (status $status).")
+                } else if (activeOperation == Operation.ReadHeartRate) {
+                    heartRateSubscribed = true
+                    // The next standard Heart Rate Measurement completes this read.
                 } else {
                     startGoldengate(g, device)
                 }
             }
 
             override fun onCharacteristicChanged(g: BluetoothGatt, c: BluetoothGattCharacteristic, value: ByteArray) {
+                if (g !== gatt) return
+                if (c.uuid == HEART_RATE_MEASUREMENT && activeOperation == Operation.ReadHeartRate) {
+                    android.util.Log.d("FitbitAir", "Heart-rate notification length=${value.size}")
+                    handleHeartRate(value)
+                    return
+                }
                 if (c.uuid == TRACKER_RX) rxSource?.receiveData(value)?.subscribe({}, { finishError("RX", it.message ?: "Receive failed.") })
             }
 
             @Suppress("DEPRECATION")
             override fun onCharacteristicChanged(g: BluetoothGatt, c: BluetoothGattCharacteristic) {
+                if (g !== gatt) return
+                if (Build.VERSION.SDK_INT < 33 && c.uuid == HEART_RATE_MEASUREMENT && activeOperation == Operation.ReadHeartRate) {
+                    handleHeartRate(c.value ?: byteArrayOf())
+                    return
+                }
                 if (Build.VERSION.SDK_INT < 33 && c.uuid == TRACKER_RX) {
                     rxSource?.receiveData(c.value ?: byteArrayOf())?.subscribe({}, { finishError("RX", it.message ?: "Receive failed.") })
                 }
             }
 
             override fun onCharacteristicWrite(g: BluetoothGatt, c: BluetoothGattCharacteristic, status: Int) {
+                if (g !== gatt) return
                 writeInFlight = false
                 if (status != BluetoothGatt.GATT_SUCCESS) {
                     finishError("TX", "Tracker channel write failed (status $status).")
                 } else {
                     writeNextPacket(g)
+                }
+            }
+
+            override fun onCharacteristicRead(g: BluetoothGatt, c: BluetoothGattCharacteristic, value: ByteArray, status: Int) {
+                if (g !== gatt) return
+                if (activeOperation == Operation.ReadDeviceInfo) handleInfoRead(g, c, value, status)
+            }
+
+            @Suppress("DEPRECATION")
+            override fun onCharacteristicRead(g: BluetoothGatt, c: BluetoothGattCharacteristic, status: Int) {
+                if (g !== gatt) return
+                if (Build.VERSION.SDK_INT < 33 && activeOperation == Operation.ReadDeviceInfo) {
+                    handleInfoRead(g, c, c.value ?: byteArrayOf(), status)
                 }
             }
         }
@@ -214,6 +384,145 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
         } else {
             gatt = connection
         }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun subscribeHeartRate(g: BluetoothGatt) {
+        val characteristic = g.getService(HEART_RATE_SERVICE)?.getCharacteristic(HEART_RATE_MEASUREMENT)
+        val descriptor = characteristic?.getDescriptor(CCCD)
+        if (characteristic == null || descriptor == null || !g.setCharacteristicNotification(characteristic, true)) {
+            finishError("HEART_RATE_UNAVAILABLE", "Air does not expose standard heart-rate notifications.")
+            return
+        }
+        val accepted = if (Build.VERSION.SDK_INT >= 33) {
+            g.writeDescriptor(descriptor, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE) == BluetoothGatt.GATT_SUCCESS
+        } else {
+            @Suppress("DEPRECATION")
+            descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+            @Suppress("DEPRECATION")
+            g.writeDescriptor(descriptor)
+        }
+        if (!accepted) finishError("SUBSCRIBE", "Could not subscribe to heart rate.")
+    }
+
+    private fun handleHeartRate(bytes: ByteArray) {
+        try {
+            var offset = 0
+            fun u8(): Int {
+                require(offset < bytes.size) { "Truncated heart-rate measurement." }
+                return bytes[offset++].toInt() and 0xff
+            }
+            fun u16(): Int = u8() or (u8() shl 8)
+            val flags = u8()
+            val bpm = if (flags and 1 == 0) u8() else u16()
+            val contactSupported = flags and 4 != 0
+            val values = mutableMapOf<String, Any>(
+                "beatsPerMinute" to bpm,
+                "receivedAtMillis" to System.currentTimeMillis(),
+                "contactSupported" to contactSupported,
+            )
+            if (contactSupported) values["contactDetected"] = flags and 2 != 0
+            if (flags and 8 != 0) values["energyExpendedKj"] = u16()
+            val rr = mutableListOf<Double>()
+            if (flags and 16 != 0) {
+                require(offset < bytes.size) { "Missing RR intervals." }
+                while (offset < bytes.size) rr.add(u16() * 1000.0 / 1024.0)
+            }
+            values["rrIntervalsMillis"] = rr
+            handler.post {
+                val events = heartRateEvents
+                if (events != null && activeOperation == Operation.ReadHeartRate) {
+                    timeout?.let(handler::removeCallbacks)
+                    timeout = null
+                    events.success(values)
+                } else if (activeOperation == Operation.ReadHeartRate) finishSuccess(values)
+            }
+        } catch (error: IllegalArgumentException) {
+            finishError("HEART_RATE_FORMAT", error.message ?: "Malformed heart-rate measurement.")
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun readDeviceInformation(g: BluetoothGatt, device: BluetoothDevice) {
+        deviceInfo.clear()
+        infoReads.clear()
+        deviceInfo["name"] = device.name ?: "Fitbit Air"
+        deviceInfo["services"] = g.services.map { service ->
+            mapOf(
+                "uuid" to service.uuid.toString(),
+                "characteristics" to service.characteristics.map { characteristic ->
+                    mapOf("uuid" to characteristic.uuid.toString(), "properties" to characteristic.properties)
+                },
+            )
+        }
+        for (service in g.services) {
+            for (characteristic in service.characteristics) {
+                if (INFO_CHARACTERISTICS.containsKey(characteristic.uuid) &&
+                    characteristic.properties and BluetoothGattCharacteristic.PROPERTY_READ != 0
+                ) infoReads.addLast(characteristic)
+            }
+        }
+        nextInfoRead(g)
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun nextInfoRead(g: BluetoothGatt) {
+        val characteristic = infoReads.pollFirst()
+        if (characteristic == null) {
+            finishSuccess(deviceInfo.toMap())
+        } else if (!g.readCharacteristic(characteristic)) {
+            deviceInfo["${INFO_CHARACTERISTICS[characteristic.uuid]}Error"] = "Android rejected read"
+            nextInfoRead(g)
+        }
+    }
+
+    private fun handleInfoRead(g: BluetoothGatt, c: BluetoothGattCharacteristic, bytes: ByteArray, status: Int) {
+        val key = INFO_CHARACTERISTICS[c.uuid] ?: return
+        if (status == BluetoothGatt.GATT_SUCCESS) {
+            if (key == "connectionStatus" || key == "connectionConfiguration") {
+                try {
+                    val buffer = java.nio.ByteBuffer.wrap(bytes).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+                    if (key == "connectionStatus") {
+                        require(bytes.size >= 7) { "Truncated connection status" }
+                        val flags = buffer.get().toInt() and 0xff
+                        deviceInfo[key] = mapOf(
+                            "bonded" to (flags and 1 != 0),
+                            "encrypted" to (flags and 2 != 0),
+                            "dataLengthExtension" to (flags and 4 != 0),
+                            "dataLengthReboot" to (flags and 8 != 0),
+                            "maxTxPayload" to (buffer.get().toInt() and 0xff),
+                            "maxTxTimeMicros" to (buffer.short.toInt() and 0xffff),
+                            "maxRxPayload" to (buffer.get().toInt() and 0xff),
+                            "maxRxTimeMicros" to (buffer.short.toInt() and 0xffff),
+                        )
+                    } else {
+                        require(bytes.size >= 9) { "Truncated connection configuration" }
+                        deviceInfo[key] = mapOf(
+                            "intervalMillis" to (buffer.short.toInt() and 0xffff) * 1.25,
+                            "peripheralLatency" to (buffer.short.toInt() and 0xffff),
+                            "supervisionTimeoutMillis" to (buffer.short.toInt() and 0xffff) * 10,
+                            "mtu" to (buffer.short.toInt() and 0xffff),
+                            "mode" to when (buffer.get().toInt()) {
+                                0 -> "default"
+                                1 -> "fast"
+                                2 -> "slow"
+                                else -> "unknown"
+                            },
+                        )
+                    }
+                } catch (error: IllegalArgumentException) {
+                    deviceInfo["${key}Error"] = error.message ?: "Invalid link status"
+                }
+            } else if (key == "batteryPercent") {
+                val battery = bytes.firstOrNull()?.toInt()?.and(0xff)
+                if (battery != null && battery in 0..100) deviceInfo[key] = battery
+            } else {
+                deviceInfo[key] = bytes.toString(Charsets.UTF_8).trimEnd('\u0000')
+            }
+        } else {
+            deviceInfo["${key}Error"] = "GATT status $status"
+        }
+        nextInfoRead(g)
     }
 
     private fun startGoldengate(activeGatt: BluetoothGatt, device: BluetoothDevice) {
@@ -254,6 +563,8 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
 
     private fun runOperation(coap: CoapEndpoint) {
         when (val operation = activeOperation) {
+            Operation.ReadDeviceInfo -> finishError("INTERNAL", "Device information does not use DTLS.")
+            Operation.ReadHeartRate -> finishError("INTERNAL", "Standard heart rate does not use DTLS.")
             Operation.PreviewHaptic -> runBoundedHaptic(coap)
             Operation.ReadHapticIntensity -> runReadHapticIntensity(coap)
             is Operation.SetHapticIntensity -> runSetHapticIntensity(coap, operation.intensity)
@@ -421,6 +732,13 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
 
     @SuppressLint("MissingPermission")
     private fun closeTransport() {
+        scanCallback?.let { callback ->
+            val manager = appContext.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
+            manager.adapter?.bluetoothLeScanner?.stopScan(callback)
+        }
+        scanCallback = null
+        infoReads.clear()
+        deviceInfo.clear()
         timeout?.let(handler::removeCallbacks)
         timeout = null
         disposables.clear()
@@ -436,6 +754,8 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         channel.setMethodCallHandler(null)
+        heartRateChannel.setStreamHandler(null)
+        heartRateEvents = null
         closeTransport()
     }
 
@@ -463,9 +783,22 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
         private val TRACKER_TX = UUID.fromString("abbaff01-e56a-484c-b832-8b17cf6cbfe8")
         private val TRACKER_RX = UUID.fromString("abbaff02-e56a-484c-b832-8b17cf6cbfe8")
         private val CCCD = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
+        private val HEART_RATE_SERVICE = UUID.fromString("0000180d-0000-1000-8000-00805f9b34fb")
+        private val HEART_RATE_MEASUREMENT = UUID.fromString("00002a37-0000-1000-8000-00805f9b34fb")
+        private val INFO_CHARACTERISTICS = mapOf(
+            UUID.fromString("abbafd01-e56a-484c-b832-8b17cf6cbfe8") to "connectionConfiguration",
+            UUID.fromString("abbafd02-e56a-484c-b832-8b17cf6cbfe8") to "connectionStatus",
+            UUID.fromString("00002a19-0000-1000-8000-00805f9b34fb") to "batteryPercent",
+            UUID.fromString("00002a24-0000-1000-8000-00805f9b34fb") to "model",
+            UUID.fromString("00002a26-0000-1000-8000-00805f9b34fb") to "firmware",
+            UUID.fromString("00002a27-0000-1000-8000-00805f9b34fb") to "hardware",
+            UUID.fromString("00002a29-0000-1000-8000-00805f9b34fb") to "manufacturer",
+        )
     }
 
     private sealed interface Operation {
+        data object ReadHeartRate : Operation
+        data object ReadDeviceInfo : Operation
         data object PreviewHaptic : Operation
         data object ReadHapticIntensity : Operation
         data class SetHapticIntensity(val intensity: Int) : Operation

@@ -9,11 +9,83 @@ class FitbitAir {
   FitbitAir._();
 
   static const MethodChannel _channel = MethodChannel('fitbit_air');
+  static const EventChannel _heartRateChannel = EventChannel(
+    'fitbit_air/heart_rate',
+  );
+
+  /// Streams measurements while Google Health heart-rate sharing is active.
+  /// Omit [deviceId] to use the paired Air, or select an advertised sensor.
+  /// Cancel the subscription to release Bluetooth before sending a haptic.
+  static Stream<AirHeartRate> watchHeartRate({String? deviceId}) =>
+      _heartRateChannel
+          .receiveBroadcastStream({'deviceId': deviceId})
+          .map(
+            (value) =>
+                AirHeartRate.fromMap(Map<String, Object?>.from(value as Map)),
+          )
+          .handleError((Object error) {
+            if (error is PlatformException) {
+              throw FitbitAirException(
+                error.code,
+                error.message ?? 'Heart-rate stream failed.',
+              );
+            }
+            throw error;
+          });
+
+  /// Cancels the active operation and closes its Bluetooth client.
+  /// The pending read completes with a `CANCELLED` exception. Haptic write
+  /// operations reject cancellation so their verification/restore can finish.
+  static Future<void> cancelOperation() async {
+    try {
+      await _channel.invokeMethod<void>('cancelOperation');
+    } on PlatformException catch (error) {
+      throw FitbitAirException(
+        error.code,
+        error.message ?? 'Cancellation failed.',
+      );
+    }
+  }
 
   /// Returns whether a Fitbit Air is present in Android's bonded-device list.
   /// Android may prompt for the Nearby devices permission on first use.
-  static Future<bool> isAirPaired() async =>
-      await _channel.invokeMethod<bool>('isAirPaired') ?? false;
+  static Future<bool> isAirPaired() async {
+    try {
+      return await _channel.invokeMethod<bool>('isAirPaired') ?? false;
+    } on PlatformException catch (error) {
+      throw FitbitAirException(
+        error.code,
+        error.message ?? 'Could not check paired devices.',
+      );
+    }
+  }
+
+  /// Discovers services and reads available standard device information.
+  ///
+  /// Uses GATT without opening a Golden Gate session. Missing or inaccessible
+  /// fields remain null; [AirDeviceInfo.readErrors] explains rejected reads.
+  static Future<AirDeviceInfo> readDeviceInfo() async =>
+      AirDeviceInfo.fromMap(await _invokeMap('readDeviceInfo'));
+
+  /// Waits for the next standard Bluetooth Heart Rate Measurement, then closes
+  /// the connection. Wear the Air with good skin contact before calling.
+  static Future<AirHeartRate> readHeartRate({String? deviceId}) async =>
+      AirHeartRate.fromMap(
+        await _invokeMap('readHeartRate', {'deviceId': deviceId}),
+      );
+
+  /// Scans for standard heart-rate advertisements for eight seconds.
+  /// Enable sharing in Google Health, then explicitly select the desired Air.
+  static Future<List<AirHeartRateDevice>> scanHeartRateDevices() async {
+    final map = await _invokeMap('scanHeartRateDevices');
+    return List.unmodifiable(
+      (map['devices']! as List).map(
+        (value) => AirHeartRateDevice.fromMap(
+          Map<Object?, Object?>.from(value as Map),
+        ),
+      ),
+    );
+  }
 
   /// Reads the persistent vibration strength without changing it.
   static Future<HapticIntensity> getHapticIntensity() async {
@@ -70,6 +142,143 @@ class FitbitAir {
       );
     }
   }
+}
+
+class AirHeartRateDevice {
+  AirHeartRateDevice.fromMap(Map<Object?, Object?> map)
+    : deviceId = map['deviceId']! as String,
+      name = map['name']! as String,
+      rssi = map['rssi']! as int;
+
+  /// Device address returned by Android; treat this identifier as private.
+  final String deviceId;
+  final String name;
+  final int rssi;
+}
+
+/// Standard Bluetooth heart-rate measurement. Optional fields depend on device.
+class AirHeartRate {
+  AirHeartRate.fromMap(Map<String, Object?> map)
+    : beatsPerMinute = map['beatsPerMinute']! as int,
+      receivedAt = DateTime.fromMillisecondsSinceEpoch(
+        map['receivedAtMillis']! as int,
+      ),
+      contactDetected = map['contactDetected'] as bool?,
+      energyExpendedKj = map['energyExpendedKj'] as int?,
+      rrIntervalsMillis = List.unmodifiable(
+        (map['rrIntervalsMillis']! as List).map(
+          (value) => (value as num).toDouble(),
+        ),
+      );
+
+  final int beatsPerMinute;
+  final DateTime receivedAt;
+
+  /// Null when the sensor does not report contact status.
+  final bool? contactDetected;
+  final int? energyExpendedKj;
+  final List<double> rrIntervalsMillis;
+}
+
+/// Information actually exposed by the connected Air's GATT services.
+class AirDeviceInfo {
+  AirDeviceInfo.fromMap(Map<String, Object?> map)
+    : name = map['name']! as String,
+      batteryPercent = map['batteryPercent'] as int?,
+      model = map['model'] as String?,
+      firmware = map['firmware'] as String?,
+      hardware = map['hardware'] as String?,
+      manufacturer = map['manufacturer'] as String?,
+      connectionStatus = map['connectionStatus'] == null
+          ? null
+          : AirConnectionStatus.fromMap(
+              Map<Object?, Object?>.from(map['connectionStatus']! as Map),
+            ),
+      connectionConfiguration = map['connectionConfiguration'] == null
+          ? null
+          : AirConnectionConfiguration.fromMap(
+              Map<Object?, Object?>.from(
+                map['connectionConfiguration']! as Map,
+              ),
+            ),
+      services = List.unmodifiable(
+        (map['services']! as List).map(
+          (value) =>
+              AirGattService.fromMap(Map<Object?, Object?>.from(value as Map)),
+        ),
+      ),
+      readErrors = Map.unmodifiable({
+        for (final entry in map.entries)
+          if (entry.key.endsWith('Error')) entry.key: entry.value.toString(),
+      });
+
+  final String name;
+  final int? batteryPercent;
+  final String? model;
+  final String? firmware;
+  final String? hardware;
+  final String? manufacturer;
+  final AirConnectionStatus? connectionStatus;
+  final AirConnectionConfiguration? connectionConfiguration;
+  final List<AirGattService> services;
+  final Map<String, String> readErrors;
+}
+
+class AirConnectionStatus {
+  AirConnectionStatus.fromMap(Map<Object?, Object?> map)
+    : bonded = map['bonded']! as bool,
+      encrypted = map['encrypted']! as bool,
+      dataLengthExtension = map['dataLengthExtension']! as bool,
+      maxTxPayload = map['maxTxPayload']! as int,
+      maxRxPayload = map['maxRxPayload']! as int;
+
+  final bool bonded;
+  final bool encrypted;
+  final bool dataLengthExtension;
+  final int maxTxPayload;
+  final int maxRxPayload;
+}
+
+class AirConnectionConfiguration {
+  AirConnectionConfiguration.fromMap(Map<Object?, Object?> map)
+    : intervalMillis = (map['intervalMillis']! as num).toDouble(),
+      peripheralLatency = map['peripheralLatency']! as int,
+      supervisionTimeoutMillis = map['supervisionTimeoutMillis']! as int,
+      mtu = map['mtu']! as int,
+      mode = map['mode']! as String;
+
+  final double intervalMillis;
+  final int peripheralLatency;
+  final int supervisionTimeoutMillis;
+  final int mtu;
+  final String mode;
+}
+
+class AirGattService {
+  AirGattService.fromMap(Map<Object?, Object?> map)
+    : uuid = map['uuid']! as String,
+      characteristics = List.unmodifiable(
+        (map['characteristics']! as List).map(
+          (value) => AirGattCharacteristic.fromMap(
+            Map<Object?, Object?>.from(value as Map),
+          ),
+        ),
+      );
+
+  final String uuid;
+  final List<AirGattCharacteristic> characteristics;
+}
+
+class AirGattCharacteristic {
+  AirGattCharacteristic.fromMap(Map<Object?, Object?> map)
+    : uuid = map['uuid']! as String,
+      properties = map['properties']! as int;
+
+  final String uuid;
+  final int properties;
+  bool get canRead => properties & 0x02 != 0;
+  bool get canNotify => properties & 0x10 != 0;
+  bool get canIndicate => properties & 0x20 != 0;
 }
 
 /// Persistent haptic strength supported by the tested Air firmware.
