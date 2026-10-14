@@ -1,5 +1,8 @@
 ## 0.1.0
 
+- Add opt-in, local-only diagnostic BLE event monitoring (not tap detection).
+- Preserve JNI binding names in minified Android builds and allow bounded
+  haptic recovery requests to finish before reporting an operation failure.
 - Add read-only device information, BLE service inventory, and link diagnostics.
 - Add standard heart-rate discovery, verified readings, continuous streaming,
   and read cancellation. Google Health heart-rate sharing must be active.

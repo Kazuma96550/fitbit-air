@@ -88,6 +88,29 @@ The decompiled stack contains device-state/on-wrist events and unsolicited CoAP
 resource handlers. `ON_WRIST_ALERT` is not evidence of a user tap, however, and
 no wrist-tap event payload has been confirmed. Tap detection remains open work.
 
+The optional diagnostic stream subscribes to notifications/indications in
+`ABBAFD00-E56A-484C-B832-8B17CF6CBFE8` (link status) and
+`4EEE1C00-4133-479B-8663-02C84BDC14BE` (unclassified). It deliberately excludes
+the tracker/DTLS service and writes only subscription descriptors. Seven
+subscriptions succeeded on the tested Air; two initial link-status values
+arrived. During the physical double-tap trial, the peripheral terminated the
+connection (HCI reason 0x13, Android GATT status 257). Google Health reconnected
+with the existing bond. No tap-correlated payload was established. The cause
+and exact timing relative to the taps remain unresolved; this is inconclusive,
+not proof that taps cannot be observed.
+
+## Battery source lead
+
+The tested Air has no standard Battery Service. Decompiled Google Health
+`CoapRequestUtils.providePathForProtocol()` maps protocol numbers to hexadecimal
+`/md/` resource paths, and `ProtobufTranslatorsRegistry` maps decimal 1542
+(0x606) to `DeviceInfoTranslator`. This identifies `/md/606` as a candidate
+device-information resource, with `DeviceInfo.Info` fields `onCharger = 10`,
+`voltage = 12`, and `batteryLevel = 13`. Neither bootstrap access nor the
+units/scale of batteryLevel have been verified. This is not yet an SDK battery
+API. No additional Goldengate session was opened just to probe it, given the
+known session-coexistence concerns.
+
 Other candidates—notifications, alarms, battery alerts, sync status, and the
 ping characteristic—must be traced and tested individually. They should not be
 added to the stable Dart surface until their payload, side effects, credential

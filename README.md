@@ -80,6 +80,7 @@ flutter run
 | Restore/verify prior vibration intensity | Physically verified |
 | Root/OAuth/private PSK required | No, for the bootstrap haptic path |
 | Detect taps on the Air | Not implemented |
+| Raw diagnostic events | Opt-in research stream; no confirmed tap decoder |
 | Heart rate | Standard BLE readings and continuous updates verified; requires an active Google Health sharing session |
 | Google Health coexistence | Plugin releases GATT; Google Health remains connected. Concurrent Goldengate sessions produced packet-sequence warnings, so uninterrupted sync is not yet proven |
 | iOS | Not implemented |
@@ -115,6 +116,20 @@ await subscription.cancel();
 An accepted subscription alone does not guarantee data: the Air accepted it
 but sent nothing before sharing was active. `cancelOperation()` cancels reads
 and scans; haptic writes finish their verification before returning.
+
+### Experimental device events
+
+Import `package:fitbit_air/fitbit_air_diagnostics.dart` to use
+`FitbitAirDiagnostics.watchDeviceEvents()`. This monitors a limited set of
+link-status and unclassified BLE characteristics, not the encrypted tracker
+channel. It enables notification subscriptions but sends no haptic/control
+commands. The demo keeps a bounded event log in memory only. Payloads may
+contain sensitive device data; do not upload them without user consent.
+
+These events are **not wrist-tap detection**. The first physical tap test was
+inconclusive: subscriptions succeeded, but the connection ended before any
+tap-related payload could be established. Cancel the stream before using
+other SDK operations. Health Connect and historical stats are deferred.
 
 ## Native compatibility and provenance
 

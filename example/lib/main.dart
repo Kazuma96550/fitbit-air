@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:fitbit_air/fitbit_air.dart';
+import 'package:fitbit_air/fitbit_air_diagnostics.dart';
 import 'package:flutter/material.dart';
 
 void main() => runApp(const DemoApp());
@@ -32,11 +33,51 @@ class _DemoPageState extends State<DemoPage> {
   AirDeviceInfo? _deviceInfo;
   List<AirHeartRateDevice> _heartRateDevices = [];
   StreamSubscription<AirHeartRate>? _heartRateSubscription;
+  StreamSubscription<AirDeviceEvent>? _deviceEventSubscription;
+  final List<String> _eventLog = [];
+  int _notificationCount = 0;
 
   @override
   void dispose() {
     _heartRateSubscription?.cancel();
+    _deviceEventSubscription?.cancel();
     super.dispose();
+  }
+
+  void _watchDeviceEvents() {
+    setState(() {
+      _busy = true;
+      _eventLog.clear();
+      _notificationCount = 0;
+      _status = 'Subscribing to diagnostic events…';
+    });
+    _deviceEventSubscription = FitbitAirDiagnostics.watchDeviceEvents().listen(
+      (event) {
+        if (!mounted) return;
+        setState(() {
+          if (event.isNotification) _notificationCount++;
+          _eventLog.insert(
+            0,
+            '${event.receivedAt.toLocal()} · ${event.kind} '
+            '${event.characteristicUuid ?? ""} '
+            '${event.isNotification ? "${event.payload.length} bytes" : "status=${event.status ?? event.subscribedCount}"}',
+          );
+          if (_eventLog.length > 20) _eventLog.removeLast();
+          if (event.kind == 'ready' || event.isNotification) {
+            _status =
+                'Monitoring device events. $_notificationCount notifications received. '
+                'These events are not confirmed wrist taps.';
+          }
+        });
+      },
+      onError: (Object error) {
+        if (mounted) setState(() => _status = error.toString());
+      },
+      onDone: () {
+        _deviceEventSubscription = null;
+        if (mounted) setState(() => _busy = false);
+      },
+    );
   }
 
   void _watchHeartRate([AirHeartRateDevice? device]) {
@@ -211,6 +252,16 @@ class _DemoPageState extends State<DemoPage> {
                             _status = 'Heart-rate stream stopped.';
                           });
                         }
+                      } else if (_deviceEventSubscription != null) {
+                        await _deviceEventSubscription!.cancel();
+                        _deviceEventSubscription = null;
+                        if (mounted) {
+                          setState(() {
+                            _busy = false;
+                            _status =
+                                'Device event monitor stopped. $_notificationCount notifications received.';
+                          });
+                        }
                       } else {
                         await FitbitAir.cancelOperation();
                       }
@@ -244,6 +295,20 @@ class _DemoPageState extends State<DemoPage> {
                       ),
                   ],
                 ),
+              if (_eventLog.isNotEmpty)
+                ExpansionTile(
+                  initiallyExpanded: true,
+                  title: const Text('Diagnostic event log (local only)'),
+                  children: [
+                    for (final event in _eventLog)
+                      ListTile(
+                        title: Text(
+                          event,
+                          style: const TextStyle(fontSize: 11),
+                        ),
+                      ),
+                  ],
+                ),
               _button(
                 onPressed: _busy ? null : _check,
                 icon: Icons.bluetooth_searching,
@@ -263,6 +328,11 @@ class _DemoPageState extends State<DemoPage> {
                 onPressed: _busy ? null : () => _watchHeartRate(),
                 icon: Icons.monitor_heart,
                 label: 'Live heart rate (paired Air)',
+              ),
+              _button(
+                onPressed: _busy ? null : _watchDeviceEvents,
+                icon: Icons.sensors,
+                label: 'Diagnostic device-event monitor',
               ),
               for (final device in _heartRateDevices)
                 _button(

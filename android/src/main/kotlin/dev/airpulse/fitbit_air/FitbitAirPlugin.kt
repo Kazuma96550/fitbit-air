@@ -47,6 +47,9 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
     private lateinit var appContext: Context
     private lateinit var channel: MethodChannel
     private lateinit var heartRateChannel: EventChannel
+    private lateinit var deviceEventChannel: EventChannel
+    private var diagnosticEvents: EventChannel.EventSink? = null
+    private var eventMonitor: AirEventMonitor? = null
     private var heartRateEvents: EventChannel.EventSink? = null
     private var heartRateStreamGeneration = 0
     private var activity: Activity? = null
@@ -95,7 +98,7 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
                     events.endOfStream()
                     return
                 }
-                if (pendingResult != null || pendingPermissionResult != null) {
+                if (pendingResult != null || pendingPermissionResult != null || diagnosticEvents != null) {
                     events.error("BUSY", "Another Bluetooth operation is running.", null)
                     events.endOfStream()
                     return
@@ -129,11 +132,60 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
                 }
             }
         })
+        deviceEventChannel = EventChannel(binding.binaryMessenger, "fitbit_air/device_events")
+        deviceEventChannel.setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(arguments: Any?, events: EventChannel.EventSink) {
+                if (pendingResult != null || pendingPermissionResult != null || diagnosticEvents != null) {
+                    events.error("BUSY", "Another Bluetooth operation is running.", null)
+                    events.endOfStream()
+                    return
+                }
+                diagnosticEvents = events
+                val permissionResult = object : MethodChannel.Result {
+                    override fun success(result: Any?) { }
+                    override fun error(code: String, message: String?, details: Any?) {
+                        if (diagnosticEvents === events) {
+                            eventMonitor?.close()
+                            eventMonitor = null
+                            diagnosticEvents = null
+                        }
+                        events.error(code, message, details)
+                        events.endOfStream()
+                    }
+                    override fun notImplemented() = error("INTERNAL", "Diagnostic events unavailable.", null)
+                }
+                withBluetoothPermission(permissionResult) {
+                    if (diagnosticEvents !== events) return@withBluetoothPermission
+                    val device = findBondedAir()
+                    if (device == null) {
+                        permissionResult.error("AIR_NOT_FOUND", "Pair your Air in Google Health first.", null)
+                    } else {
+                        val monitor = AirEventMonitor(appContext, { event ->
+                            if (diagnosticEvents === events) events.success(event)
+                        }, { code, message -> permissionResult.error(code, message, null) })
+                        eventMonitor = monitor
+                        monitor.start(device)
+                    }
+                }
+            }
+
+            override fun onCancel(arguments: Any?) {
+                diagnosticEvents = null
+                eventMonitor?.close()
+                eventMonitor = null
+            }
+        })
     }
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
             "cancelOperation" -> {
+                if (diagnosticEvents != null) {
+                    eventMonitor?.close()
+                    eventMonitor = null
+                    diagnosticEvents?.endOfStream()
+                    diagnosticEvents = null
+                }
                 if (activeOperation == Operation.PreviewHaptic ||
                     activeOperation == Operation.SinglePulse || activeOperation is Operation.SetHapticIntensity) {
                     result.error("CANNOT_CANCEL_WRITE", "Wait for the haptic write and verification to finish.", null)
@@ -203,7 +255,7 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
 
     @SuppressLint("MissingPermission")
     private fun scanHeartRateDevices(result: MethodChannel.Result) {
-        if (pendingResult != null) {
+        if (pendingResult != null || diagnosticEvents != null) {
             result.error("BUSY", "A Fitbit Air operation is already running.", null)
             return
         }
@@ -251,7 +303,7 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
 
     @SuppressLint("MissingPermission")
     private fun startOperation(result: MethodChannel.Result, operation: Operation, deviceId: String? = null) {
-        if (pendingResult != null) {
+        if (pendingResult != null || diagnosticEvents != null) {
             result.error("BUSY", "A Fitbit Air operation is already running.", null)
             return
         }
@@ -658,19 +710,21 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
                     } }.onErrorResumeNext { hapticError: Throwable ->
                         // A timed-out write may still have reached the Air. Restore the
                         // previously-read value before reporting the operation failure.
-                        writeIntensity(coap, original).retry(2).flatMap<Int> {
-                            Single.error(IllegalStateException(
-                                "Haptic failed; the prior setting was restored but not verified.",
-                                hapticError,
-                            ))
-                        }.onErrorResumeNext { restoreError: Throwable ->
+                        writeIntensity(coap, original).retry(2).onErrorResumeNext { restoreError: Throwable ->
                             Single.error(IllegalStateException(
                                 "Haptic and restoration failed. Check vibration intensity in Google Health.",
                                 restoreError,
                             ))
+                        }.flatMap<Int> {
+                            Single.error(IllegalStateException(
+                                "Haptic failed; the prior setting was restored but not verified.",
+                                hapticError,
+                            ))
                         }
                     }
-        }.timeout(12, TimeUnit.SECONDS).subscribe({ original ->
+        // Each request has its own deadline. An outer short timeout could
+        // dispose the recovery write; the operation-wide 45s guard remains.
+        }.subscribe({ original ->
             finishSuccess(mapOf("originalIntensity" to original, "restored" to true, "verified" to true))
         }, { error -> finishError("HAPTIC_FAILED", error.message ?: "Haptic command failed; check Google Health settings." ) }))
     }
@@ -756,6 +810,10 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
         channel.setMethodCallHandler(null)
         heartRateChannel.setStreamHandler(null)
         heartRateEvents = null
+        deviceEventChannel.setStreamHandler(null)
+        diagnosticEvents = null
+        eventMonitor?.close()
+        eventMonitor = null
         closeTransport()
     }
 
