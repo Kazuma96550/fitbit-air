@@ -1,6 +1,6 @@
 name: fitbit_air
-description: Direct Android Bluetooth haptics for a Fitbit Air already paired in Google Health.
-version: 0.1.0
+description: Experimental Android Bluetooth access to Fitbit Air, including haptics, live heart rate, device information, and diagnostics.
+version: 0.1.1
 homepage: https://github.com/ThoreKoritzius/fitbit-air
 repository: https://github.com/ThoreKoritzius/fitbit-air
 issue_tracker: https://github.com/ThoreKoritzius/fitbit-air/issues

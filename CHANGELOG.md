@@ -1,3 +1,12 @@
+## 0.1.1
+
+- Update installation instructions for the published 0.1.0 package and describe
+  the broader Bluetooth API beyond haptics.
+- Add user-started, headless read/haptic tests to the Android example and
+  document background integration limitations. Headless reads and release-mode
+  haptics verified on Pixel 7 Pro; user physically confirmed the pulses.
+- Include the full Apache-2.0 license for the adapted JNI bindings.
+
 ## 0.1.0
 
 - Add opt-in, local-only diagnostic BLE event monitoring (not tap detection).

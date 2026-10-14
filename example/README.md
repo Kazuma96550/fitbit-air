@@ -17,6 +17,14 @@ start sharing. Return to the demo and select Live heart rate. Stop the stream
 before sending a haptic. Discovery is also available when selecting a receiver
 for the first time.
 
+The headless test buttons start an example-only Android foreground service and
+run the SDK in a fresh Flutter engine without an Activity. The operation starts
+after 15 seconds so you can press Home first. The read-only test sends no
+haptic command; the vibration test attempts the two-pulse preview and restore.
+The outcome is shown when you return to the demo. This is not an FCM receiver
+or an automatic relay of phone notifications. See
+[`doc/background.md`](../doc/background.md) for current test results and limits.
+
 Wrist taps and full activity statistics remain research work. Opening a concurrent
 Goldengate haptic session can disturb Google Health's tracker transport even
 though its Bluetooth client stays connected; uninterrupted sync is not proven.

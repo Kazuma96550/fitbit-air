@@ -3,8 +3,40 @@ import 'dart:async';
 import 'package:fitbit_air/fitbit_air.dart';
 import 'package:fitbit_air/fitbit_air_diagnostics.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 void main() => runApp(const DemoApp());
+
+/// Runs in a separate service-owned engine without any Flutter screen.
+@pragma('vm:entry-point')
+Future<void> airHeadlessTest() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  const resultChannel = MethodChannel('fitbit_air_example/headless_result');
+  try {
+    final operation = await resultChannel.invokeMethod<String>('getOperation');
+    await Future<void>.delayed(const Duration(seconds: 15));
+    if (operation == 'readDeviceInfo') {
+      final info = await FitbitAir.readDeviceInfo();
+      await resultChannel.invokeMethod('complete', {
+        'success': info.model != null,
+        'operation': operation,
+        'hasModelNumber': info.model != null,
+      });
+    } else {
+      final result = await FitbitAir.vibrate();
+      await resultChannel.invokeMethod('complete', {
+        'success': result.restored && result.verified,
+        'restored': result.restored,
+        'verified': result.verified,
+      });
+    }
+  } catch (error) {
+    await resultChannel.invokeMethod('complete', {
+      'success': false,
+      'error': error.toString(),
+    });
+  }
+}
 
 class DemoApp extends StatelessWidget {
   const DemoApp({super.key});
@@ -36,6 +68,47 @@ class _DemoPageState extends State<DemoPage> {
   StreamSubscription<AirDeviceEvent>? _deviceEventSubscription;
   final List<String> _eventLog = [];
   int _notificationCount = 0;
+
+  Future<void> _headlessTest({bool readOnly = false}) async {
+    setState(() => _busy = true);
+    try {
+      // Obtain runtime permission with the screen present, before service use.
+      if (!await FitbitAir.isAirPaired()) {
+        if (mounted) {
+          setState(() => _status = 'Pair an Air in Google Health first.');
+        }
+        return;
+      }
+      await const MethodChannel(
+        'fitbit_air_example/background',
+      ).invokeMethod<void>('startTest', {
+        'operation': readOnly ? 'readDeviceInfo' : 'vibrate',
+      });
+      if (mounted) {
+        setState(
+          () => _status =
+              'Headless test scheduled. Press Home or lock the '
+              'phone now. Operation starts in 15 seconds. Avoid other SDK operations '
+              'until the test notification disappears.',
+        );
+      }
+      for (var second = 0; second < 67; second++) {
+        await Future<void>.delayed(const Duration(seconds: 1));
+        if (!mounted) return;
+        final outcome = await const MethodChannel(
+          'fitbit_air_example/background',
+        ).invokeMethod<String>('getLastResult');
+        if (outcome != null) {
+          setState(() => _status = outcome);
+          break;
+        }
+      }
+    } catch (error) {
+      if (mounted) setState(() => _status = error.toString());
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
 
   @override
   void dispose() {
@@ -313,6 +386,16 @@ class _DemoPageState extends State<DemoPage> {
                 onPressed: _busy ? null : _check,
                 icon: Icons.bluetooth_searching,
                 label: _paired == true ? 'Check again' : 'Check paired Air',
+              ),
+              _button(
+                onPressed: _busy ? null : () => _headlessTest(),
+                icon: Icons.notifications_active,
+                label: 'Headless test (two pulses after 15s)',
+              ),
+              _button(
+                onPressed: _busy ? null : () => _headlessTest(readOnly: true),
+                icon: Icons.info_outline,
+                label: 'Headless read-only test (after 15s)',
               ),
               _button(
                 onPressed: _busy ? null : _readDeviceInfo,

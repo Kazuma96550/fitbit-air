@@ -88,6 +88,27 @@ The decompiled stack contains device-state/on-wrist events and unsolicited CoAP
 resource handlers. `ON_WRIST_ALERT` is not evidence of a user tap, however, and
 no wrist-tap event payload has been confirmed. Tap detection remains open work.
 
+Further source inspection identifies incoming `POST events` with an
+`EventSet.Set` protobuf body. `GoldenGateCommandHandler` registers its handler
+with `CoapGroupRequestFilterMode.GROUP_1`; `EventConsumer` handles `WRS_ON` and
+`WRS_OFF` as wrist-presence transitions. `Event` also contains RSET, BSNC, CGPS,
+PING, AOFL and UNKNOWN, but no explicit tap enum. The existence of PING does
+not identify a tap or a vibration command. Event parsing and authorization
+would need separate hardware validation before exposing an on-wrist API.
+
+## Credential provisioning confirmation
+
+`qax.run()` case 5 obtains JSON through the app's authenticated service using
+`user/-/devices/device/<deviceId>` and the `keys` subresource. It reads
+`data.attributes.primaryKey` and `secondaryKey`, each containing `key` and
+`keyId`, Base64-decodes both keys, and stores them as AES SecretKey entries.
+It then persists the BKS through `openFileOutput()` and `keyStore.store()`.
+`qpa.call()` simply invokes `oyh.e.d().k()` to load the store. Thus these bytes
+are fetched, not derived from the Bluetooth address or android_id. The latter
+participates in local keystore protection, not key generation. Two named keys
+do not by themselves prove the rotation schedule. No provisioning calls were
+made and no credentials were extracted during this work.
+
 The optional diagnostic stream subscribes to notifications/indications in
 `ABBAFD00-E56A-484C-B832-8B17CF6CBFE8` (link status) and
 `4EEE1C00-4133-479B-8663-02C84BDC14BE` (unclassified). It deliberately excludes

@@ -1,7 +1,8 @@
 # fitbit_air
 
 Experimental Flutter access to a Fitbit Air over its direct Android Bluetooth
-transport. The supported operations are physically verified haptic controls:
+transport: haptic controls, live heart rate, device information, and connection
+diagnostics. Haptics are one use case, using this communication path:
 
 ```text
 Flutter → Android BLE → Gattlink → DTLS bootstrap session → CoAP /settings → Air
@@ -19,7 +20,20 @@ same Android phone in the installed Google Health app.
 
 ## Install
 
-Until the first pub.dev release, use the public Git repository:
+Install the published package:
+
+```bash
+flutter pub add fitbit_air
+```
+
+Or add it to `pubspec.yaml`:
+
+```yaml
+dependencies:
+  fitbit_air: ^0.1.0
+```
+
+For unreleased development changes only, use the Git repository instead:
 
 ```yaml
 dependencies:
@@ -80,6 +94,7 @@ flutter run
 | Restore/verify prior vibration intensity | Physically verified |
 | Root/OAuth/private PSK required | No, for the bootstrap haptic path |
 | Detect taps on the Air | Not implemented |
+| Headless haptics | Release-mode service/Flutter engine verified with the app backgrounded; screen-off reliability unresolved |
 | Raw diagnostic events | Opt-in research stream; no confirmed tap decoder |
 | Heart rate | Standard BLE readings and continuous updates verified; requires an active Google Health sharing session |
 | Google Health coexistence | Plugin releases GATT; Google Health remains connected. Concurrent Goldengate sessions produced packet-sequence warnings, so uninterrupted sync is not yet proven |
@@ -130,6 +145,15 @@ These events are **not wrist-tap detection**. The first physical tap test was
 inconclusive: subscriptions succeeded, but the connection ended before any
 tap-related payload could be established. Cancel the stream before using
 other SDK operations. Health Connect and historical stats are deferred.
+
+## Background and notification integration
+
+For notification-triggered commands and the headless Android test, see
+[`doc/background.md`](doc/background.md). A release-mode headless haptic was
+physically verified with the demo backgrounded. An earlier display-off trial
+timed out during session establishment, so reliable screen-off delivery is not
+proven. The host app must provide message reception and lifecycle management;
+a phone notification alone does not trigger the Air.
 
 ## Native compatibility and provenance
 
