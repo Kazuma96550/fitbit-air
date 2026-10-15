@@ -207,6 +207,51 @@ was created and no diagnostic capture was active. Cause is unestablished;
 normal Google Health reconnection/coexistence remains a reliability question,
 not a validated property of the bootstrap monitor.
 
+Google Health subsequently loaded the alarm list without resetting pairing.
+With user approval, a temporary 13:39 alarm was saved (Smart Wake off), leaving
+the existing 07:10 alarm unchanged. The alarm-dismissal capture ran from
+13:38:56.375 to 13:39:26.404 on 2026-10-15 (30,005 ms reported coverage).
+Only RSET on events and eventsSecure arrived, both before the alarm.
+Manual markers: alarm started +14,684 ms, dismissal tap attempted +22,812 ms,
+vibration stopped after tap +28,929 ms. No other incoming requests or dropped
+events were reported. This shows no event correlated with the marked actions
+in this window, not proof that all sessions or routes lack dismissal reports.
+The final marker left only about one second of observation; a delayed report
+is not excluded. The user initially reported that double-tapping stopped
+the alarm rather than it stopping on its own. However, the later no-tap control
+also stopped vibrating spontaneously, so this observation alone does NOT
+establish a physically recognized gesture or causal dismissal.
+
+A repeat using a 90-second configured window and a temporary 13:45 alarm
+was READY at 13:44:38.966. Markers were onset +26,980 ms, attempted tap
++32,506 ms, stopped +34,760 ms. The user reported an impression that tapping
+stopped it. The connection failed with status 257 at 13:45:38.524, after
+59,558 ms of observation, approximately 24.8 seconds after the stopped marker.
+Only the two initial RSET posts were received, with zero other requests.
+This is an interrupted trial with useful post-action coverage, not a completed
+90-second negative result. Disconnect cause is not established.
+
+No-tap control: the temporary alarm was moved to 13:49. The user agreed to
+avoid tapping for at least 20 seconds and subsequently reported that vibration
+stopped without touching the device. Capture was READY at 13:48:52.179;
+the onset marker was +12,791 ms. Only the two startup RSET posts arrived;
+no other requests. Status 257 interrupted observation at 13:49:51.883 after
+59,703 ms. Two approximately 60-second disconnects suggest investigating
+session lifetime/idle teardown, without establishing the cause. Natural
+vibration stopping confounds the earlier claimed tap dismissals. A future
+positive control needs a discriminator beyond cessation of vibration (for
+example verified alarm state or a reproducible difference in resumed pulses).
+No tap-detection API is justified by these observations.
+
+After the no-tap trial, Google Health displayed 13:58 in place of 13:49.
+The user confirmed making no edit. This nine-minute advancement is consistent
+with automatic snoozing, but its exact mechanism has not been traced. Earlier
+tap trials showed their original times with "tomorrow" after cessation,
+providing a possible state-based discriminator for a future controlled trial.
+Do not discard this distinction or claim either causal explanation proven.
+The user authorized removal of the advanced temporary test alarm. Google
+Health confirmed deletion; only the unchanged 07:10 alarm remained.
+
 The initial diagnostic monitor registered observers for the other phone-side routes
 traced in `GoldenGateCommandHandler`: `eventsSecure`, `sync/request`, `md/3d02`,
 `md/1802`, `sb/reply` and `sb/delete-records`. They returned `4.04`, retaining the

@@ -86,6 +86,7 @@ class _DemoPageState extends State<DemoPage> {
   final _captureClock = Stopwatch();
   Timer? _captureTimer;
   int _captureSeconds = 0;
+  int _captureDuration = 30;
   int _ledMarkers = 0;
   bool _captureReady = false;
   bool _wristPresenceTrial = false;
@@ -99,7 +100,10 @@ class _DemoPageState extends State<DemoPage> {
   }
 
   void _markObservation(String observation) {
-    if (!_captureReady || _captureClock.elapsedMilliseconds >= 30000) return;
+    if (!_captureReady ||
+        _captureClock.elapsedMilliseconds >= _captureDuration * 1000) {
+      return;
+    }
     setState(() {
       _ledMarkers++;
       _eventLog.insert(
@@ -120,6 +124,7 @@ class _DemoPageState extends State<DemoPage> {
       _captureSeconds = 0;
       _wristPresenceTrial = wristPresence;
       _alarmTrial = alarm;
+      _captureDuration = alarm ? 90 : 30;
       _captureInterruption = null;
       _status = 'Opening secure event capture. Keep the Air on until READY.';
     });
@@ -130,64 +135,70 @@ class _DemoPageState extends State<DemoPage> {
         curve: Curves.easeOut,
       );
     }
-    _secureEventSubscription = FitbitAirDiagnostics.watchSecureEvents().listen(
-      (event) {
-        if (!mounted) return;
-        setState(() {
-          _eventLog.insert(
-            0,
-            '${event.receivedAt.toLocal()} · CoAP ${event.kind} '
-            '${event.path ?? ""} ${event.method ?? ""} '
-            '${event.bodyLength == null ? "" : "${event.bodyLength} bytes "}'
-            '${event.eventNames} ${event.eventIds}'
-            '${event.observationMillis == null ? "" : " · observed ${event.observationMillis}ms"}',
-          );
-          if (_eventLog.length > 20) _eventLog.removeLast();
-          if (event.kind == 'ready') {
-            _captureReady = true;
-            _captureClock.reset();
-            _captureClock.start();
-            _captureTimer = Timer.periodic(const Duration(milliseconds: 250), (
-              _,
-            ) {
-              if (!mounted) return;
-              setState(() {
-                _captureSeconds = _captureClock.elapsed.inSeconds;
-                if (_captureSeconds >= 30) _stopCaptureClock();
-              });
+    _secureEventSubscription =
+        FitbitAirDiagnostics.watchSecureEvents(
+          durationSeconds: _captureDuration,
+        ).listen(
+          (event) {
+            if (!mounted) return;
+            setState(() {
+              _eventLog.insert(
+                0,
+                '${event.receivedAt.toLocal()} · CoAP ${event.kind} '
+                '${event.path ?? ""} ${event.method ?? ""} '
+                '${event.bodyLength == null ? "" : "${event.bodyLength} bytes "}'
+                '${event.eventNames} ${event.eventIds}'
+                '${event.observationMillis == null ? "" : " · observed ${event.observationMillis}ms"}',
+              );
+              if (_eventLog.length > 20) _eventLog.removeLast();
+              if (event.kind == 'ready') {
+                _captureReady = true;
+                _captureClock.reset();
+                _captureClock.start();
+                _captureTimer = Timer.periodic(
+                  const Duration(milliseconds: 250),
+                  (_) {
+                    if (!mounted) return;
+                    setState(() {
+                      _captureSeconds = _captureClock.elapsed.inSeconds;
+                      if (_captureSeconds >= _captureDuration) {
+                        _stopCaptureClock();
+                      }
+                    });
+                  },
+                );
+                _status =
+                    'Secure event monitor READY. Follow the timed instructions below. '
+                    'Event acknowledgment: ${event.eventResponseCode ?? "unknown"}. No vibration commands.';
+              } else if (event.kind == 'complete') {
+                _stopCaptureClock();
+                _status =
+                    'Secure observation complete: ${event.receivedPosts} incoming POSTs, '
+                    '${event.otherRequests ?? 0} other requests; '
+                    '${event.droppedPosts} over diagnostic limit; '
+                    '$_ledMarkers manual markers. Gesture detection remains unconfirmed.';
+              } else if (event.kind == 'interrupted') {
+                _stopCaptureClock();
+                _captureInterruption =
+                    'Incomplete trial: ${event.observationMillis ?? 0}ms observed, '
+                    '${event.receivedPosts ?? 0} event POSTs, '
+                    '${event.otherRequests ?? 0} other requests. '
+                    'This is not a negative gesture result.';
+              }
             });
-            _status =
-                'Secure event monitor READY. Follow the timed instructions below. '
-                'Event acknowledgment: ${event.eventResponseCode ?? "unknown"}. No vibration commands.';
-          } else if (event.kind == 'complete') {
+          },
+          onError: (Object error) {
             _stopCaptureClock();
-            _status =
-                'Secure observation complete: ${event.receivedPosts} incoming POSTs, '
-                '${event.otherRequests ?? 0} other requests; '
-                '${event.droppedPosts} over diagnostic limit; '
-                '$_ledMarkers manual markers. Gesture detection remains unconfirmed.';
-          } else if (event.kind == 'interrupted') {
+            if (mounted) {
+              setState(() => _status = '$error\n${_captureInterruption ?? ""}');
+            }
+          },
+          onDone: () {
             _stopCaptureClock();
-            _captureInterruption =
-                'Incomplete trial: ${event.observationMillis ?? 0}ms observed, '
-                '${event.receivedPosts ?? 0} event POSTs, '
-                '${event.otherRequests ?? 0} other requests. '
-                'This is not a negative gesture result.';
-          }
-        });
-      },
-      onError: (Object error) {
-        _stopCaptureClock();
-        if (mounted) {
-          setState(() => _status = '$error\n${_captureInterruption ?? ""}');
-        }
-      },
-      onDone: () {
-        _stopCaptureClock();
-        _secureEventSubscription = null;
-        if (mounted) setState(() => _busy = false);
-      },
-    );
+            _secureEventSubscription = null;
+            if (mounted) setState(() => _busy = false);
+          },
+        );
   }
 
   Future<void> _probeResources() =>
@@ -461,7 +472,7 @@ class _DemoPageState extends State<DemoPage> {
                 Text(
                   _alarmTrial
                       ? 'Wait for the alarm, mark its start, then double-tap to dismiss. '
-                            'Mark the attempt and whether vibration stopped. ${30 - _captureSeconds}s left.'
+                            'Mark the attempt and whether vibration stopped. Then stay still until capture ends. ${_captureDuration - _captureSeconds}s left.'
                       : _captureSeconds < 5
                       ? 'Baseline: keep the Air still (${5 - _captureSeconds}s).'
                       : _wristPresenceTrial
@@ -652,7 +663,7 @@ class _DemoPageState extends State<DemoPage> {
               _button(
                 onPressed: _busy ? null : () => _watchSecureEvents(alarm: true),
                 icon: Icons.alarm,
-                label: 'Research: alarm dismissal (30s)',
+                label: 'Research: alarm dismissal (90s)',
               ),
               _button(
                 onPressed: _busy

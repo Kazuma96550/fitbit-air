@@ -51,6 +51,7 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
     private lateinit var secureEventChannel: EventChannel
     private var secureEvents: EventChannel.EventSink? = null
     private var secureCapture: AirSecureEventCapture? = null
+    private var secureCaptureSeconds = 30
     private var diagnosticEvents: EventChannel.EventSink? = null
     private var eventMonitor: AirEventMonitor? = null
     private var heartRateEvents: EventChannel.EventSink? = null
@@ -144,6 +145,13 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
                     events.endOfStream()
                     return
                 }
+                val requestedSeconds = (arguments as? Map<*, *>)?.get("durationSeconds") ?: 30
+                if (requestedSeconds !is Int || requestedSeconds !in 30..90) {
+                    events.error("INVALID_ARGUMENT", "durationSeconds must be an integer from 30 to 90.", null)
+                    events.endOfStream()
+                    return
+                }
+                secureCaptureSeconds = requestedSeconds
                 secureEvents = events
                 val reply = object : MethodChannel.Result {
                     override fun success(result: Any?) {
@@ -400,7 +408,8 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
             } else finishError("TIMEOUT", "Fitbit Air operation timed out.")
         }
         timeout = deadline
-        handler.postDelayed(deadline, OPERATION_TIMEOUT_MS)
+        handler.postDelayed(deadline, if (operation == Operation.CaptureSecureEvents)
+            (secureCaptureSeconds + 15) * 1000L else OPERATION_TIMEOUT_MS)
         val callback = object : BluetoothGattCallback() {
             override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
                 if (g !== gatt) return
@@ -716,7 +725,7 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
                     // Mirror the non-authenticated resource filter group, not GROUP_0.
                     coap.setFilterGroup(com.fitbit.goldengate.bindings.coap.CoapGroupRequestFilterMode.GROUP_1,
                         BluetoothAddressNodeKey(peer.address))
-                    val capture = AirSecureEventCapture(coap) { event ->
+                    val capture = AirSecureEventCapture(coap, secureCaptureSeconds) { event ->
                         handler.post { if (secureEvents === events) events.success(event) }
                     }
                     secureCapture = capture

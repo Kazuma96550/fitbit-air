@@ -18,30 +18,40 @@ class FitbitAirDiagnostics {
   static Stream<AirWristPresenceEvent> watchWristPresence() =>
       watchSecureEvents().expand((event) => event.wristPresenceEvents);
 
-  /// Observes POST /events and /eventsSecure for up to 30 seconds after ready.
+  /// Observes POST /events and /eventsSecure for 30–90 seconds after ready.
+  /// Defaults to 30 seconds. Longer trials extend Bluetooth contention.
   /// Opens a bootstrap DTLS session and ACKs valid events on both routes with
   /// 2.04 (malformed bodies receive 4.00), but sends no
   /// setting, alarm, sync or reset command. May contend with Google Health.
-  /// These are protocol events, NOT confirmed wrist taps. The 45-second total
-  /// operation deadline can end the capture early if negotiation is slow.
+  /// These are protocol events, NOT confirmed wrist taps. The total operation
+  /// deadline is [durationSeconds] + 15 seconds; slow negotiation may truncate it.
   /// Other source-traced incoming routes are rejected with 4.04. No raw bodies are
   /// returned. An interrupted event precedes transport errors and
   /// reports actual observation time; zero means the monitor was never ready.
-  static Stream<AirSecureEvent> watchSecureEvents() => _secureChannel
-      .receiveBroadcastStream()
-      .map(
-        (value) =>
-            AirSecureEvent.fromMap(Map<String, Object?>.from(value as Map)),
-      )
-      .handleError((Object error) {
-        if (error is PlatformException) {
-          throw FitbitAirException(
-            error.code,
-            error.message ?? 'Secure event capture failed.',
-          );
-        }
-        throw error;
-      });
+  static Stream<AirSecureEvent> watchSecureEvents({int durationSeconds = 30}) {
+    if (durationSeconds < 30 || durationSeconds > 90) {
+      throw ArgumentError.value(
+        durationSeconds,
+        'durationSeconds',
+        'Must be 30–90',
+      );
+    }
+    return _secureChannel
+        .receiveBroadcastStream({'durationSeconds': durationSeconds})
+        .map(
+          (value) =>
+              AirSecureEvent.fromMap(Map<String, Object?>.from(value as Map)),
+        )
+        .handleError((Object error) {
+          if (error is PlatformException) {
+            throw FitbitAirException(
+              error.code,
+              error.message ?? 'Secure event capture failed.',
+            );
+          }
+          throw error;
+        });
+  }
 
   /// One secure session, four fixed source-traced GET requests. Never writes
   /// settings or returns raw bodies, alarm times, or activity measurements.

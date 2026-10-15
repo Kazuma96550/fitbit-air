@@ -152,8 +152,9 @@ tap-related payload could be established. Cancel the stream before using
 other SDK operations. Health Connect and historical stats are deferred.
 
 `FitbitAirDiagnostics.watchSecureEvents()` observes incoming CoAP `events`
-POSTs for up to 30 seconds after its `ready` event (subject to the overall
-connection deadline). Unlike the passive BLE monitor, it opens a separate
+POSTs for 30 seconds by default after its `ready` event. Research trials may
+set `durationSeconds` from 30 to 90; the total deadline is that duration plus
+15 seconds, so slow negotiation can shorten observation. Unlike the passive BLE monitor, it opens a separate
 Golden Gate session and acknowledges valid event POSTs. Startup/sync events
 were decoded on hardware; a user-reported double-tap sequence produced no
 identified tap event in the recorded window. This is **not a tap or on-wrist
@@ -223,7 +224,8 @@ updates in this package.
 - The operation is serialized; concurrent calls return `BUSY`.
 - Starting with 0.1.1, that transport guard also covers separate Flutter engines
   in the same Android process. It cannot lock Google Health's separate process.
-- A 45-second deadline closes the GATT connection.
+- Operations normally have a 45-second deadline. Secure-event research capture
+  allows 30–90 seconds of observation plus 15 seconds for connection setup.
 - Google Health remains the pairing owner. This plugin opens a short-lived
   connection and does not unregister, factory-reset, or alter pairing keys.
 - The plugin accepts the native implementation only from the expected signed

@@ -5,6 +5,20 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   const methods = MethodChannel('fitbit_air');
+  test('secure observation duration is bounded before opening transport', () {
+    expect(
+      () => FitbitAirDiagnostics.watchSecureEvents(durationSeconds: 29),
+      throwsArgumentError,
+    );
+    expect(
+      () => FitbitAirDiagnostics.watchSecureEvents(durationSeconds: 91),
+      throwsArgumentError,
+    );
+    expect(
+      FitbitAirDiagnostics.watchSecureEvents(durationSeconds: 90),
+      isA<Stream<AirSecureEvent>>(),
+    );
+  });
   tearDown(
     () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(methods, null),

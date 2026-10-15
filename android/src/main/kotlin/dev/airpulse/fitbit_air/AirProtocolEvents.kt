@@ -122,8 +122,10 @@ internal class AirEventResourceHandler(
 /** Bounded incoming-request observation; no outgoing setting/sync/reset commands. */
 internal class AirSecureEventCapture(
     private val endpoint: CoapEndpoint,
+    private val durationSeconds: Int = 30,
     private val emit: (Map<String, Any>) -> Unit,
 ) {
+    init { require(durationSeconds in 30..90) }
     private val closed = AtomicBoolean(false)
     private val posts = AtomicInteger(0)
     private val registered = mutableListOf<String>()
@@ -161,9 +163,9 @@ internal class AirSecureEventCapture(
         })
             .andThen(Single.defer {
                 readyAtNanos = System.nanoTime()
-                emit(mapOf("kind" to "ready", "durationSeconds" to 30, "eventResponseCode" to "2.04",
+                emit(mapOf("kind" to "ready", "durationSeconds" to durationSeconds, "eventResponseCode" to "2.04",
                     "receivedAtMillis" to System.currentTimeMillis()))
-                Single.timer(30, TimeUnit.SECONDS).map {
+                Single.timer(durationSeconds.toLong(), TimeUnit.SECONDS).map {
                     summary()
                 }
             })

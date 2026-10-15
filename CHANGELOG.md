@@ -1,5 +1,8 @@
 ## 0.1.2
 
+- Allow bounded 30–90 second secure-event research trials; use 90 seconds for
+  alarm dismissal so delayed events can be observed after the gesture.
+
 - Acknowledge valid POSTs on both event routes with CoAP `2.04`, matching
   Google Health's event handler; reject malformed event payloads with `4.00`.
 - Add a manual tap-attempt marker independent of LED confirmation in the demo.
