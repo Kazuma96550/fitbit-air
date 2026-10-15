@@ -48,6 +48,9 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
     private lateinit var channel: MethodChannel
     private lateinit var heartRateChannel: EventChannel
     private lateinit var deviceEventChannel: EventChannel
+    private lateinit var secureEventChannel: EventChannel
+    private var secureEvents: EventChannel.EventSink? = null
+    private var secureCapture: AirSecureEventCapture? = null
     private var diagnosticEvents: EventChannel.EventSink? = null
     private var eventMonitor: AirEventMonitor? = null
     private var heartRateEvents: EventChannel.EventSink? = null
@@ -127,6 +130,45 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
                 heartRateEvents = null
                 if (activeOperation == Operation.ReadHeartRate) {
                     // Do not emit an error into a stream the consumer cancelled.
+                    pendingResult = null
+                    activeOperation = null
+                    closeTransport()
+                }
+            }
+        })
+        secureEventChannel = EventChannel(binding.binaryMessenger, "fitbit_air/secure_events")
+        secureEventChannel.setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(arguments: Any?, events: EventChannel.EventSink) {
+                if (pendingResult != null || pendingPermissionResult != null || diagnosticEvents != null || secureEvents != null) {
+                    events.error("BUSY", "Another Bluetooth operation is running.", null)
+                    events.endOfStream()
+                    return
+                }
+                secureEvents = events
+                val reply = object : MethodChannel.Result {
+                    override fun success(result: Any?) {
+                        if (secureEvents === events) {
+                            events.success((result as Map<*, *>) + mapOf("kind" to "complete", "receivedAtMillis" to System.currentTimeMillis()))
+                            secureEvents = null
+                            events.endOfStream()
+                        }
+                    }
+                    override fun error(code: String, message: String?, details: Any?) {
+                        if (secureEvents === events) {
+                            secureEvents = null
+                            events.error(code, message, details)
+                            events.endOfStream()
+                        }
+                    }
+                    override fun notImplemented() = error("INTERNAL", "Secure event capture unavailable.", null)
+                }
+                withBluetoothPermission(reply) {
+                    if (secureEvents === events) startOperation(reply, Operation.CaptureSecureEvents)
+                }
+            }
+            override fun onCancel(arguments: Any?) {
+                secureEvents = null
+                if (activeOperation == Operation.CaptureSecureEvents) {
                     pendingResult = null
                     activeOperation = null
                     closeTransport()
@@ -228,6 +270,9 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
             }
             "probeBatteryAccess" -> withBluetoothPermission(result) {
                 startOperation(result, Operation.ProbeBatteryAccess)
+            }
+            "probeReadOnlyResources" -> withBluetoothPermission(result) {
+                startOperation(result, Operation.ProbeReadOnlyResources)
             }
             "setHapticIntensity" -> {
                 val intensity = call.argument<Int>("intensity")
@@ -646,6 +691,7 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
         }
     }
 
+    @SuppressLint("MissingPermission")
     private fun runOperation(coap: CoapEndpoint) {
         when (val operation = activeOperation) {
             Operation.ReadDeviceInfo -> finishError("INTERNAL", "Device information does not use DTLS.")
@@ -653,6 +699,36 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
             Operation.PreviewHaptic -> runBoundedHaptic(coap)
             Operation.ReadHapticIntensity -> runReadHapticIntensity(coap)
             Operation.ProbeBatteryAccess -> runBatteryAccessProbe(coap)
+            Operation.ProbeReadOnlyResources -> disposables.add(AirReadOnlyResources.probe(coap)
+                .subscribe({ finishSuccess(it) }, {
+                    finishError("RESOURCE_PROBE_FAILED", "Read-only resource probe failed.")
+                }))
+            Operation.CaptureSecureEvents -> {
+                val events = secureEvents ?: run {
+                    finishError("CANCELLED", "Secure event listener was cancelled.")
+                    return
+                }
+                val peer = gatt?.device ?: run {
+                    finishError("GATT_DISCONNECTED", "Secure event connection ended.")
+                    return
+                }
+                try {
+                    // Mirror the non-authenticated resource filter group, not GROUP_0.
+                    coap.setFilterGroup(com.fitbit.goldengate.bindings.coap.CoapGroupRequestFilterMode.GROUP_1,
+                        BluetoothAddressNodeKey(peer.address))
+                    val capture = AirSecureEventCapture(coap) { event ->
+                        handler.post { if (secureEvents === events) events.success(event) }
+                    }
+                    secureCapture = capture
+                    disposables.add(capture.start().subscribe({ finishSuccess(it) }, {
+                        finishError("EVENT_CAPTURE_FAILED", "Could not observe secure device events.")
+                    }))
+                } catch (_: LinkageError) {
+                    finishError("EVENT_CAPTURE_ABI", "Installed native transport lacks compatible event-server bindings.")
+                } catch (_: Exception) {
+                    finishError("EVENT_CAPTURE_FAILED", "Could not initialize secure event capture.")
+                }
+            }
             is Operation.SetHapticIntensity -> runSetHapticIntensity(coap, operation.intensity)
             Operation.SinglePulse -> runSinglePulse(coap)
             null -> finishError("INTERNAL", "No Fitbit Air operation was selected.")
@@ -853,6 +929,7 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
         timeout?.let(handler::removeCallbacks)
         timeout = null
         runCatching { disposables.clear() }
+        runCatching { secureCapture?.close() }; secureCapture = null
         runCatching { endpoint?.close() }; endpoint = null
         runCatching { stack?.close() }; stack = null
         runCatching { rxSource?.close() }; rxSource = null
@@ -867,6 +944,8 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         channel.setMethodCallHandler(null)
+        secureEventChannel.setStreamHandler(null)
+        secureEvents = null
         heartRateChannel.setStreamHandler(null)
         heartRateEvents = null
         deviceEventChannel.setStreamHandler(null)
@@ -919,6 +998,8 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
         data object PreviewHaptic : Operation
         data object ReadHapticIntensity : Operation
         data object ProbeBatteryAccess : Operation
+        data object ProbeReadOnlyResources : Operation
+        data object CaptureSecureEvents : Operation
         data class SetHapticIntensity(val intensity: Int) : Operation
         data object SinglePulse : Operation
     }

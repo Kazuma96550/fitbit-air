@@ -147,6 +147,21 @@ inconclusive: subscriptions succeeded, but the connection ended before any
 tap-related payload could be established. Cancel the stream before using
 other SDK operations. Health Connect and historical stats are deferred.
 
+`FitbitAirDiagnostics.watchSecureEvents()` observes incoming CoAP `events`
+POSTs for up to 30 seconds after its `ready` event (subject to the overall
+connection deadline). Unlike the passive BLE monitor, it opens a separate
+Golden Gate session and acknowledges valid event POSTs. Startup/sync events
+were decoded on hardware; a user-reported double-tap sequence produced no
+identified tap event in the recorded window. This is **not a tap or on-wrist
+API**. Unknown IDs remain unknown; no settings, sync or haptic commands are
+sent. Cancel before another operation; Google Health coexistence is not
+guaranteed. The demo keeps only a bounded in-memory log.
+
+`FitbitAirDiagnostics.probeReadOnlyResources()` checks a fixed GET allowlist
+and returns status/body length, never raw response bodies. On the tested Air,
+device info succeeded; alarms, live activity and sync status returned `4.01`.
+See [research notes](doc/research.md) for scope and limitations.
+
 `FitbitAirDiagnostics.probeBatteryAccess()` opens a separate Golden Gate
 session and performs a read-only GET of the device-info resource. Access was
 verified on the tested Air. It returns CoAP status and selected raw battery

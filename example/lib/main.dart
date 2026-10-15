@@ -79,8 +79,58 @@ class _DemoPageState extends State<DemoPage> {
   List<AirHeartRateDevice> _heartRateDevices = [];
   StreamSubscription<AirHeartRate>? _heartRateSubscription;
   StreamSubscription<AirDeviceEvent>? _deviceEventSubscription;
+  StreamSubscription<AirSecureEvent>? _secureEventSubscription;
   final List<String> _eventLog = [];
   int _notificationCount = 0;
+
+  void _watchSecureEvents() {
+    setState(() {
+      _busy = true;
+      _eventLog.clear();
+      _status = 'Opening secure event capture. Wait for READY before tapping.';
+    });
+    _secureEventSubscription = FitbitAirDiagnostics.watchSecureEvents().listen(
+      (event) {
+        if (!mounted) return;
+        setState(() {
+          _eventLog.insert(
+            0,
+            '${event.receivedAt.toLocal()} · CoAP ${event.kind} '
+            '${event.eventNames} ${event.eventIds}',
+          );
+          if (_eventLog.length > 20) _eventLog.removeLast();
+          if (event.kind == 'ready') {
+            _status =
+                'Secure event monitor READY. Double-tap now; '
+                '${event.durationSeconds}s observation window. No vibration commands.';
+          } else if (event.kind == 'complete') {
+            _status =
+                'Secure observation complete: ${event.receivedPosts} incoming POSTs, '
+                '${event.droppedPosts} over diagnostic limit. Not confirmed wrist taps.';
+          }
+        });
+      },
+      onError: (Object error) {
+        if (mounted) setState(() => _status = error.toString());
+      },
+      onDone: () {
+        _secureEventSubscription = null;
+        if (mounted) setState(() => _busy = false);
+      },
+    );
+  }
+
+  Future<void> _probeResources() =>
+      _run('Checking four read-only resources in one session…', () async {
+        final results = await FitbitAirDiagnostics.probeReadOnlyResources();
+        return results
+            .map(
+              (r) =>
+                  '${r.path}: ${r.responseCode ?? r.errorCode} '
+                  '(${r.bodyLength ?? 0} bytes)',
+            )
+            .join('\n');
+      });
 
   Future<void> _headlessTest({bool readOnly = false}) async {
     setState(() => _busy = true);
@@ -135,6 +185,7 @@ class _DemoPageState extends State<DemoPage> {
   void dispose() {
     _heartRateSubscription?.cancel();
     _deviceEventSubscription?.cancel();
+    _secureEventSubscription?.cancel();
     super.dispose();
   }
 
@@ -346,6 +397,15 @@ class _DemoPageState extends State<DemoPage> {
                             _status = 'Heart-rate stream stopped.';
                           });
                         }
+                      } else if (_secureEventSubscription != null) {
+                        await _secureEventSubscription!.cancel();
+                        _secureEventSubscription = null;
+                        if (mounted) {
+                          setState(() {
+                            _busy = false;
+                            _status = 'Secure event capture stopped.';
+                          });
+                        }
                       } else if (_deviceEventSubscription != null) {
                         await _deviceEventSubscription!.cancel();
                         _deviceEventSubscription = null;
@@ -439,9 +499,19 @@ class _DemoPageState extends State<DemoPage> {
                 label: 'Diagnostic device-event monitor',
               ),
               _button(
+                onPressed: _busy ? null : _watchSecureEvents,
+                icon: Icons.hub_outlined,
+                label: 'Research: secure events (30s)',
+              ),
+              _button(
                 onPressed: _busy ? null : _probeBattery,
                 icon: Icons.battery_unknown,
                 label: 'Research: battery access (secure session)',
+              ),
+              _button(
+                onPressed: _busy ? null : _probeResources,
+                icon: Icons.science_outlined,
+                label: 'Research: read-only resource access',
               ),
               for (final device in _heartRateDevices)
                 _button(

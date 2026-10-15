@@ -1,5 +1,12 @@
 ## 0.1.1
 
+- Fix the incoming CoAP request-filter JNI signatures to match the installed
+  transport; add ABI regression tests for active native constructors.
+- Add bounded, opt-in secure protocol-event observation. Startup/sync events
+  verified on hardware; wrist-tap and wrist-presence detection remain unverified.
+- Add a fixed read-only resource-access probe without exposing response bodies.
+  Device-info access succeeds; alarms, live activity and sync status are denied
+  in the tested bootstrap session.
 - Add bounded haptic command dispatch with expiry, duplicate suppression,
   rate limiting, and no automatic retry of ambiguous device failures.
 - Guard transport ownership across Flutter engines in the same process.

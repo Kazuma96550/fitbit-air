@@ -11,6 +11,62 @@ void main() {
   );
 
   test(
+    'resource probe exposes response metadata without assuming decoded stats',
+    () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(methods, (call) async {
+            expect(call.method, 'probeReadOnlyResources');
+            return {
+              'resources': [
+                {
+                  'path': '/alarms',
+                  'responseClass': 4,
+                  'detail': 1,
+                  'bodyLength': 0,
+                },
+                {
+                  'path': '/md/606',
+                  'responseClass': 2,
+                  'detail': 5,
+                  'bodyLength': 42,
+                },
+                {'path': 'liveactivity', 'errorCode': 'RESOURCE_READ_FAILED'},
+              ],
+            };
+          });
+      final results = await FitbitAirDiagnostics.probeReadOnlyResources();
+      expect(results[0].responseCode, '4.01');
+      expect(results[0].granted, isFalse);
+      expect(results[1].granted, isTrue);
+      expect(results[2].responseCode, isNull);
+      expect(results[2].errorCode, 'RESOURCE_READ_FAILED');
+    },
+  );
+
+  test(
+    'secure event metadata retains unknown IDs without gesture inference',
+    () {
+      final event = AirSecureEvent.fromMap({
+        'kind': 'device_event',
+        'receivedAtMillis': 1234,
+        'eventIds': [1885957735, 4294967295],
+        'eventNames': ['PING', 'UNKNOWN'],
+      });
+      expect(event.eventNames, ['PING', 'UNKNOWN']);
+      expect(event.eventIds.last, 4294967295);
+      expect(() => event.eventIds.add(1), throwsUnsupportedError);
+      final complete = AirSecureEvent.fromMap({
+        'kind': 'complete',
+        'receivedAtMillis': 1235,
+        'receivedPosts': 0,
+        'droppedPosts': 0,
+      });
+      expect(complete.receivedPosts, 0);
+      expect(complete.eventIds, isEmpty);
+    },
+  );
+
+  test(
     'battery probe distinguishes denied access from a battery measurement',
     () async {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger

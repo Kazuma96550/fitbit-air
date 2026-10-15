@@ -96,6 +96,52 @@ PING, AOFL and UNKNOWN, but no explicit tap enum. The existence of PING does
 not identify a tap or a vibration command. Event parsing and authorization
 would need separate hardware validation before exposing an on-wrist API.
 
+### Secure event observation (2026-10-15)
+
+The release demo now registers the local `events` POST handler with GROUP_1
+and decodes bounded `EventSet.Set` payloads, including unknown uint32 IDs.
+It acknowledges valid POSTs with `2.04`, but does not respond by issuing the
+settings/sync operations that Google Health's `EventConsumer` would run.
+No outgoing reset, alarm, haptic or configuration commands were sent.
+
+During the measured 30-second window, READY was recorded at 08:17:39.837 on
+the phone, followed by `RSET` at 08:17:40.296 and `BSNC` at 08:17:41.785.
+Observation completed at 08:18:09.856 with two POSTs and no dropped POSTs.
+The user reported performing the requested three double-taps, but their reply
+arrived after completion; exact physical timing cannot be independently
+established. No identifiable tap event appeared in the recorded window.
+This does not establish that taps are unavailable through a different resource,
+firmware state or normal paired-device session. Wrist-presence events are also
+not yet hardware-validated. `RSET` here is a received protocol event, not an
+instruction from the demo to reset the device.
+
+The first incoming-request attempt crashed the demo's native loop. Comparing
+the installed app's JNI declarations identified an ABI mismatch in the adapted
+`CoapGroupRequestFilter`: `create()` returns `NativeReferenceCreationResult`,
+not a pointer-valued Long; `setGroup()` and `destroy()` return Int status codes,
+not void. These declarations and status handling are corrected. A subsequent
+release APK received both events without that crash. Reflection tests now
+protect these signatures and the active native constructor signatures. This is
+not a guarantee of compatibility with future Google Health native versions.
+Google Health's process remained running, which alone does not prove its sync
+was uninterrupted.
+
+### Read-only resource boundary (2026-10-15)
+
+One bootstrap session issued the following sequential GETs, with no writes:
+
+| Resource | CoAP result | Body bytes |
+| --- | --- | --- |
+| `/md/606` | `2.05 Content` | 79 |
+| `liveactivity` | `4.01 Unauthorized` | 0 |
+| `/alarms` | `4.01 Unauthorized` | 0 |
+| `/sync/status` | `4.01 Unauthorized` | 0 |
+
+The public diagnostic result contains only path, status and byte count; it
+does not expose alarm/health data or device identifiers from the response body.
+This is a fixed allowlist, not an arbitrary resource or write API. These results
+apply to the tested firmware and bootstrap role, not all Fitbit devices or roles.
+
 ## Credential provisioning confirmation
 
 `qax.run()` case 5 obtains JSON through the app's authenticated service using
