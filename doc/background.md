@@ -122,3 +122,22 @@ References:
 
 - [Android background BLE guidance](https://developer.android.com/develop/connectivity/bluetooth/ble/background)
 - [FCM Flutter background handling and execution limits](https://firebase.google.com/docs/cloud-messaging/flutter/receive-messages)
+
+## Calendar relay example
+
+The example now includes a user-enabled Google Calendar notification relay; see
+[setup and behavior](../example/README.md#google-calendar--air). Its listener and
+foreground-service lifecycle belong to the example, not the published plugin.
+The listener dispatches only to an already-running service; receiving an alert
+never attempts to launch a foreground service from the background. It forwards
+only an application-generated command ID and expiry to a service-owned Flutter
+engine, using the existing `AirHapticDispatcher` and restore-safe `vibrate()`.
+
+Queue limits, stale-alert rejection, notification-key deduplication and no-retry
+behavior bound delivery. A Stop request closes the dispatcher, rejects queued
+work, and allows an active command to finish before destroying the engine. A
+four-minute watchdog bounds hung processing; if it fires, physical delivery and
+restoration may be uncertain. Re-enable the relay explicitly after interruption.
+The earlier screen-off evidence above concerns the headless test, not a verified
+Calendar end-to-end trial. Calendar-triggered physical delivery remains pending
+until tested on a paired Android phone.

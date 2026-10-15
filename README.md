@@ -200,7 +200,9 @@ physically verified with the demo backgrounded. A controlled screen-off command
 also completed with duplicate suppression. An earlier trial timed out during
 session establishment; long-term and deep-idle reliability remain unproven.
 The host app must provide message reception and lifecycle management;
-a phone notification alone does not trigger the Air.
+a phone notification alone does not trigger the Air. The example includes an
+optional [Google Calendar notification relay](example/README.md#google-calendar--air)
+with explicit notification-access setup and Start/Stop controls.
 
 ## Native compatibility and provenance
 

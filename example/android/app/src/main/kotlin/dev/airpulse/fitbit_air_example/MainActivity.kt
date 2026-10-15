@@ -5,10 +5,42 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import android.content.Intent
 import android.os.Build
+import android.Manifest
+import android.content.pm.PackageManager
+import android.provider.Settings
 
 class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "fitbit_air_example/calendar")
+            .setMethodCallHandler { call, result ->
+                try {
+                    when (call.method) {
+                        "status" -> result.success(CalendarRelayService.status(this))
+                        "settings" -> {
+                            startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                            result.success(null)
+                        }
+                        "start" -> {
+                            if (!CalendarRelayService.hasAccess(this) || !CalendarNotificationListener.connected) {
+                                result.error("NOTIFICATION_ACCESS", "Enable notification access and wait for connection first.", null)
+                            } else {
+                                if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+                                    requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 902)
+                                CalendarRelayService.start(this)
+                                result.success(null)
+                            }
+                        }
+                        "stop" -> {
+                            CalendarRelayService.stop()
+                            result.success(null)
+                        }
+                        else -> result.notImplemented()
+                    }
+                } catch (error: Exception) {
+                    result.error("CALENDAR_RELAY", error.message, null)
+                }
+            }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "fitbit_air_example/background")
             .setMethodCallHandler { call, result ->
                 if (call.method == "startTest") {

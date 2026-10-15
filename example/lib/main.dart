@@ -51,6 +51,32 @@ Future<void> airHeadlessTest() async {
   }
 }
 
+/// Service-owned worker. Calendar contents never cross this channel.
+@pragma('vm:entry-point')
+Future<void> airCalendarRelay() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  const channel = MethodChannel('fitbit_air_example/calendar_worker');
+  final dispatcher = AirHapticDispatcher();
+  channel.setMethodCallHandler((call) async {
+    if (call.method == 'close') {
+      dispatcher.close();
+      return null;
+    }
+    if (call.method != 'dispatch') throw MissingPluginException();
+    final args = Map<String, Object?>.from(call.arguments as Map);
+    final result = await dispatcher.submit(
+      AirHapticCommand(
+        id: args['id']! as String,
+        expiresAt: DateTime.fromMillisecondsSinceEpoch(
+          args['expiresAt']! as int,
+        ),
+      ),
+    );
+    return '${result.status.name}${result.error == null ? "" : " (${result.error!.code})"}';
+  });
+  await channel.invokeMethod<void>('ready');
+}
+
 class DemoApp extends StatelessWidget {
   const DemoApp({super.key});
 
@@ -72,7 +98,75 @@ class DemoPage extends StatefulWidget {
   State<DemoPage> createState() => _DemoPageState();
 }
 
-class _DemoPageState extends State<DemoPage> {
+class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
+  static const _calendarChannel = MethodChannel('fitbit_air_example/calendar');
+  bool _relayRunning = false;
+  bool _relayStarting = false;
+  bool _notificationAccess = false;
+  bool _listenerConnected = false;
+  bool _relayStopping = false;
+  String _relayOutcome = 'Relay is off.';
+  Timer? _relayPoll;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    unawaited(_refreshRelay());
+    _relayPoll = Timer.periodic(const Duration(seconds: 2), (_) {
+      if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
+        unawaited(_refreshRelay());
+      }
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) unawaited(_refreshRelay());
+  }
+
+  Future<void> _refreshRelay() async {
+    try {
+      final status = await _calendarChannel.invokeMapMethod<String, Object?>(
+        'status',
+      );
+      if (!mounted || status == null) return;
+      setState(() {
+        _relayRunning = status['running'] == true;
+        _relayStopping = status['stopping'] == true;
+        _notificationAccess = status['access'] == true;
+        _listenerConnected = status['connected'] == true;
+        _relayOutcome = status['outcome'] as String? ?? 'Relay is off.';
+      });
+    } on PlatformException catch (error) {
+      if (mounted) setState(() => _relayOutcome = error.message ?? error.code);
+    } on MissingPluginException {
+      if (mounted) {
+        setState(() => _relayOutcome = 'Calendar relay requires Android.');
+      }
+    }
+  }
+
+  Future<void> _calendarAction(String action) async {
+    setState(() => _relayStarting = true);
+    try {
+      if (action == 'start' && !await FitbitAir.isAirPaired()) {
+        if (mounted) {
+          setState(() => _relayOutcome = 'Pair an Air in Google Health first.');
+        }
+        return;
+      }
+      await _calendarChannel.invokeMethod<void>(action);
+      await _refreshRelay();
+    } catch (error) {
+      if (mounted) setState(() => _relayOutcome = error.toString());
+    } finally {
+      if (mounted) setState(() => _relayStarting = false);
+    }
+  }
+
+  bool get _deviceControlsBlocked => _busy || _relayRunning || _relayStarting;
+
   bool _busy = false;
   bool? _paired;
   AirDeviceInfo? _deviceInfo;
@@ -264,6 +358,8 @@ class _DemoPageState extends State<DemoPage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _relayPoll?.cancel();
     _stopCaptureClock();
     _scrollController.dispose();
     _heartRateSubscription?.cancel();
@@ -468,6 +564,57 @@ class _DemoPageState extends State<DemoPage> {
                 style: Theme.of(context).textTheme.titleMedium,
               ),
               const SizedBox(height: 28),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        'Google Calendar → Air',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const Text(
+                        'New Calendar alerts trigger two pulses while the relay is on, including with the phone locked.',
+                      ),
+                      Text(
+                        'Notification access: ${_notificationAccess ? (_listenerConnected ? "connected" : "connecting") : "not enabled"}',
+                      ),
+                      Text(
+                        'Relay: ${_relayRunning ? (_relayStopping ? "stopping" : "on") : "off"}',
+                      ),
+                      Text(_relayOutcome),
+                      TextButton(
+                        onPressed: _relayStarting
+                            ? null
+                            : () => _calendarAction('settings'),
+                        child: const Text('Open notification access settings'),
+                      ),
+                      FilledButton(
+                        onPressed:
+                            _relayStarting ||
+                                _relayStopping ||
+                                (!_relayRunning &&
+                                    (_busy ||
+                                        !_notificationAccess ||
+                                        !_listenerConnected))
+                            ? null
+                            : () => _calendarAction(
+                                _relayRunning ? 'stop' : 'start',
+                              ),
+                        child: Text(
+                          _relayRunning
+                              ? 'Stop calendar relay'
+                              : 'Start calendar relay',
+                        ),
+                      ),
+                      const Text(
+                        'Enable reminders in Google Calendar. Start the relay again after a restart. Other device controls are disabled while relaying.',
+                      ),
+                    ],
+                  ),
+                ),
+              ),
               if (_captureReady) ...[
                 Text(
                   _alarmTrial
@@ -621,70 +768,78 @@ class _DemoPageState extends State<DemoPage> {
                   ],
                 ),
               _button(
-                onPressed: _busy ? null : _check,
+                onPressed: _deviceControlsBlocked ? null : _check,
                 icon: Icons.bluetooth_searching,
                 label: _paired == true ? 'Check again' : 'Check paired Air',
               ),
               _button(
-                onPressed: _busy ? null : () => _headlessTest(),
+                onPressed: _deviceControlsBlocked
+                    ? null
+                    : () => _headlessTest(),
                 icon: Icons.notifications_active,
                 label: 'Headless test (two pulses after 15s)',
               ),
               _button(
-                onPressed: _busy ? null : () => _headlessTest(readOnly: true),
+                onPressed: _deviceControlsBlocked
+                    ? null
+                    : () => _headlessTest(readOnly: true),
                 icon: Icons.info_outline,
                 label: 'Headless read-only test (after 15s)',
               ),
               _button(
-                onPressed: _busy ? null : _readDeviceInfo,
+                onPressed: _deviceControlsBlocked ? null : _readDeviceInfo,
                 icon: Icons.info_outline,
                 label: 'Read device info + services',
               ),
               _button(
-                onPressed: _busy ? null : _scanHeartRate,
+                onPressed: _deviceControlsBlocked ? null : _scanHeartRate,
                 icon: Icons.radar,
                 label: 'Scan heart-rate sensors',
               ),
               _button(
-                onPressed: _busy ? null : () => _watchHeartRate(),
+                onPressed: _deviceControlsBlocked
+                    ? null
+                    : () => _watchHeartRate(),
                 icon: Icons.monitor_heart,
                 label: 'Live heart rate (paired Air)',
               ),
               _button(
-                onPressed: _busy ? null : _watchDeviceEvents,
+                onPressed: _deviceControlsBlocked ? null : _watchDeviceEvents,
                 icon: Icons.sensors,
                 label: 'Diagnostic device-event monitor',
               ),
               _button(
-                onPressed: _busy ? null : _watchSecureEvents,
+                onPressed: _deviceControlsBlocked ? null : _watchSecureEvents,
                 icon: Icons.hub_outlined,
                 label: 'Research: secure events (30s)',
               ),
               _button(
-                onPressed: _busy ? null : () => _watchSecureEvents(alarm: true),
+                onPressed: _deviceControlsBlocked
+                    ? null
+                    : () => _watchSecureEvents(alarm: true),
                 icon: Icons.alarm,
                 label: 'Research: alarm dismissal (90s)',
               ),
               _button(
-                onPressed: _busy
+                onPressed: _deviceControlsBlocked
                     ? null
                     : () => _watchSecureEvents(wristPresence: true),
                 icon: Icons.watch_outlined,
                 label: 'Research: wrist-presence trial (30s)',
               ),
               _button(
-                onPressed: _busy ? null : _probeBattery,
+                onPressed: _deviceControlsBlocked ? null : _probeBattery,
                 icon: Icons.battery_unknown,
                 label: 'Research: battery access (secure session)',
               ),
               _button(
-                onPressed: _busy ? null : _probeResources,
+                onPressed: _deviceControlsBlocked ? null : _probeResources,
                 icon: Icons.science_outlined,
                 label: 'Research: read-only resource access',
               ),
               for (final device in _heartRateDevices)
                 _button(
-                  onPressed: _busy
+                  onPressed: _deviceControlsBlocked
                       ? null
                       : () => _readHeartRate(deviceId: device.deviceId),
                   icon: Icons.favorite,
@@ -692,12 +847,14 @@ class _DemoPageState extends State<DemoPage> {
                 ),
               for (final device in _heartRateDevices)
                 _button(
-                  onPressed: _busy ? null : () => _watchHeartRate(device),
+                  onPressed: _deviceControlsBlocked
+                      ? null
+                      : () => _watchHeartRate(device),
                   icon: Icons.monitor_heart,
                   label: '${device.name} · live stream',
                 ),
               _button(
-                onPressed: _busy ? null : _pulse,
+                onPressed: _deviceControlsBlocked ? null : _pulse,
                 icon: Icons.touch_app,
                 label: 'Single pulse (alternates strength)',
               ),
@@ -705,7 +862,7 @@ class _DemoPageState extends State<DemoPage> {
                 children: [
                   Expanded(
                     child: _button(
-                      onPressed: _busy
+                      onPressed: _deviceControlsBlocked
                           ? null
                           : () => _setIntensity(HapticIntensity.low),
                       icon: Icons.volume_down,
@@ -715,7 +872,7 @@ class _DemoPageState extends State<DemoPage> {
                   const SizedBox(width: 12),
                   Expanded(
                     child: _button(
-                      onPressed: _busy
+                      onPressed: _deviceControlsBlocked
                           ? null
                           : () => _setIntensity(HapticIntensity.high),
                       icon: Icons.volume_up,
@@ -725,7 +882,7 @@ class _DemoPageState extends State<DemoPage> {
                 ],
               ),
               _button(
-                onPressed: _busy ? null : _vibrate,
+                onPressed: _deviceControlsBlocked ? null : _vibrate,
                 icon: Icons.settings_backup_restore,
                 label: 'Two-pulse preview + restore',
               ),

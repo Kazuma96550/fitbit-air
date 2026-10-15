@@ -10,6 +10,7 @@ flutter analyze
 flutter test
 
 cd "$package_dir/example"
+flutter test
 flutter build apk --debug
 
 cd "$package_dir/example/android"
@@ -18,9 +19,9 @@ if [[ -z "$air_java_home" && -d "/Applications/Android Studio.app/Contents/jbr/C
   air_java_home="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
 fi
 if [[ -n "$air_java_home" ]]; then
-  JAVA_HOME="$air_java_home" ./gradlew :fitbit_air:testDebugUnitTest --console=plain
+  JAVA_HOME="$air_java_home" ./gradlew :app:testDebugUnitTest :fitbit_air:testDebugUnitTest --console=plain
 else
-  ./gradlew :fitbit_air:testDebugUnitTest --console=plain
+  ./gradlew :app:testDebugUnitTest :fitbit_air:testDebugUnitTest --console=plain
 fi
 
 cd "$package_dir"

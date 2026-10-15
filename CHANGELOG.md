@@ -1,5 +1,9 @@
 ## 0.1.2
 
+- Add an example-only Google Calendar notification relay with notification-access
+  setup, foreground Start/Stop controls, duplicate filtering and bounded haptic
+  dispatch. Calendar-triggered physical delivery still requires hardware validation.
+
 - Allow bounded 30–90 second secure-event research trials; use 90 seconds for
   alarm dismissal so delayed events can be observed after the gesture.
 
