@@ -82,13 +82,48 @@ class _DemoPageState extends State<DemoPage> {
   StreamSubscription<AirSecureEvent>? _secureEventSubscription;
   final List<String> _eventLog = [];
   int _notificationCount = 0;
+  final _scrollController = ScrollController();
+  final _captureClock = Stopwatch();
+  Timer? _captureTimer;
+  int _captureSeconds = 0;
+  int _ledMarkers = 0;
+  bool _captureReady = false;
+
+  void _stopCaptureClock() {
+    _captureTimer?.cancel();
+    _captureClock.stop();
+    _captureReady = false;
+  }
+
+  void _markRecognizedTap() {
+    if (!_captureReady || _captureClock.elapsedMilliseconds >= 30000) return;
+    setState(() {
+      _ledMarkers++;
+      _eventLog.insert(
+        0,
+        '${DateTime.now()} · USER observed LED flash '
+        'at +${_captureClock.elapsedMilliseconds}ms (manual marker, not BLE detection)',
+      );
+      if (_eventLog.length > 20) _eventLog.removeLast();
+    });
+  }
 
   void _watchSecureEvents() {
+    _stopCaptureClock();
     setState(() {
       _busy = true;
       _eventLog.clear();
+      _ledMarkers = 0;
+      _captureSeconds = 0;
       _status = 'Opening secure event capture. Wait for READY before tapping.';
     });
+    if (_scrollController.hasClients) {
+      _scrollController.animateTo(
+        0,
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOut,
+      );
+    }
     _secureEventSubscription = FitbitAirDiagnostics.watchSecureEvents().listen(
       (event) {
         if (!mounted) return;
@@ -100,20 +135,36 @@ class _DemoPageState extends State<DemoPage> {
           );
           if (_eventLog.length > 20) _eventLog.removeLast();
           if (event.kind == 'ready') {
+            _captureReady = true;
+            _captureClock.reset();
+            _captureClock.start();
+            _captureTimer = Timer.periodic(const Duration(milliseconds: 250), (
+              _,
+            ) {
+              if (!mounted) return;
+              setState(() {
+                _captureSeconds = _captureClock.elapsed.inSeconds;
+                if (_captureSeconds >= 30) _stopCaptureClock();
+              });
+            });
             _status =
-                'Secure event monitor READY. Double-tap now; '
-                '${event.durationSeconds}s observation window. No vibration commands.';
+                'Secure event monitor READY. Follow the timed instructions below. '
+                'No vibration commands.';
           } else if (event.kind == 'complete') {
+            _stopCaptureClock();
             _status =
                 'Secure observation complete: ${event.receivedPosts} incoming POSTs, '
-                '${event.droppedPosts} over diagnostic limit. Not confirmed wrist taps.';
+                '${event.droppedPosts} over diagnostic limit; '
+                '$_ledMarkers user-marked LED flashes. Tap detection remains unconfirmed.';
           }
         });
       },
       onError: (Object error) {
+        _stopCaptureClock();
         if (mounted) setState(() => _status = error.toString());
       },
       onDone: () {
+        _stopCaptureClock();
         _secureEventSubscription = null;
         if (mounted) setState(() => _busy = false);
       },
@@ -183,6 +234,8 @@ class _DemoPageState extends State<DemoPage> {
 
   @override
   void dispose() {
+    _stopCaptureClock();
+    _scrollController.dispose();
     _heartRateSubscription?.cancel();
     _deviceEventSubscription?.cancel();
     _secureEventSubscription?.cancel();
@@ -375,6 +428,7 @@ class _DemoPageState extends State<DemoPage> {
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: ListView(
+            controller: _scrollController,
             children: [
               const Icon(Icons.watch, size: 64),
               const SizedBox(height: 20),
@@ -384,6 +438,27 @@ class _DemoPageState extends State<DemoPage> {
                 style: Theme.of(context).textTheme.titleMedium,
               ),
               const SizedBox(height: 28),
+              if (_captureReady) ...[
+                Text(
+                  _captureSeconds < 5
+                      ? 'Baseline: keep the Air still (${5 - _captureSeconds}s).'
+                      : _captureSeconds < 25
+                      ? 'Double-tap, check for the LED flash, then press the marker below. '
+                            'Space attempts at least 5 seconds apart. ${30 - _captureSeconds}s left.'
+                      : 'Keep the Air still for the final ${30 - _captureSeconds}s.',
+                  textAlign: TextAlign.center,
+                ),
+                _button(
+                  onPressed: _captureSeconds >= 5 && _captureSeconds < 25
+                      ? _markRecognizedTap
+                      : null,
+                  icon: Icons.lightbulb_outline,
+                  label: 'LED flashed — mark observed double-tap',
+                ),
+                Text(
+                  '$_ledMarkers manual markers; these are not detected gestures.',
+                ),
+              ],
               if (_busy)
                 TextButton(
                   onPressed: () async {
@@ -398,6 +473,7 @@ class _DemoPageState extends State<DemoPage> {
                           });
                         }
                       } else if (_secureEventSubscription != null) {
+                        _stopCaptureClock();
                         await _secureEventSubscription!.cancel();
                         _secureEventSubscription = null;
                         if (mounted) {

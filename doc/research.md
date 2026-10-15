@@ -142,6 +142,53 @@ does not expose alarm/health data or device identifiers from the response body.
 This is a fixed allowlist, not an arbitrary resource or write API. These results
 apply to the tested firmware and bootstrap role, not all Fitbit devices or roles.
 
+### Tap-path reassessment and physical positive control
+
+The user subsequently reported that double-tapping did not produce a visible
+status LED flash. This does not prove the tracker failed to recognize every
+earlier attempt (the LED can also be obscured), but it means recognized gestures
+were not established as a positive control. Google's [Air guide](https://support.google.com/googlehealth/answer/17033101?hl=en)
+documents a firm double-tap waking the status light, and double-tap alarm
+dismissal. It does not document a phone-facing gesture API.
+
+The example now guides a 30-second secure-event trial: five seconds of quiet,
+20 seconds for spaced double-taps, then five seconds of quiet. A user can mark
+an observed LED flash while the capture is active. These timestamped manual
+markers are explicitly distinguished from Bluetooth events and stay in the
+bounded local log. A marker is delayed by the user's reaction time and is not
+an exact sensor timestamp. This instrumentation is not a tap detector.
+
+Additional source tracing narrowed the remaining leads:
+
+- `GoldenGateCommandHandler.registerResourceHandlers()` registers both
+  `events` (GROUP_1) and `eventsSecure` (GROUP_0), using the same event decoder.
+  `StackPeer.getDtlsEventObservable$lambda$0$4` changes the local filter to
+  GROUP_0 only when the session identity is neither `BOOTSTRAP` nor `hello`.
+  The current monitor covers `events` in the bootstrap session. This is not
+  evidence that `eventsSecure` carries taps, nor that changing our local filter
+  changes the tracker's authorization or event emission behavior.
+- `agxl` maps `phy` (`TRACKER_TAP_SUCCESS`) into `agjq` (`TrackerTapped`). Its
+  producer is `pwl` receiving `pid.TAPPED`; `ooi` emits that result after
+  `oxu.showPairingCodeOnDevice(TAP)` completes `ozn`, named
+  `DisplayClassicPairConfirmation`, using `AirlinkPacketDecoder`. This is a
+  classic pairing flow. The Golden Gate `PairCommandsHandler` instead sends
+  `PUT pair/display` and maps success to `DISPLAYED_CODE`, not `TAPPED`.
+  No pairing operation was invoked during this investigation.
+- `AspenRemoteUi.AspenInfo.AspenState` describes heart-rate-sharing states
+  (`SHARING_HR`, `SHARING_PAUSED`, connection/session states). The feature name
+  is not evidence for remote gesture input.
+- The inspected `LiveActivity.Activity` schema exposes summary activity/heart
+  rate fields, not raw acceleration samples. Its existence therefore does not
+  establish a route for implementing our own accelerometer tap classifier.
+
+Next evidence needed: repeated LED-confirmed taps correlated with incoming
+events and compared against quiet/movement controls. If the bootstrap path
+still has no signal, a read-only capture of the normal Google Health session
+can test whether recognized taps cause traffic at all, though encrypted
+traffic timing alone cannot establish a reliable gesture decoder. A useful
+package API still requires identified semantics, false-positive tests and
+coexistence verification; it is not implemented yet.
+
 ## Credential provisioning confirmation
 
 `qax.run()` case 5 obtains JSON through the app's authenticated service using

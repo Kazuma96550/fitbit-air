@@ -1,5 +1,7 @@
 ## 0.1.1
 
+- Guide physical tap research with timed quiet/tap intervals and explicitly
+  manual LED-observation markers in the demo; no tap-detection API is claimed.
 - Fix the incoming CoAP request-filter JNI signatures to match the installed
   transport; add ABI regression tests for active native constructors.
 - Add bounded, opt-in secure protocol-event observation. Startup/sync events
