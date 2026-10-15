@@ -1,11 +1,18 @@
 ## 0.1.1
 
+- Observe additional incoming routes, decode bounded `eventsSecure` event IDs,
+  and report partial observation duration on interruption. `WRS_ON` receipt
+  verified in a bootstrap session, including both presence states during a
+  user-confirmed removal/replacement trial.
+- Add a dedicated wrist-presence trial with manual action markers in the demo.
+- Add experimental, bounded `watchWristPresence()` with typed device-reported
+  states and phone receipt times.
 - Guide physical tap research with timed quiet/tap intervals and explicitly
   manual LED-observation markers in the demo; no tap-detection API is claimed.
 - Fix the incoming CoAP request-filter JNI signatures to match the installed
   transport; add ABI regression tests for active native constructors.
-- Add bounded, opt-in secure protocol-event observation. Startup/sync events
-  verified on hardware; wrist-tap and wrist-presence detection remain unverified.
+- Add bounded, opt-in secure protocol-event observation. Startup/sync and
+  wrist-presence events verified on hardware; wrist-tap detection remains open.
 - Add a fixed read-only resource-access probe without exposing response bodies.
   Device-info access succeeds; alarms, live activity and sync status are denied
   in the tested bootstrap session.

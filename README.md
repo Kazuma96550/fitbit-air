@@ -157,6 +157,23 @@ API**. Unknown IDs remain unknown; no settings, sync or haptic commands are
 sent. Cancel before another operation; Google Health coexistence is not
 guaranteed. The demo keeps only a bounded in-memory log.
 
+The monitor also observes six source-traced incoming routes, including
+`eventsSecure`. These probes retain a `4.04` rejection response. The two event
+routes use the same bounded event-ID decoder; other probes expose only route,
+method and byte count. Both `WRS_OFF` and `WRS_ON` were received through
+`eventsSecure` during a user-confirmed removal/replacement trial in a bootstrap
+session. Tap correlation still needs confirmation. An `interrupted` event reports actual observation
+time before a transport error; an incomplete trial cannot establish that a
+gesture produces no event. The demo includes a separate wrist-presence trial
+with manual removal/replacement markers. Start it on the phone when ready.
+
+For typed, experimental presence events, use
+`FitbitAirDiagnostics.watchWristPresence()` from the diagnostics import. Each
+event has `state` (`AirWristPresence.onWrist` or `offWrist`), `receivedAt`, and
+`sourcePath`. It shares the monitor's 30-second window and transport ownership;
+it retains repeated reports and supplies no synthetic initial state. Phone
+receipt times do not establish the time the tracker detected a transition.
+
 `FitbitAirDiagnostics.probeReadOnlyResources()` checks a fixed GET allowlist
 and returns status/body length, never raw response bodies. On the tested Air,
 device info succeeded; alarms, live activity and sync status returned `4.01`.

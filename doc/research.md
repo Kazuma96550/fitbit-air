@@ -111,8 +111,8 @@ The user reported performing the requested three double-taps, but their reply
 arrived after completion; exact physical timing cannot be independently
 established. No identifiable tap event appeared in the recorded window.
 This does not establish that taps are unavailable through a different resource,
-firmware state or normal paired-device session. Wrist-presence events are also
-not yet hardware-validated. `RSET` here is a received protocol event, not an
+firmware state or normal paired-device session. At this stage wrist-presence
+events had not been received; see the later route probe below. `RSET` here is a received protocol event, not an
 instruction from the demo to reset the device.
 
 The first incoming-request attempt crashed the demo's native loop. Comparing
@@ -188,6 +188,66 @@ can test whether recognized taps cause traffic at all, though encrypted
 traffic timing alone cannot establish a reliable gesture decoder. A useful
 package API still requires identified semantics, false-positive tests and
 coexistence verification; it is not implemented yet.
+
+### Additional incoming routes and WRS_ON receipt
+
+The diagnostic monitor now registers observers for the other phone-side routes
+traced in `GoldenGateCommandHandler`: `eventsSecure`, `sync/request`, `md/3d02`,
+`md/1802`, `sb/reply` and `sb/delete-records`. They return `4.04`, retaining the
+response used when those routes were absent from this endpoint. This differs
+from Google Health's full handlers, which can acknowledge and act on requests.
+These local GROUP_1 observers do not issue requests to tracker resources or
+obtain a normal paired key. Only the bounded `eventsSecure` event-ID schema is
+decoded; other probes return method, route label and byte count. Raw bodies are
+not returned to Dart or written to the repository. Route labels identify the
+registered prefix, not arbitrary URI suffixes.
+
+An earlier completed 30-second trial recorded five six-byte `eventsSecure`
+POSTs and two manual wrist-removal/replacement markers. Those bodies were not
+retained and therefore cannot be retrospectively decoded. Repeated requests
+may include retries after rejection; their count alone is not an event count
+or evidence of gestures.
+
+The later release capture started at phone time 13:17:21.988 and completed
+after 30004 ms. It received `RSET` on `events`, a 12-byte `eventsSecure` POST
+decoded as `[WRS_ON, RSET]` about 447 ms after ready, a 35-byte `sync/request`
+POST, then `BSNC` on `events`. No posts exceeded the limits. The user reported
+missing this physical trial; no manual markers were recorded. This establishes
+receipt of an on-wrist event in the bootstrap session, but not physical
+transition timing or tap detection. The route name and Google Health's local
+GROUP_0 policy did not mean the Air would never send the route in this session.
+
+A subsequent user-started trial ran for 30002 ms with two manual markers, one
+POST on `events`, four observed requests on other routes, and none dropped.
+It received an initial `WRS_ON`, then `[WRS_ON, RSET]`, followed by `WRS_OFF`
+at about +10.0 seconds and `WRS_ON` at about +18.1 seconds. The user marked
+removal at +11.6 seconds and replacement at +23.6 seconds and confirmed both
+actions. Both reports preceded their manual markers; those reaction delays
+prevent a sensor-latency estimate. This is hardware evidence for both presence
+states in a physical removal/replacement trial, not a tap signal or validation
+of continuous monitoring. The experimental `watchWristPresence()` Dart stream
+filters only these source-traced IDs from the two EventSet routes, preserves
+order and repeated reports, and retains the same bounded capture lifecycle.
+
+A subsequent user-started tap trial covered 30001 ms. It received one `RSET`
+POST on `events` and one `RSET` POST on `eventsSecure`, with no later event or
+other observed route request, no dropped messages and no LED markers. The user
+confirmed performing the taps and reported no LED flash. Thus adding the
+second route did not identify a tap signal in this trial, while recognition
+of the physical gestures remained unconfirmed. It does not justify treating
+RSET or wrist-presence transitions as taps, or concluding that recognized taps
+can never be observed. No further automatic capture was started afterward.
+
+Connection reliability remains open. In the preceding attempts, one connection
+timed out during secure-session setup and another received `RSET` before
+Android reported a disconnect with status 257. The latter lasted less than a
+second after ready. That status does not establish the underlying cause or
+whether Google Health contributed. Charging/unplugging had been reported by
+the user, but no causal relationship was established. Interrupted captures now
+emit partial counts and actual observation milliseconds before their error;
+zero coverage means the observer never reached ready. These failures cannot be
+used as negative gesture trials. No pairing or Google Health settings changes
+were performed to obtain these observations.
 
 ## Credential provisioning confirmation
 

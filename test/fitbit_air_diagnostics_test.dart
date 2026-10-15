@@ -44,6 +44,71 @@ void main() {
   );
 
   test(
+    'presence mapping retains reported order and ignores other routes and events',
+    () {
+      final event = AirSecureEvent.fromMap({
+        'kind': 'unhandled_request',
+        'receivedAtMillis': 1234,
+        'path': 'eventsSecure',
+        'eventIds': [
+          2003989291,
+          1920165236,
+          2003989293,
+          1885957735,
+          2003989291,
+        ],
+      });
+      expect(event.wristPresenceEvents.map((e) => e.state), [
+        AirWristPresence.onWrist,
+        AirWristPresence.offWrist,
+        AirWristPresence.onWrist,
+      ]);
+      expect(event.wristPresenceEvents.first.sourcePath, 'eventsSecure');
+      expect(
+        event.wristPresenceEvents.first.receivedAt.millisecondsSinceEpoch,
+        1234,
+      );
+      final unrelated = AirSecureEvent.fromMap({
+        'kind': 'unhandled_request',
+        'receivedAtMillis': 1234,
+        'path': 'md/1802',
+        'eventIds': [2003989291],
+      });
+      expect(unrelated.wristPresenceEvents, isEmpty);
+    },
+  );
+
+  test(
+    'interrupted observation preserves coverage without implying completion',
+    () {
+      final interrupted = AirSecureEvent.fromMap({
+        'kind': 'interrupted',
+        'receivedAtMillis': 1000,
+        'observationMillis': 577,
+        'receivedPosts': 1,
+        'otherRequests': 2,
+        'errorCode': 'GATT_DISCONNECTED',
+      });
+      expect(interrupted.kind, 'interrupted');
+      expect(interrupted.observationMillis, 577);
+      expect(interrupted.otherRequests, 2);
+      expect(interrupted.errorCode, 'GATT_DISCONNECTED');
+      expect(interrupted.eventIds, isEmpty);
+      final route = AirSecureEvent.fromMap({
+        'kind': 'unhandled_request',
+        'receivedAtMillis': 999,
+        'path': 'eventsSecure',
+        'method': 'POST',
+        'bodyLength': 6,
+      });
+      expect(route.path, 'eventsSecure');
+      expect(route.method, 'POST');
+      expect(route.bodyLength, 6);
+      expect(route.eventNames, isEmpty);
+    },
+  );
+
+  test(
     'secure event metadata retains unknown IDs without gesture inference',
     () {
       final event = AirSecureEvent.fromMap({

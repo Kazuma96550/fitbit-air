@@ -909,6 +909,12 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
             return
         }
         val reply = pendingResult ?: return
+        if (activeOperation == Operation.CaptureSecureEvents) {
+            secureEvents?.success((secureCapture?.summary() ?: mapOf("observationMillis" to 0L)) + mapOf(
+                "kind" to "interrupted", "errorCode" to code,
+                "receivedAtMillis" to System.currentTimeMillis(),
+            ))
+        }
         pendingResult = null
         activeOperation = null
         closeTransport()

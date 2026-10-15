@@ -10,11 +10,23 @@ class FitbitAirDiagnostics {
   static const _methods = MethodChannel('fitbit_air');
   static const _secureChannel = EventChannel('fitbit_air/secure_events');
 
+  /// Experimental, bounded wrist-presence events from the secure monitor.
+  /// Opens the same bootstrap session as [watchSecureEvents], for up to 30s
+  /// after ready. Cancel before another SDK operation. Repeated events are
+  /// retained; no initial state or tap is inferred. Times are phone receipt
+  /// times. Transport interruptions raise [FitbitAirException].
+  static Stream<AirWristPresenceEvent> watchWristPresence() =>
+      watchSecureEvents().expand((event) => event.wristPresenceEvents);
+
   /// Observes device-originated POST /events for up to 30 seconds after ready.
   /// Opens a bootstrap DTLS session and ACKs valid event messages, but sends no
   /// setting, alarm, sync or reset command. May contend with Google Health.
   /// These are protocol events, NOT confirmed wrist taps. The 45-second total
   /// operation deadline can end the capture early if negotiation is slow.
+  /// Other source-traced incoming routes are rejected with 4.04; eventsSecure
+  /// additionally uses the same bounded event-ID decoder. No raw bodies are
+  /// returned. An interrupted event precedes transport errors and
+  /// reports actual observation time; zero means the monitor was never ready.
   static Stream<AirSecureEvent> watchSecureEvents() => _secureChannel
       .receiveBroadcastStream()
       .map(
@@ -123,7 +135,14 @@ class AirSecureEvent {
       ),
       receivedPosts = map['receivedPosts'] as int?,
       droppedPosts = map['droppedPosts'] as int?,
-      durationSeconds = map['durationSeconds'] as int?;
+      durationSeconds = map['durationSeconds'] as int?,
+      path = map['path'] as String?,
+      method = map['method'] as String?,
+      bodyLength = map['bodyLength'] as int?,
+      observationMillis = map['observationMillis'] as int?,
+      otherRequests = map['otherRequests'] as int?,
+      droppedOtherRequests = map['droppedOtherRequests'] as int?,
+      errorCode = map['errorCode'] as String?;
   final String kind;
   final DateTime receivedAt;
   final List<int> eventIds;
@@ -131,6 +150,43 @@ class AirSecureEvent {
   final int? receivedPosts;
   final int? droppedPosts;
   final int? durationSeconds;
+  final String? path;
+  final String? method;
+  final int? bodyLength;
+  final int? observationMillis;
+  final int? otherRequests;
+  final int? droppedOtherRequests;
+  final String? errorCode;
+
+  /// Only the two source-traced EventSet routes can yield presence events.
+  List<AirWristPresenceEvent> get wristPresenceEvents {
+    if ((kind != 'device_event' && kind != 'unhandled_request') ||
+        (path != 'events' && path != 'eventsSecure')) {
+      return const [];
+    }
+    return List.unmodifiable([
+      for (final id in eventIds)
+        if (id == 2003989291 || id == 2003989293)
+          AirWristPresenceEvent._(
+            id == 2003989291
+                ? AirWristPresence.onWrist
+                : AirWristPresence.offWrist,
+            receivedAt,
+            path!,
+          ),
+    ]);
+  }
+}
+
+/// Source-traced tracker wrist-presence state; independent of tap recognition.
+enum AirWristPresence { onWrist, offWrist }
+
+/// Device-reported presence with phone receipt time and originating route.
+class AirWristPresenceEvent {
+  const AirWristPresenceEvent._(this.state, this.receivedAt, this.sourcePath);
+  final AirWristPresence state;
+  final DateTime receivedAt;
+  final String sourcePath;
 }
 
 /// Access metadata only; a successful response is not a decoded stats API.

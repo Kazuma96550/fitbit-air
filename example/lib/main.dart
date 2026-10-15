@@ -88,6 +88,8 @@ class _DemoPageState extends State<DemoPage> {
   int _captureSeconds = 0;
   int _ledMarkers = 0;
   bool _captureReady = false;
+  bool _wristPresenceTrial = false;
+  String? _captureInterruption;
 
   void _stopCaptureClock() {
     _captureTimer?.cancel();
@@ -95,27 +97,29 @@ class _DemoPageState extends State<DemoPage> {
     _captureReady = false;
   }
 
-  void _markRecognizedTap() {
+  void _markObservation(String observation) {
     if (!_captureReady || _captureClock.elapsedMilliseconds >= 30000) return;
     setState(() {
       _ledMarkers++;
       _eventLog.insert(
         0,
-        '${DateTime.now()} · USER observed LED flash '
+        '${DateTime.now()} · USER $observation '
         'at +${_captureClock.elapsedMilliseconds}ms (manual marker, not BLE detection)',
       );
       if (_eventLog.length > 20) _eventLog.removeLast();
     });
   }
 
-  void _watchSecureEvents() {
+  void _watchSecureEvents({bool wristPresence = false}) {
     _stopCaptureClock();
     setState(() {
       _busy = true;
       _eventLog.clear();
       _ledMarkers = 0;
       _captureSeconds = 0;
-      _status = 'Opening secure event capture. Wait for READY before tapping.';
+      _wristPresenceTrial = wristPresence;
+      _captureInterruption = null;
+      _status = 'Opening secure event capture. Keep the Air on until READY.';
     });
     if (_scrollController.hasClients) {
       _scrollController.animateTo(
@@ -131,7 +135,10 @@ class _DemoPageState extends State<DemoPage> {
           _eventLog.insert(
             0,
             '${event.receivedAt.toLocal()} · CoAP ${event.kind} '
-            '${event.eventNames} ${event.eventIds}',
+            '${event.path ?? ""} ${event.method ?? ""} '
+            '${event.bodyLength == null ? "" : "${event.bodyLength} bytes "}'
+            '${event.eventNames} ${event.eventIds}'
+            '${event.observationMillis == null ? "" : " · observed ${event.observationMillis}ms"}',
           );
           if (_eventLog.length > 20) _eventLog.removeLast();
           if (event.kind == 'ready') {
@@ -154,14 +161,24 @@ class _DemoPageState extends State<DemoPage> {
             _stopCaptureClock();
             _status =
                 'Secure observation complete: ${event.receivedPosts} incoming POSTs, '
+                '${event.otherRequests ?? 0} other requests; '
                 '${event.droppedPosts} over diagnostic limit; '
-                '$_ledMarkers user-marked LED flashes. Tap detection remains unconfirmed.';
+                '$_ledMarkers manual markers. Gesture detection remains unconfirmed.';
+          } else if (event.kind == 'interrupted') {
+            _stopCaptureClock();
+            _captureInterruption =
+                'Incomplete trial: ${event.observationMillis ?? 0}ms observed, '
+                '${event.receivedPosts ?? 0} event POSTs, '
+                '${event.otherRequests ?? 0} other requests. '
+                'This is not a negative gesture result.';
           }
         });
       },
       onError: (Object error) {
         _stopCaptureClock();
-        if (mounted) setState(() => _status = error.toString());
+        if (mounted) {
+          setState(() => _status = '$error\n${_captureInterruption ?? ""}');
+        }
       },
       onDone: () {
         _stopCaptureClock();
@@ -442,19 +459,39 @@ class _DemoPageState extends State<DemoPage> {
                 Text(
                   _captureSeconds < 5
                       ? 'Baseline: keep the Air still (${5 - _captureSeconds}s).'
+                      : _wristPresenceTrial
+                      ? (_captureSeconds < 15
+                            ? 'Remove the Air now and mark it below. Keep it off until the next prompt.'
+                            : 'Put the Air back on and mark it below. ${30 - _captureSeconds}s left.')
                       : _captureSeconds < 25
                       ? 'Double-tap, check for the LED flash, then press the marker below. '
                             'Space attempts at least 5 seconds apart. ${30 - _captureSeconds}s left.'
                       : 'Keep the Air still for the final ${30 - _captureSeconds}s.',
                   textAlign: TextAlign.center,
                 ),
-                _button(
-                  onPressed: _captureSeconds >= 5 && _captureSeconds < 25
-                      ? _markRecognizedTap
-                      : null,
-                  icon: Icons.lightbulb_outline,
-                  label: 'LED flashed — mark observed double-tap',
-                ),
+                if (_wristPresenceTrial) ...[
+                  _button(
+                    onPressed: _captureSeconds >= 5
+                        ? () => _markObservation('removed Air from wrist')
+                        : null,
+                    icon: Icons.watch_off,
+                    label: 'Mark: Air is off my wrist',
+                  ),
+                  _button(
+                    onPressed: _captureSeconds >= 5
+                        ? () => _markObservation('put Air back on wrist')
+                        : null,
+                    icon: Icons.watch,
+                    label: 'Mark: Air is back on my wrist',
+                  ),
+                ] else
+                  _button(
+                    onPressed: _captureSeconds >= 5 && _captureSeconds < 25
+                        ? () => _markObservation('observed LED flash')
+                        : null,
+                    icon: Icons.lightbulb_outline,
+                    label: 'LED flashed — mark observed double-tap',
+                  ),
                 Text(
                   '$_ledMarkers manual markers; these are not detected gestures.',
                 ),
@@ -578,6 +615,13 @@ class _DemoPageState extends State<DemoPage> {
                 onPressed: _busy ? null : _watchSecureEvents,
                 icon: Icons.hub_outlined,
                 label: 'Research: secure events (30s)',
+              ),
+              _button(
+                onPressed: _busy
+                    ? null
+                    : () => _watchSecureEvents(wristPresence: true),
+                icon: Icons.watch_outlined,
+                label: 'Research: wrist-presence trial (30s)',
               ),
               _button(
                 onPressed: _busy ? null : _probeBattery,
