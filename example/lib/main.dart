@@ -89,6 +89,7 @@ class _DemoPageState extends State<DemoPage> {
   int _ledMarkers = 0;
   bool _captureReady = false;
   bool _wristPresenceTrial = false;
+  bool _alarmTrial = false;
   String? _captureInterruption;
 
   void _stopCaptureClock() {
@@ -110,7 +111,7 @@ class _DemoPageState extends State<DemoPage> {
     });
   }
 
-  void _watchSecureEvents({bool wristPresence = false}) {
+  void _watchSecureEvents({bool wristPresence = false, bool alarm = false}) {
     _stopCaptureClock();
     setState(() {
       _busy = true;
@@ -118,6 +119,7 @@ class _DemoPageState extends State<DemoPage> {
       _ledMarkers = 0;
       _captureSeconds = 0;
       _wristPresenceTrial = wristPresence;
+      _alarmTrial = alarm;
       _captureInterruption = null;
       _status = 'Opening secure event capture. Keep the Air on until READY.';
     });
@@ -457,7 +459,10 @@ class _DemoPageState extends State<DemoPage> {
               const SizedBox(height: 28),
               if (_captureReady) ...[
                 Text(
-                  _captureSeconds < 5
+                  _alarmTrial
+                      ? 'Wait for the alarm, mark its start, then double-tap to dismiss. '
+                            'Mark the attempt and whether vibration stopped. ${30 - _captureSeconds}s left.'
+                      : _captureSeconds < 5
                       ? 'Baseline: keep the Air still (${5 - _captureSeconds}s).'
                       : _wristPresenceTrial
                       ? (_captureSeconds < 15
@@ -469,7 +474,27 @@ class _DemoPageState extends State<DemoPage> {
                       : 'Keep the Air still for the final ${30 - _captureSeconds}s.',
                   textAlign: TextAlign.center,
                 ),
-                if (_wristPresenceTrial) ...[
+                if (_alarmTrial) ...[
+                  _button(
+                    onPressed: () =>
+                        _markObservation('alarm vibration started'),
+                    icon: Icons.alarm,
+                    label: 'Mark: alarm started',
+                  ),
+                  _button(
+                    onPressed: () => _markObservation(
+                      'attempted alarm-dismissal double-tap',
+                    ),
+                    icon: Icons.touch_app,
+                    label: 'Mark: dismissal double-tap attempted',
+                  ),
+                  _button(
+                    onPressed: () =>
+                        _markObservation('alarm vibration stopped after tap'),
+                    icon: Icons.alarm_off,
+                    label: 'Mark: alarm stopped after tap',
+                  ),
+                ] else if (_wristPresenceTrial) ...[
                   _button(
                     onPressed: _captureSeconds >= 5
                         ? () => _markObservation('removed Air from wrist')
@@ -623,6 +648,11 @@ class _DemoPageState extends State<DemoPage> {
                 onPressed: _busy ? null : _watchSecureEvents,
                 icon: Icons.hub_outlined,
                 label: 'Research: secure events (30s)',
+              ),
+              _button(
+                onPressed: _busy ? null : () => _watchSecureEvents(alarm: true),
+                icon: Icons.alarm,
+                label: 'Research: alarm dismissal (30s)',
               ),
               _button(
                 onPressed: _busy

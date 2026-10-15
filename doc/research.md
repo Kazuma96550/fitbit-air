@@ -191,6 +191,22 @@ coexistence verification; it is not implemented yet.
 
 ### Additional incoming routes and WRS_ON receipt
 
+The normal-ACK tap trial on 2026-10-15 at 13:30:20–13:30:50 completed
+30,003 ms of observation. It received RSET on both event routes, a sync/request,
+and BSNC on events. No manual markers were recorded; the user confirmed
+double-taps but no LED flash. No tap-specific event was identified. This does
+not establish that the hardware recognized the gestures. The next positive
+control is dismissal of a user-authorized alarm, with separate manual markers
+for alarm onset, attempted dismissal, and vibration stopping. Even a detected
+dismissal would not establish unrestricted, idle-state tap detection.
+
+During preparation of this positive-control trial, Google Health displayed
+connected/81% on its device page but failed to synchronize alarms, including
+one retry. The add-alarm control stayed disabled while loading. No test alarm
+was created and no diagnostic capture was active. Cause is unestablished;
+normal Google Health reconnection/coexistence remains a reliability question,
+not a validated property of the bootstrap monitor.
+
 The initial diagnostic monitor registered observers for the other phone-side routes
 traced in `GoldenGateCommandHandler`: `eventsSecure`, `sync/request`, `md/3d02`,
 `md/1802`, `sb/reply` and `sb/delete-records`. They returned `4.04`, retaining the

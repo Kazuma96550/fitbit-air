@@ -3,6 +3,8 @@
 - Acknowledge valid POSTs on both event routes with CoAP `2.04`, matching
   Google Health's event handler; reject malformed event payloads with `4.00`.
 - Add a manual tap-attempt marker independent of LED confirmation in the demo.
+- Add an alarm-dismissal observation trial with separate manual onset, attempt,
+  and stopped-vibration markers; the demo does not create alarms.
 - Observe additional incoming routes, decode bounded `eventsSecure` event IDs,
   and report partial observation duration on interruption. `WRS_ON` receipt
   verified in a bootstrap session, including both presence states during a
