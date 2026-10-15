@@ -191,9 +191,9 @@ coexistence verification; it is not implemented yet.
 
 ### Additional incoming routes and WRS_ON receipt
 
-The diagnostic monitor now registers observers for the other phone-side routes
+The initial diagnostic monitor registered observers for the other phone-side routes
 traced in `GoldenGateCommandHandler`: `eventsSecure`, `sync/request`, `md/3d02`,
-`md/1802`, `sb/reply` and `sb/delete-records`. They return `4.04`, retaining the
+`md/1802`, `sb/reply` and `sb/delete-records`. They returned `4.04`, retaining the
 response used when those routes were absent from this endpoint. This differs
 from Google Health's full handlers, which can acknowledge and act on requests.
 These local GROUP_1 observers do not issue requests to tracker resources or
@@ -201,6 +201,16 @@ obtain a normal paired key. Only the bounded `eventsSecure` event-ID schema is
 decoded; other probes return method, route label and byte count. Raw bodies are
 not returned to Dart or written to the repository. Route labels identify the
 registered prefix, not arbitrary URI suffixes.
+
+For the unreleased 0.1.2 experiment, both `events` and `eventsSecure` now use
+the same bounded EventSet decoder and acknowledge valid POSTs with `2.04`;
+malformed payloads receive `4.00`. The five other routes still return `4.04`.
+Acknowledgment does not execute Google Health's sync/reset handlers or issue
+settings commands. This tests whether rejection was affecting event delivery;
+it is not evidence that tap events exist. The demo reports the acknowledgment
+mode at READY and separates manual tap-attempt markers from LED confirmation.
+The observations below predate this acknowledgment change. These diagnostics
+are not part of the already-published 0.1.1 release.
 
 An earlier completed 30-second trial recorded five six-byte `eventsSecure`
 POSTs and two manual wrist-removal/replacement markers. Those bodies were not

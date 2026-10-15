@@ -1,5 +1,8 @@
-## 0.1.1
+## 0.1.2
 
+- Acknowledge valid POSTs on both event routes with CoAP `2.04`, matching
+  Google Health's event handler; reject malformed event payloads with `4.00`.
+- Add a manual tap-attempt marker independent of LED confirmation in the demo.
 - Observe additional incoming routes, decode bounded `eventsSecure` event IDs,
   and report partial observation duration on interruption. `WRS_ON` receipt
   verified in a bootstrap session, including both presence states during a
@@ -16,6 +19,9 @@
 - Add a fixed read-only resource-access probe without exposing response bodies.
   Device-info access succeeds; alarms, live activity and sync status are denied
   in the tested bootstrap session.
+
+## 0.1.1
+
 - Add bounded haptic command dispatch with expiry, duplicate suppression,
   rate limiting, and no automatic retry of ambiguous device failures.
 - Guard transport ownership across Flutter engines in the same process.

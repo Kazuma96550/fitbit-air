@@ -30,10 +30,14 @@ Or add it to `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  fitbit_air: ^0.1.0
+  fitbit_air: ^0.1.1
 ```
 
 For unreleased development changes only, use the Git repository instead:
+
+The current development version is **0.1.2**. Secure-event and wrist-presence
+diagnostics described below require this version; they are not in the published
+0.1.1 release.
 
 ```yaml
 dependencies:
@@ -157,9 +161,10 @@ API**. Unknown IDs remain unknown; no settings, sync or haptic commands are
 sent. Cancel before another operation; Google Health coexistence is not
 guaranteed. The demo keeps only a bounded in-memory log.
 
-The monitor also observes six source-traced incoming routes, including
-`eventsSecure`. These probes retain a `4.04` rejection response. The two event
-routes use the same bounded event-ID decoder; other probes expose only route,
+The monitor decodes both `events` and `eventsSecure`, acknowledging valid
+EventSet POSTs with `2.04` and rejecting malformed bodies with `4.00`.
+Five other source-traced incoming routes retain a `4.04` rejection response.
+The two event routes use the same bounded event-ID decoder; other probes expose only route,
 method and byte count. Both `WRS_OFF` and `WRS_ON` were received through
 `eventsSecure` during a user-confirmed removal/replacement trial in a bootstrap
 session. Tap correlation still needs confirmation. An `interrupted` event reports actual observation

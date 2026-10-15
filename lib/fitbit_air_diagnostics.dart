@@ -18,13 +18,13 @@ class FitbitAirDiagnostics {
   static Stream<AirWristPresenceEvent> watchWristPresence() =>
       watchSecureEvents().expand((event) => event.wristPresenceEvents);
 
-  /// Observes device-originated POST /events for up to 30 seconds after ready.
-  /// Opens a bootstrap DTLS session and ACKs valid event messages, but sends no
+  /// Observes POST /events and /eventsSecure for up to 30 seconds after ready.
+  /// Opens a bootstrap DTLS session and ACKs valid events on both routes with
+  /// 2.04 (malformed bodies receive 4.00), but sends no
   /// setting, alarm, sync or reset command. May contend with Google Health.
   /// These are protocol events, NOT confirmed wrist taps. The 45-second total
   /// operation deadline can end the capture early if negotiation is slow.
-  /// Other source-traced incoming routes are rejected with 4.04; eventsSecure
-  /// additionally uses the same bounded event-ID decoder. No raw bodies are
+  /// Other source-traced incoming routes are rejected with 4.04. No raw bodies are
   /// returned. An interrupted event precedes transport errors and
   /// reports actual observation time; zero means the monitor was never ready.
   static Stream<AirSecureEvent> watchSecureEvents() => _secureChannel
@@ -142,7 +142,8 @@ class AirSecureEvent {
       observationMillis = map['observationMillis'] as int?,
       otherRequests = map['otherRequests'] as int?,
       droppedOtherRequests = map['droppedOtherRequests'] as int?,
-      errorCode = map['errorCode'] as String?;
+      errorCode = map['errorCode'] as String?,
+      eventResponseCode = map['eventResponseCode'] as String?;
   final String kind;
   final DateTime receivedAt;
   final List<int> eventIds;
@@ -157,6 +158,7 @@ class AirSecureEvent {
   final int? otherRequests;
   final int? droppedOtherRequests;
   final String? errorCode;
+  final String? eventResponseCode;
 
   /// Only the two source-traced EventSet routes can yield presence events.
   List<AirWristPresenceEvent> get wristPresenceEvents {

@@ -36,16 +36,40 @@ class AirRejectedRouteHandlerTest {
         }
     }
 
-    @Test fun `decodes the secure event route while preserving rejection`() {
+    @Test fun `acknowledges decoded secure events with changed`() {
         val events = mutableListOf<Map<String, Any>>()
-        val handler = AirRejectedRouteHandler("eventsSecure", events::add)
+        val handler = AirEventResourceHandler("eventsSecure", events::add)
         val bytes = byteArrayOf(8, 0xab.toByte(), 0xe6.toByte(), 0xc9.toByte(), 0xbb.toByte(), 7)
         val response = handler.onPost(request(Method.POST, Single.just(bytes)),
             OutgoingResponseBuilder()).blockingGet()
-        assertEquals(ResponseCode.notFound, response.responseCode)
+        assertEquals(ResponseCode.changed, response.responseCode)
         assertEquals(listOf(2003989291L), events.single()["eventIds"])
         assertEquals(listOf("WRS_ON"), events.single()["eventNames"])
         assertFalse(events.single().containsKey("payload"))
+    }
+
+    @Test fun `both event routes reject malformed and oversized payloads`() {
+        for (path in listOf("events", "eventsSecure")) {
+            for (bytes in listOf(byteArrayOf(8), ByteArray(1025))) {
+                val events = mutableListOf<Map<String, Any>>()
+                val handler = AirEventResourceHandler(path, events::add)
+                val response = handler.onPost(request(Method.POST, Single.just(bytes)),
+                    OutgoingResponseBuilder()).blockingGet()
+                assertEquals(ResponseCode.badRequest, response.responseCode)
+                assertEquals("malformed_event", events.single()["kind"])
+                assertFalse(events.single().containsKey("eventIds"))
+            }
+        }
+    }
+
+    @Test fun `valid unknown events are acknowledged without becoming gestures`() {
+        val events = mutableListOf<Map<String, Any>>()
+        val handler = AirEventResourceHandler("eventsSecure", events::add)
+        val response = handler.onPost(request(Method.POST, Single.just(byteArrayOf(8, 1))),
+            OutgoingResponseBuilder()).blockingGet()
+        assertEquals(ResponseCode.changed, response.responseCode)
+        assertEquals(listOf(1L), events.single()["eventIds"])
+        assertEquals(listOf("UNKNOWN"), events.single()["eventNames"])
     }
 
     @Test fun `body failure still rejects and never exposes error contents`() {

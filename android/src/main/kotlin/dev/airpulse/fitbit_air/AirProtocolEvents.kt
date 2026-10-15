@@ -83,17 +83,6 @@ internal class AirRejectedRouteHandler(
             val event = mutableMapOf<String, Any>("kind" to "unhandled_request", "path" to path,
                 "method" to request.method.name, "bodyLength" to bytes.size,
                 "receivedAtMillis" to System.currentTimeMillis())
-            // Google Health uses the same EventSet decoder for both routes.
-            // Decode known event IDs without changing the rejection response.
-            if (path == "eventsSecure" && request.method == com.fitbit.goldengate.bindings.coap.data.Method.POST) {
-                try {
-                    val ids = AirProtocolEventDecoder.decode(bytes)
-                    event["eventIds"] = ids
-                    event["eventNames"] = ids.map(AirProtocolEventDecoder::name)
-                } catch (_: IllegalArgumentException) {
-                    event["decodeError"] = "INVALID_EVENT_SET"
-                }
-            }
             emit(event)
             builder.responseCode(ResponseCode.notFound).build()
         }.onErrorReturn { builder.responseCode(ResponseCode.notFound).build() }
@@ -102,6 +91,32 @@ internal class AirRejectedRouteHandler(
     override fun onPost(request: IncomingRequest, responseBuilder: OutgoingResponseBuilder) = reject(request, responseBuilder)
     override fun onPut(request: IncomingRequest, responseBuilder: OutgoingResponseBuilder) = reject(request, responseBuilder)
     override fun onDelete(request: IncomingRequest, responseBuilder: OutgoingResponseBuilder) = reject(request, responseBuilder)
+}
+
+/** Shared EventSet handler for the two routes registered by Google Health. */
+internal class AirEventResourceHandler(
+    private val path: String,
+    private val emit: (Map<String, Any>) -> Unit,
+) : BaseResourceHandler() {
+    override fun onPost(request: IncomingRequest, responseBuilder: OutgoingResponseBuilder): Single<OutgoingResponse> =
+        request.body.asData().map { bytes ->
+            val event = mutableMapOf<String, Any>(
+                "path" to path, "method" to "POST", "bodyLength" to bytes.size,
+                "receivedAtMillis" to System.currentTimeMillis(),
+            )
+            val code = try {
+                val ids = AirProtocolEventDecoder.decode(bytes)
+                event["kind"] = "device_event"
+                event["eventIds"] = ids
+                event["eventNames"] = ids.map(AirProtocolEventDecoder::name)
+                ResponseCode.changed
+            } catch (_: IllegalArgumentException) {
+                event["kind"] = "malformed_event"
+                ResponseCode.badRequest
+            }
+            emit(event)
+            responseBuilder.responseCode(code).build()
+        }.onErrorReturn { responseBuilder.responseCode(ResponseCode.badRequest).build() }
 }
 
 /** Bounded incoming-request observation; no outgoing setting/sync/reset commands. */
@@ -126,35 +141,16 @@ internal class AirSecureEventCapture(
     )
 
     fun start(): Single<Map<String, Any>> {
-        val resource = object : BaseResourceHandler() {
-            override fun onPost(request: IncomingRequest, responseBuilder: OutgoingResponseBuilder) =
-                request.body.asData().map { bytes ->
-                    val count = posts.incrementAndGet()
-                    var code = ResponseCode.changed
-                    if (!closed.get() && count <= 64) {
-                        val event = mutableMapOf<String, Any>("receivedAtMillis" to System.currentTimeMillis())
-                        event["path"] = "events"
-                        event["method"] = "POST"
-                        event["bodyLength"] = bytes.size
-                        try {
-                            val ids = AirProtocolEventDecoder.decode(bytes)
-                            event["kind"] = "device_event"
-                            event["eventIds"] = ids
-                            event["eventNames"] = ids.map(AirProtocolEventDecoder::name)
-                        } catch (_: IllegalArgumentException) {
-                            event["kind"] = "malformed_event"
-                            code = ResponseCode.badRequest
-                        }
-                        emit(event)
-                    }
-                    responseBuilder.responseCode(code).build()
-                }
+        val eventHandlers = listOf("events", "eventsSecure").associateWith { path ->
+            AirEventResourceHandler(path) { event ->
+                if (!closed.get() && posts.incrementAndGet() <= 64) emit(event)
+            }
         }
         // Source-traced phone-side routes, NOT tracker endpoints to request.
-        // These observers reject requests; registering them does not establish
-        // normal paired authorization or claim the protected route is supported.
-        val handlers = mapOf("events" to resource) + listOf(
-            "eventsSecure", "sync/request", "md/3d02", "md/1802", "sb/reply", "sb/delete-records"
+        // Other observers retain 4.04. Event ACKs do not initiate sync, execute
+        // a reset, change settings, or establish normal paired authorization.
+        val handlers = eventHandlers + listOf(
+            "sync/request", "md/3d02", "md/1802", "sb/reply", "sb/delete-records"
         ).associateWith { path -> AirRejectedRouteHandler(path) { event ->
             if (!closed.get() && otherRequests.incrementAndGet() <= 32) emit(event)
         } }
@@ -165,7 +161,7 @@ internal class AirSecureEventCapture(
         })
             .andThen(Single.defer {
                 readyAtNanos = System.nanoTime()
-                emit(mapOf("kind" to "ready", "durationSeconds" to 30,
+                emit(mapOf("kind" to "ready", "durationSeconds" to 30, "eventResponseCode" to "2.04",
                     "receivedAtMillis" to System.currentTimeMillis()))
                 Single.timer(30, TimeUnit.SECONDS).map {
                     summary()

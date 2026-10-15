@@ -156,7 +156,7 @@ class _DemoPageState extends State<DemoPage> {
             });
             _status =
                 'Secure event monitor READY. Follow the timed instructions below. '
-                'No vibration commands.';
+                'Event acknowledgment: ${event.eventResponseCode ?? "unknown"}. No vibration commands.';
           } else if (event.kind == 'complete') {
             _stopCaptureClock();
             _status =
@@ -464,7 +464,7 @@ class _DemoPageState extends State<DemoPage> {
                             ? 'Remove the Air now and mark it below. Keep it off until the next prompt.'
                             : 'Put the Air back on and mark it below. ${30 - _captureSeconds}s left.')
                       : _captureSeconds < 25
-                      ? 'Double-tap, check for the LED flash, then press the marker below. '
+                      ? 'Double-tap, then mark the attempt below. Mark the LED separately if it flashes. '
                             'Space attempts at least 5 seconds apart. ${30 - _captureSeconds}s left.'
                       : 'Keep the Air still for the final ${30 - _captureSeconds}s.',
                   textAlign: TextAlign.center,
@@ -484,7 +484,14 @@ class _DemoPageState extends State<DemoPage> {
                     icon: Icons.watch,
                     label: 'Mark: Air is back on my wrist',
                   ),
-                ] else
+                ] else ...[
+                  _button(
+                    onPressed: _captureSeconds >= 5 && _captureSeconds < 25
+                        ? () => _markObservation('attempted double-tap')
+                        : null,
+                    icon: Icons.touch_app,
+                    label: 'Mark: double-tap attempted',
+                  ),
                   _button(
                     onPressed: _captureSeconds >= 5 && _captureSeconds < 25
                         ? () => _markObservation('observed LED flash')
@@ -492,6 +499,7 @@ class _DemoPageState extends State<DemoPage> {
                     icon: Icons.lightbulb_outline,
                     label: 'LED flashed — mark observed double-tap',
                   ),
+                ],
                 Text(
                   '$_ledMarkers manual markers; these are not detected gestures.',
                 ),
