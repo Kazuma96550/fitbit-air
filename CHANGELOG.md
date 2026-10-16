@@ -1,5 +1,22 @@
 ## 0.1.2
 
+- Organize the example into Relay, Device and Lab screens with a shared named
+  action controller, explicit transport ownership, and safe relay-stop handoff.
+- Add app search/icons, setup checks, a relay-aware vibration test, and bounded
+  persistent metadata history with terminal outcomes, latency and recovery hints.
+- Add saved research durations, structured bounded trial results, sanitized JSON
+  export, manual physical-observation markers, stable control keys and opt-in
+  physical-device integration scenarios. Existing research tools remain available.
+
+- Generalize the example relay to a saved app allowlist with an installed-app
+  picker, including WhatsApp. Accept newer MessagingStyle timestamps on reused
+  chat notification keys while suppressing duplicate updates and old history.
+
+- Add an example-only Google Calendar notification relay with notification-access
+  setup, foreground Start/Stop controls, duplicate filtering and bounded haptic
+  dispatch. WhatsApp relay smoke success was user-reported on 2026-10-16;
+  long-term reliability and the revised UI still need physical validation.
+
 - Allow bounded 30–90 second secure-event research trials; use 90 seconds for
   alarm dismissal so delayed events can be observed after the gesture.
 
