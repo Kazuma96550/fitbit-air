@@ -96,6 +96,7 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
     private var heartRateSubscribed = false
     private var scanCallback: ScanCallback? = null
     private var handoff: Handoff? = null
+    private var handoffOutcome: String? = null
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         appContext = binding.applicationContext
@@ -966,7 +967,7 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
         val reply = pendingResult ?: return
         handoff?.let { pending ->
             // The link failed or the handoff errored: release now.
-            completeHandoff(pending)
+            completeHandoff(pending, "link_lost")
             return
         }
         if (activeOperation == Operation.CaptureSecureEvents) {
@@ -1012,10 +1013,7 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
         handoff = pending
         timeout?.let(handler::removeCallbacks)
         timeout = null
-        val deadline = Runnable {
-            android.util.Log.d("FitbitAir", "handoff deadline reached")
-            completeHandoff(pending)
-        }
+        val deadline = Runnable { completeHandoff(pending, "deadline") }
         pending.deadline = deadline
         handler.postDelayed(deadline, HANDOFF_TIMEOUT_MS)
         try {
@@ -1039,7 +1037,7 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
                     synchronized(txQueue) { txQueue.addLast(data) }
                     writeNextPacket(activeGatt)
                 }
-            }, { handler.post { if (handoff === pending) completeHandoff(pending) } }))
+            }, { handler.post { completeHandoff(pending, "failed") } }))
             val kick = Stack(BluetoothAddressNodeKey(device.address), sink.thisPointer, source.thisPointer, DtlsSocketNetifGattlink(), false, RefusingTlsKeyResolver)
             stack = kick
             disposables.add(kick.stackEventObservable.subscribe({ event ->
@@ -1048,8 +1046,7 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
                 // before replying so Google Health alone resynchronizes.
                 if (event is StackEvent.GattlinkSessionResent) {
                     pending.muted = true
-                    pending.resetObserved = true
-                    handler.post { if (handoff === pending) completeHandoff(pending) }
+                    handler.post { completeHandoff(pending, "reset_observed") }
                 }
             }, { }))
             disposables.add(kick.dtlsEventObservable.subscribe({ state ->
@@ -1057,16 +1054,18 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
             }, { }))
             kick.start()
         } catch (error: Throwable) {
-            completeHandoff(pending)
+            completeHandoff(pending, "failed")
         }
     }
 
-    private fun completeHandoff(pending: Handoff) {
+    /** [outcome] is a fixed label recorded in transport diagnostics. */
+    private fun completeHandoff(pending: Handoff, outcome: String) {
         if (handoff !== pending) return
-        android.util.Log.d("FitbitAir", "handoff complete resetObserved=${pending.resetObserved}")
+        android.util.Log.d("FitbitAir", "handoff $outcome")
         pending.muted = true
         pending.deadline?.let(handler::removeCallbacks)
         handoff = null
+        handoffOutcome = outcome
         closeTransport()
         pending.done()
     }
@@ -1078,7 +1077,6 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
 
     private class Handoff(val done: () -> Unit) {
         @Volatile var muted = false
-        @Volatile var resetObserved = false
         var deadline: Runnable? = null
     }
 
@@ -1088,8 +1086,11 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
             handoff = null
             pending.muted = true
             pending.deadline?.let(handler::removeCallbacks)
+            handoffOutcome = "interrupted"
         }
         val trace = AirCleanupTrace()
+        handoffOutcome?.let { trace.note("channelHandoff", it) }
+        handoffOutcome = null
         val closingGatt = gatt
         gatt = null
         val closingEndpoint = endpoint
@@ -1155,7 +1156,7 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
         private const val CHANNEL = "fitbit_air"
         private const val PERMISSION_REQUEST = 49217
         private const val OPERATION_TIMEOUT_MS = 45_000L
-        private const val HANDOFF_TIMEOUT_MS = 6_000L
+        private const val HANDOFF_TIMEOUT_MS = 10_000L
         private val TRACKER_SERVICE = UUID.fromString("abbaff00-e56a-484c-b832-8b17cf6cbfe8")
         private val TRACKER_TX = UUID.fromString("abbaff01-e56a-484c-b832-8b17cf6cbfe8")
         private val TRACKER_RX = UUID.fromString("abbaff02-e56a-484c-b832-8b17cf6cbfe8")

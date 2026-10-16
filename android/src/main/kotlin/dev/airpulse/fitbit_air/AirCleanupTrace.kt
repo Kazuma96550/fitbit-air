@@ -15,6 +15,11 @@ internal class AirCleanupTrace {
         }
     }
 
+    /** Records a fixed outcome label rather than a call result. */
+    fun note(name: String, outcome: String) {
+        steps[name] = outcome
+    }
+
     fun snapshot(): Map<String, String> = steps.toMap()
 }
 

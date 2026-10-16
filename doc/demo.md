@@ -285,7 +285,15 @@ this: after each DTLS operation, the plugin starts a short handoff session
 whose key resolver refuses every identity. When the Air resets the link
 (`GattlinkSessionResent`), the plugin stops transmitting before replying and
 closes. Google Health resynchronizes and handshakes alone, without a
-disconnect. If no reset arrives within 6 s, the plugin closes as before.
+disconnect. If no reset arrives within 10 s, the plugin closes as before.
+
+Each command's entry in the debug report's `transport.cleanupHistory` now
+includes `channelHandoff`: `reset_observed` (handed back), `deadline` (the Air
+did not reset; Google Health may again need its ~60 s reconnect), `link_lost`,
+`failed` or `interrupted`. Operations without a DTLS session omit it. The
+handoff depends on observed Air firmware behavior, not a documented contract.
+On other phones or firmware, a report with `deadline` or `failed` is the
+signal that it does not apply there; the command result is unaffected.
 
 Measured on 2026-10-16 (Pixel 7 Pro, Android 17, Google Health 5.10.1):
 without the handoff, Google Health was out of sync for 57–61 s after each
