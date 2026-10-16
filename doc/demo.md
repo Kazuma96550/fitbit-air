@@ -304,3 +304,19 @@ from the running relay worker. Google Health sometimes performs one more
 DTLS restart 5–20 s later without errors; its cause is not established. During the
 command itself (about 5–15 s) the two apps still compete for the channel;
 that window is inherent to a second session on the same tracker channel.
+
+### Burst merging (dev.6)
+
+Each relay command still competes with Google Health while it runs. The relay
+service therefore merges bursts: the first alert dispatches immediately;
+alerts arriving while a command runs, or within 20 s after it finishes, are
+recorded as `merged` and represented by one follow-up command sent when that
+cooldown ends. Five messages in quick succession produce two vibrations, not
+five. The follow-up's latency is measured from its earliest merged alert and
+it gets a fresh 30 s expiry. Stopping the relay cancels a waiting follow-up
+(`cancelled`). The wake lock and the per-command watchdog are held while a
+follow-up waits; the watchdog is re-armed on each dispatch so a long chat
+does not trip it. The decision logic is the Android-free `RelayCoalescer`,
+covered by unit tests. On a Pixel 7 Pro, two test vibrations 1.5 s apart ran
+as one immediate session and one follow-up 20 s later, each with
+`channelHandoff: reset_observed`.

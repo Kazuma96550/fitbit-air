@@ -38,6 +38,9 @@ class CalendarRelayService : Service() {
     private var restrictedConversations = false
     private var allowedConversations = emptySet<String>()
     private val handler = Handler(Looper.getMainLooper())
+    private val coalescer = RelayCoalescer()
+    private var holdingFollowUp = false
+    private val followUp = Runnable { sendFollowUp() }
     private val watchdog = Runnable {
         saveOutcome("Relay command exceeded its deadline; stopped. Delivery is uncertain; no retry.")
         stopSelf()
@@ -144,40 +147,48 @@ class CalendarRelayService : Service() {
     }
 
     private fun submit(sbnPackage: String?, postedAt: Long) {
-        val id = "relay-${System.currentTimeMillis()}-${++sequence}"
-        fun record(stage: String, code: String? = null) {
-            val now = System.currentTimeMillis()
-            RelayHistory.add(this, RelayActivity(id, sbnPackage, stage, now,
-                maxOf(0, now - postedAt), code))
-        }
-        record("detected")
-        if (pending >= 4) {
-            record("queue_full")
-            saveOutcome("Notification dropped: queue full.")
-            return
-        }
-        if (pending++ == 0) {
-            handler.removeCallbacks(watchdog)
-            handler.postDelayed(watchdog, 240_000)
-            wakeLock = getSystemService(PowerManager::class.java)
-                .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "fitbit_air_example:CalendarRelay")
-                .apply { acquire(240_000) }
-        }
-        inFlight[id] = sbnPackage to postedAt
-        record("queued")
-        fun finished(result: RelayWorkerResult) {
-            inFlight.remove(id)
-            record(result.stage, result.errorCode)
-            saveOutcome("Haptic ${result.stage}${result.errorCode?.let { ": $it" } ?: ""}.")
-            pending--
-            if (pending == 0) {
-                handler.removeCallbacks(watchdog)
-                releaseWakeLock()
-                if (stopping) stopSelf()
+        val id = nextId()
+        record(id, sbnPackage, postedAt, "detected")
+        val now = System.currentTimeMillis()
+        when (val decision = coalescer.onAlert(id, now)) {
+            RelayCoalescer.Decision.DispatchNow -> dispatch(id, sbnPackage, postedAt, postedAt + 30_000)
+            is RelayCoalescer.Decision.Merged -> {
+                if (!holdingFollowUp) {
+                    holdingFollowUp = true
+                    begin()
+                }
+                inFlight[id] = sbnPackage to postedAt
+                record(id, sbnPackage, postedAt, "merged")
+                decision.scheduleAtMillis?.let { handler.postDelayed(followUp, maxOf(0, it - now)) }
             }
         }
+    }
+
+    /** Sends one command for every alert merged since the last session. */
+    private fun sendFollowUp() {
+        if (stopping || !coalescer.hasFollowUp) return
+        val members = coalescer.takeFollowUp().mapNotNull { inFlight.remove(it) }
+        val now = System.currentTimeMillis()
+        dispatch(nextId(), members.lastOrNull()?.first, members.minOfOrNull { it.second } ?: now, now + 30_000)
+        holdingFollowUp = false
+        end()
+    }
+
+    private fun dispatch(id: String, sbnPackage: String?, postedAt: Long, expiresAt: Long) {
+        begin()
+        refreshDeadline()
+        inFlight[id] = sbnPackage to postedAt
+        record(id, sbnPackage, postedAt, "queued")
+        fun finished(result: RelayWorkerResult) {
+            inFlight.remove(id)
+            record(id, sbnPackage, postedAt, result.stage, result.errorCode)
+            saveOutcome("Haptic ${result.stage}${result.errorCode?.let { ": $it" } ?: ""}.")
+            val now = System.currentTimeMillis()
+            coalescer.onFinished(now)?.let { if (!stopping) handler.postDelayed(followUp, it - now) }
+            end()
+        }
         channel?.invokeMethod("dispatch", mapOf(
-            "id" to id, "expiresAt" to postedAt + 30_000
+            "id" to id, "expiresAt" to expiresAt
         ), object : MethodChannel.Result {
             override fun success(result: Any?) { finished(RelayWorkerResult.decode(result)) }
             override fun error(code: String, message: String?, details: Any?) {
@@ -187,11 +198,49 @@ class CalendarRelayService : Service() {
         })
     }
 
+    /** Running commands and a waiting follow-up each hold the wake lock and watchdog. */
+    private fun begin() {
+        if (pending++ == 0) refreshDeadline()
+    }
+
+    /** The watchdog bounds one hung command, so a long burst re-arms it per dispatch. */
+    private fun refreshDeadline() {
+        handler.removeCallbacks(watchdog)
+        handler.postDelayed(watchdog, 240_000)
+        val lock = wakeLock ?: getSystemService(PowerManager::class.java)
+            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "fitbit_air_example:CalendarRelay")
+            .apply { setReferenceCounted(false) }
+        wakeLock = lock
+        lock.acquire(240_000)
+    }
+
+    private fun end() {
+        if (--pending == 0) {
+            handler.removeCallbacks(watchdog)
+            releaseWakeLock()
+            if (stopping) stopSelf()
+        }
+    }
+
+    private fun nextId() = "relay-${System.currentTimeMillis()}-${++sequence}"
+
+    private fun record(id: String, sbnPackage: String?, postedAt: Long, stage: String, code: String? = null) {
+        val now = System.currentTimeMillis()
+        RelayHistory.add(this, RelayActivity(id, sbnPackage, stage, now, maxOf(0, now - postedAt), code))
+    }
+
     fun requestStop(reason: String) {
         stopping = true
         saveOutcome(reason)
         channel?.invokeMethod("close", null)
-        if (pending == 0) stopSelf()
+        handler.removeCallbacks(followUp)
+        coalescer.cancelFollowUp().forEach { id ->
+            inFlight.remove(id)?.let { (source, postedAt) -> record(id, source, postedAt, "cancelled") }
+        }
+        if (holdingFollowUp) {
+            holdingFollowUp = false
+            end()
+        } else if (pending == 0) stopSelf()
     }
 
     override fun onDestroy() {
@@ -205,6 +254,7 @@ class CalendarRelayService : Service() {
         inFlight.clear()
         if (active === this) active = null
         handler.removeCallbacks(watchdog)
+        handler.removeCallbacks(followUp)
         channel?.setMethodCallHandler(null)
         channel = null
         engine?.destroy()

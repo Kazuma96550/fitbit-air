@@ -329,6 +329,7 @@ class RelayPanel extends StatelessWidget {
     final stage = entry['stage'] as String? ?? 'unknown';
     final title = switch (stage) {
       'detected' => 'Notification detected',
+      'merged' => 'Merged into next vibration',
       'queued' => 'Queued',
       'verified' => 'Command verified',
       'expired' => 'Expired before execution',

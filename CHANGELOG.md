@@ -1,5 +1,11 @@
 ## Unreleased
 
+- Relay demo: merge notification bursts. The first alert still vibrates
+  immediately; alerts during a command or its 20 s cooldown join one follow-up
+  vibration sent when the cooldown ends. A burst costs at most two tracker
+  sessions instead of one per message, leaving Google Health quiet windows.
+  History shows merged alerts as `merged`.
+
 - Fix Google Health sync stalling for about a minute after every DTLS command.
   The Air has one Gattlink/DTLS channel shared by all clients on the link; our
   session left Google Health's channel out of sync until its ~60 s watchdog
