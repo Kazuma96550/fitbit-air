@@ -153,65 +153,82 @@ future work.
 
 ## Selected WhatsApp conversations (after 0.1.2)
 
-This example feature is independent of the published 0.1.2 plugin. The demo
-version is `0.1.3-dev.1`. It supports WhatsApp and WhatsApp Business only;
-other app selections retain their existing behavior.
+This example-only feature is independent of the published 0.1.2 plugin. The demo
+is `0.1.3-dev.2` and the app bar shows `dev.2`. It supports WhatsApp and WhatsApp
+Business; other app selections retain their existing behavior.
 
-1. Stop the relay and keep notification access connected.
-2. Select WhatsApp (or WhatsApp Business) in **Choose notification apps**.
-3. Expand **WhatsApp conversations** and enable **Only selected WhatsApp chats**.
-   An empty list allows no WhatsApp notifications; it never means “allow all”.
-4. Tap **Capture chats for 60 seconds**. Close the WhatsApp chat and have the
-   chosen person send a fresh notification. Capture works while the demo is in
-   the background and does not start the relay or vibrate.
-5. Return before capture expires and select the observed chat. The name is only
-   a label; the short ID suffix helps distinguish identically named chats.
-6. Start the relay and test a fresh message with the phone locked. Have another
-   person send a message too: that unselected chat should not vibrate.
+1. Stop the relay. In **Choose people**, enable WhatsApp notifications if needed
+   and turn on **Only selected WhatsApp chats**. An empty list allows no WhatsApp
+   notifications; it never means “allow all”.
+2. Leave a WhatsApp message unread and tap **Find chats**. The app immediately
+   inspects currently visible WhatsApp notifications, then listens for new ones
+   for up to 60 seconds. Capture never vibrates. You can close the demo and have
+   the chosen person send a notification while their WhatsApp chat is closed.
+3. Select the observed chat. Results remain available for five minutes after
+   listening ends or you tap **Stop listening**. You no longer have to return
+   within the 60-second listening window.
+4. An available **Conversation ID** rule matches the app-scoped Android shortcut
+   ID. Existing selections from dev.1 keep their original IDs.
+5. If WhatsApp provides message-notification metadata and a chat title without
+   a conversation ID, the app offers an **Exact name** rule. Enabling it requires
+   explicit confirmation. It matches the exact notification chat title and can
+   match any other chat with the same title. Rename changes can stop matching;
+   title formats may vary between notification updates. This is a less reliable
+   option, not an equivalent stable identity. The native bridge also requires
+   `allowNameMatch: true` before saving such a rule. No silent downgrade occurs.
+6. Start the relay and test a fresh message with the phone locked. Have someone
+   from an unselected chat send a message too: that chat should not vibrate.
 
-Selecting a direct chat provides person-level filtering. Selecting a group
-allows **all senders in that group**, not one member. Sender matching inside a
-group is not implemented. Calls/other notifications without a selected chat ID
-are skipped in restricted mode. This is an experimental notification relay,
-not a delivery guarantee; WhatsApp must actually post a usable notification.
+Selecting a direct chat provides person-level filtering. Selecting a group allows
+**all senders in that group**, not one member. Sender matching inside a group is
+not implemented. Duplicate chat titles are ambiguous for exact-name rules: use
+conversation IDs when available or avoid selecting ambiguous names. Name rules
+use the current notification's conversation title (or title), never any sender
+found in historical messages. They require message metadata; generic app titles,
+blank titles and titles longer than 512 characters are rejected. Nonmatching or
+unusable metadata is skipped in restricted mode. WhatsApp must actually post a
+usable notification; this experimental relay is not a delivery guarantee.
 
-Matching uses the notification's Android shortcut/conversation ID, namespaced
-by app and stored as SHA-256. It never falls back to contact names, phone
-numbers, notification keys or old messages in notification history. Missing
-IDs fail closed, with an unsupported-metadata hint during capture. If WhatsApp
-changes an ID, remove the old selection and capture again. Android 8+ can expose
-shortcut IDs; availability on a particular WhatsApp/version/privacy setting
-requires physical testing. Existing freshness, summary/ongoing suppression,
-startup baseline and duplicate checks still run before chat matching.
+**Troubleshooting** retains safe counts for notifications seen, unread snapshot,
+summaries, ongoing notifications, missing IDs, usable name-only candidates,
+unusable metadata and parse/access errors. These counts distinguish “listener
+received nothing” from “received an unsupported notification”. They remain visible
+after listening ends and can be copied with **Copy sanitized debug report**.
+Counts contain no names, IDs, notification keys, titles, or message text. Snapshot
+inspection is capture-only: it never queues haptics. Relay startup still records
+existing notifications as a baseline, and freshness/duplicate checks still apply
+to newly posted notifications.
 
-Capture is explicit, bounded to 32 observed chats and 60 seconds using a monotonic
-clock. Unsaved candidates are discarded at expiry, capture stop, listener
-disconnection or relay start; they do not survive process death. Up to 64 selected
-names and hashed IDs persist in app-private preferences until removed or app data
-is cleared. Message bodies and sender-message history are not read by capture.
-Conversation preferences are excluded from cloud backup and device transfer on
-supported Android versions. The restriction toggle is stored separately, so a
-restored restricted setup with no chats remains restricted. Clearing chats does
-not turn off the restriction. Existing relay selections and notification access
-are retained on upgrade.
+Capture holds up to 32 candidates in memory. Unsaved results are discarded after
+the selection window, listener disconnection, relay start, explicit forgetting or
+process death. Up to 64 selected names and hashed rule IDs persist in app-private
+preferences until removed or app data is cleared. Message bodies are not read by
+capture. Conversation preferences are excluded from Android cloud backup and
+device transfer. The restriction toggle is stored separately, so a restored
+restricted setup with no chats remains restricted. Forgetting chats does not
+turn off the restriction. Existing app selections and notification access survive
+an upgrade.
 
-Reports include only restriction state and selected-chat count, never the names,
-raw/hashed IDs or candidate list. Existing relay metadata history remains
-unchanged. Trial/operation errors must not embed conversation metadata.
+Reports include only restriction state, selected-chat count and allowlisted
+numeric capture diagnostics, never names, IDs or candidate lists. Raw shortcut
+IDs and exact title rules are hashed with app/type namespaces before storage.
+The preexisting stable-ID hash format is preserved for upgrades.
 
 For agent-driven local setup, use `DemoController.configureConversations` with
 `captureConversations` (`enabled`), `restrictConversations` (`enabled`),
-`selectConversation` (`id`, `enabled`), or `clearConversations`. The native bridge
-and controller reject mutations while the relay is running. Stable UI keys are
-`conversation-picker`, `restrict-conversations`, `capture-conversations`,
-`conversation-list`, `conversation-<id>` and `clear-conversations`. Capture data
-is available only in local controller state, not sanitized reports. Do not copy
-private labels/IDs into test logs or PRs.
+`selectConversation` (`id`, `enabled`, optional explicit `allowNameMatch`), or
+`clearConversations`. The native bridge and controller reject mutations while
+the relay is running. Stable UI keys include `conversation-picker`,
+`restrict-conversations`, `capture-conversations`, `conversation-<id>`,
+`confirm-name-match`, `cancel-name-match`, `capture-diagnostics`,
+`capture-details`, `copy-capture-report` and `clear-conversations`. Private
+capture data is available only in local controller state; do not copy names/IDs
+into test logs or PRs.
 
-Physical acceptance for this feature remains pending: test allowed versus
-unselected direct chats, repeated messages in one chat, a selected group versus
-an unselected group, Business/app separation if installed, and missing metadata
-with private notifications. Also test capture expiry/stop, process restart,
-selection removal/clear, all-chat mode, and unchanged Calendar behavior. Confirm
-reports omit real chat identities. Local policy/widget tests cannot establish
-which conversation metadata WhatsApp supplies on a paired phone.
+Physical acceptance remains pending. Test active/unread notification discovery,
+new messages, return after the listening window, missing-ID diagnostics, name-rule
+confirmation/cancellation, allowed versus unselected chats, repeated messages,
+selected/unselected groups, Business/app separation, private notifications,
+process restart, removal/forgetting, all-chat mode and unchanged Calendar behavior.
+Inspect reports for identity leaks. Local tests cannot establish what metadata
+WhatsApp supplies on the paired phone.

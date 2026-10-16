@@ -129,11 +129,12 @@ class CalendarRelayService : Service() {
 
     fun acceptsPackage(packageName: String): Boolean = ready && !stopping && packageName in selectedPackages
 
-    fun onAlert(packageName: String, key: String, postedAt: Long, ongoing: Boolean, summary: Boolean, messageTimestamp: Long?, conversationId: String?) {
+    fun onAlert(packageName: String, key: String, postedAt: Long, ongoing: Boolean, summary: Boolean, messageTimestamp: Long?, conversationIds: Set<String>) {
         if (!ready || stopping) return
         val now = System.currentTimeMillis()
         if (filter?.accept(packageName, key, postedAt, now, ongoing, summary, messageTimestamp) != true) return
-        if (!RelayConversationPolicy.accepts(packageName, restrictedConversations, allowedConversations, conversationId)) return
+        if (restrictedConversations && packageName in RelayConversationPolicy.packages &&
+            conversationIds.none { RelayConversationPolicy.accepts(packageName, true, allowedConversations, it) }) return
         submit(sbnPackage = packageName, postedAt = postedAt)
     }
 

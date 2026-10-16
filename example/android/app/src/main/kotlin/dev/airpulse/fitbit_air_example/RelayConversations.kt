@@ -8,26 +8,26 @@ import android.os.Handler
 import android.os.Looper
 import org.json.JSONArray
 import org.json.JSONObject
-import java.security.MessageDigest
 
 /** Opt-in local metadata capture. No message text is read, stored or exported. */
 internal object RelayConversations {
-    private data class Chat(val id: String, val packageName: String, val label: String) {
-        fun toMap() = mapOf("id" to id, "packageName" to packageName, "label" to label)
+    private data class Chat(val id: String, val packageName: String, val label: String, val kind: String = "shortcut") {
+        fun toMap() = mapOf("id" to id, "packageName" to packageName, "label" to label, "kind" to kind)
     }
     private val candidates = linkedMapOf<String, Chat>()
-    private var captureUntil = 0L
-    private var captureStartedAt = 0L
+    private val window = ConversationCaptureWindow()
+    private val diagnostics = linkedMapOf<String, Int>()
     private var unsupported = 0
     private val handler = Handler(Looper.getMainLooper())
-    private val expiry = Runnable { stopCapture() }
+    private val expiry = Runnable { finishCapture() }
+    private val clearResults = Runnable { candidates.clear() }
     private fun prefs(context: Context) = context.getSharedPreferences("relay_conversations", Context.MODE_PRIVATE)
 
     private fun saved(context: Context): List<Chat> = runCatching {
         val array = JSONArray(prefs(context).getString("allowed", "[]"))
         (0 until minOf(array.length(), 64)).map { index ->
             val item = array.getJSONObject(index)
-            Chat(item.getString("id"), item.getString("packageName"), item.getString("label"))
+            Chat(item.getString("id"), item.getString("packageName"), item.getString("label"), item.optString("kind", "shortcut"))
         }
     }.getOrDefault(emptyList())
 
@@ -35,12 +35,20 @@ internal object RelayConversations {
     fun restricted(context: Context) = modePrefs(context).getBoolean("restricted_conversations", false)
     fun allowed(context: Context) = saved(context).map { it.id }.toSet()
 
-    fun identity(packageName: String, notification: Notification): String? {
-        if (packageName !in RelayConversationPolicy.packages || Build.VERSION.SDK_INT < 26) return null
-        val shortcut = notification.shortcutId?.takeIf { it.isNotBlank() } ?: return null
-        return MessageDigest.getInstance("SHA-256").digest("$packageName\u0000$shortcut".toByteArray(Charsets.UTF_8))
-            .joinToString("") { "%02x".format(it.toInt() and 255) }
-    }
+    private fun title(notification: Notification): String? =
+        (notification.extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)
+            ?: notification.extras.getCharSequence(Notification.EXTRA_TITLE))?.toString()
+
+    private fun options(packageName: String, notification: Notification): List<ConversationIdentity> =
+        RelayConversationIdentity.options(packageName,
+            if (Build.VERSION.SDK_INT >= 26) notification.shortcutId else null,
+            title(notification), notification.extras.containsKey(Notification.EXTRA_MESSAGES))
+
+    fun identities(packageName: String, notification: Notification): Set<String> =
+        if (packageName !in RelayConversationPolicy.packages) emptySet() else runCatching { options(packageName, notification).map { it.id }.toSet() }.getOrDefault(emptySet())
+
+    private fun count(key: String) { diagnostics[key] = minOf(1000, (diagnostics[key] ?: 0) + 1) }
+    fun captureError() { if (window.listening(SystemClock.elapsedRealtime())) count("errors") }
 
     fun capture(context: Context, enabled: Boolean) {
         check(!CalendarRelayService.isRunning) { "Stop the relay before capturing conversations." }
@@ -49,44 +57,61 @@ internal object RelayConversations {
                 "Enable notification access and wait for connection first."
             }
         }
+        if (!enabled) { finishCapture(); return }
         candidates.clear()
+        diagnostics.clear()
+        diagnostics["seen"] = 0
         unsupported = 0
-        captureStartedAt = System.currentTimeMillis()
         handler.removeCallbacks(expiry)
-        captureUntil = if (enabled) SystemClock.elapsedRealtime() + 60_000 else 0
-        if (enabled) handler.postDelayed(expiry, 60_000)
+        handler.removeCallbacks(clearResults)
+        window.start(SystemClock.elapsedRealtime())
+        handler.postDelayed(expiry, 60_000)
+        CalendarNotificationListener.captureExisting()
+    }
+
+    private fun finishCapture() {
+        handler.removeCallbacks(expiry)
+        handler.removeCallbacks(clearResults)
+        window.finish(SystemClock.elapsedRealtime())
+        handler.postDelayed(clearResults, 300_000)
     }
 
     fun stopCapture() {
         handler.removeCallbacks(expiry)
-        captureUntil = 0
+        handler.removeCallbacks(clearResults)
+        window.clear()
         candidates.clear()
-        unsupported = 0
     }
 
-    fun observe(packageName: String, notification: Notification, postedAt: Long, ongoing: Boolean) {
-        if (SystemClock.elapsedRealtime() >= captureUntil) { candidates.clear(); return }
-        if (packageName !in RelayConversationPolicy.packages || ongoing ||
-            notification.flags and Notification.FLAG_GROUP_SUMMARY != 0 || postedAt < captureStartedAt) return
-        val id = identity(packageName, notification)
-        if (id == null) { unsupported = minOf(unsupported + 1, 100); return }
-        // Shortcut labels/titles are presentation only, never identity. Never inspect EXTRA_TEXT/MESSAGES here.
-        val label = (notification.extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)
-            ?: notification.extras.getCharSequence(Notification.EXTRA_TITLE))?.toString()
-            ?.filterNot { it.isISOControl() }?.take(120)?.takeIf { it.isNotBlank() }
-            ?: "Conversation (name unavailable)"
-        if (candidates.size < 32 || candidates.containsKey(id)) candidates[id] = Chat(id, packageName, label)
+    fun observe(packageName: String, notification: Notification, ongoing: Boolean, existing: Boolean = false) {
+        if (!window.listening(SystemClock.elapsedRealtime()) || packageName !in RelayConversationPolicy.packages) return
+        count("seen")
+        if (existing) count("existing")
+        if (ongoing) { count("ongoing"); return }
+        if (notification.flags and Notification.FLAG_GROUP_SUMMARY != 0) { count("summary"); return }
+        val options = options(packageName, notification)
+        val identity = options.firstOrNull()
+        if (identity?.kind != "shortcut") { unsupported = minOf(unsupported + 1, 1000); count("missingId") }
+        if (identity == null) { count("unusable"); return }
+        if (identity.kind == "name") count("nameOnly") else count("identified")
+        // Presentation only. Never inspect EXTRA_TEXT or message bodies.
+        val label = title(notification)?.filterNot { it.isISOControl() }?.take(120)
+            ?.takeIf { it.isNotBlank() } ?: "Conversation (name unavailable)"
+        if (candidates.size < 32 || candidates.containsKey(identity.id)) {
+            candidates[identity.id] = Chat(identity.id, packageName, label, identity.kind)
+        }
     }
 
     fun setRestricted(context: Context, enabled: Boolean) {
         modePrefs(context).edit().putBoolean("restricted_conversations", enabled).apply()
     }
 
-    fun select(context: Context, id: String, enabled: Boolean) {
+    fun select(context: Context, id: String, enabled: Boolean, allowNameMatch: Boolean = false) {
         val chats = saved(context).associateBy { it.id }.toMutableMap()
         if (enabled) {
-            check(SystemClock.elapsedRealtime() < captureUntil) { "Capture a fresh notification first." }
+            check(window.selectable(SystemClock.elapsedRealtime())) { "Capture a fresh notification first." }
             val chat = requireNotNull(candidates[id]) { "Capture a fresh notification first." }
+            require(chat.kind != "name" || allowNameMatch) { "Confirm exact name matching first." }
             require(chats.size < 64 || id in chats) { "Select up to 64 conversations." }
             chats[id] = chat
         } else chats.remove(id)
@@ -95,13 +120,18 @@ internal object RelayConversations {
         prefs(context).edit().putString("allowed", array.toString()).apply()
     }
 
-    fun clear(context: Context) { prefs(context).edit().remove("allowed").apply(); stopCapture() }
+    fun clear(context: Context) {
+        prefs(context).edit().remove("allowed").apply()
+        stopCapture()
+        diagnostics.clear()
+        unsupported = 0
+    }
 
     fun status(context: Context): Map<String, Any> {
-        val remaining = maxOf(0, captureUntil - SystemClock.elapsedRealtime())
-        if (remaining == 0L) candidates.clear()
+        val remaining = window.remaining(SystemClock.elapsedRealtime())
+        if (!window.selectable(SystemClock.elapsedRealtime())) candidates.clear()
         return mapOf("restricted" to restricted(context), "captureRemainingMillis" to remaining,
-            "unsupported" to unsupported, "allowed" to saved(context).map { it.toMap() },
+            "unsupported" to unsupported, "diagnostics" to diagnostics.toMap(), "allowed" to saved(context).map { it.toMap() },
             "candidates" to candidates.values.map { it.toMap() })
     }
 }

@@ -12,6 +12,8 @@ void main() {
   var running = false;
   var paired = true;
   var deferStop = false;
+  var nameCandidate = false;
+  Map<Object?, Object?>? lastSelection;
   late List<Map<String, Object?>> history;
   late List<String> calls;
   late List<String> selected;
@@ -23,6 +25,8 @@ void main() {
     running = false;
     paired = true;
     deferStop = false;
+    nameCandidate = false;
+    lastSelection = null;
     conversations = {
       'restricted': false,
       'captureRemainingMillis': 0,
@@ -61,10 +65,12 @@ void main() {
                   'id': 'abcdef012345',
                   'label': 'Private Alice',
                   'packageName': 'com.whatsapp',
+                  'kind': nameCandidate ? 'name' : 'shortcut',
                 },
               ];
               return null;
             case 'selectConversation':
+              lastSelection = Map<Object?, Object?>.from(call.arguments as Map);
               conversations['allowed'] = conversations['candidates'];
               return null;
             case 'clearConversations':
@@ -157,13 +163,18 @@ void main() {
     tester,
   ) async {
     await mount(tester);
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('relay-toggle')),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(
       tester
           .widget<FilledButton>(find.byKey(const ValueKey('relay-toggle')))
           .onPressed,
       isNull,
     );
-    await tester.tap(find.text('Settings').first);
+    await tap(tester, 'notification-access-settings');
     await tester.pumpAndSettle();
     expect(calls, contains('settings'));
     expect(calls, isNot(contains('start')));
@@ -390,6 +401,50 @@ void main() {
       throwsStateError,
     );
     expect(calls, isNot(contains('clearConversations')));
+    await tester.pumpWidget(const SizedBox());
+  });
+  testWidgets(
+    'name-only chat requires confirmation and stays selectable after listening stops',
+    (tester) async {
+      access = true;
+      nameCandidate = true;
+      await mount(tester);
+      await tap(tester, 'capture-conversations');
+      conversations['captureRemainingMillis'] = 0;
+      await controller.refresh();
+      await tester.pumpAndSettle();
+      await tap(tester, 'conversation-abcdef012345');
+      expect(find.text('Match this chat by name?'), findsOneWidget);
+      await tap(tester, 'cancel-name-match');
+      expect(lastSelection, isNull);
+      await tap(tester, 'conversation-abcdef012345');
+      await tap(tester, 'confirm-name-match');
+      expect(lastSelection?['allowNameMatch'], isTrue);
+      expect(controller.allowedConversations, hasLength(1));
+      expect(controller.exportJson(), isNot(contains('Private Alice')));
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets('zero-event diagnostics remain visible after capture ends', (
+    tester,
+  ) async {
+    access = true;
+    conversations['diagnostics'] = {'seen': 0, 'privateLabel': 'SECRET'};
+    await mount(tester);
+    final target = find.byKey(const ValueKey('capture-diagnostics'));
+    await tester.scrollUntilVisible(
+      target,
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.textContaining('No WhatsApp notifications found'),
+      findsOneWidget,
+    );
+    expect(controller.captureDiagnostics, {'seen': 0});
+    expect(controller.exportJson(), isNot(contains('SECRET')));
     await tester.pumpWidget(const SizedBox());
   });
 }

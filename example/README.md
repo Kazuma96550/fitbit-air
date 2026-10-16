@@ -105,8 +105,10 @@ the relay running; it must be restarted explicitly after the operation. Explicit
 revocation, or force stop. Repeated deep-idle delivery and Google Health
 coexistence still require physical validation.
 
-After 0.1.2, the demo also offers **WhatsApp conversations** on the Relay screen:
-stop the relay, enable selected-chat mode, capture a fresh notification for up to
-60 seconds, select the chat and start relaying. A direct chat selects one person;
-a selected group allows everyone in that group. See [setup, privacy and acceptance
-steps](../doc/demo.md#selected-whatsapp-conversations-after-012).
+After 0.1.2, **Choose people** on the Relay screen can filter WhatsApp and
+WhatsApp Business chats. Stop the relay, enable selected-chat mode and tap
+**Find chats** with an unread notification. Capture also listens for new messages;
+results stay selectable for five minutes afterward. When no conversation ID is
+available, exact-name rules require explicit confirmation because duplicate names
+can match another chat. A direct chat selects a person; a selected group allows
+everyone. See [setup, privacy and troubleshooting](../doc/demo.md#selected-whatsapp-conversations-after-012).

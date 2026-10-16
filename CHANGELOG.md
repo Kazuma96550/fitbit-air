@@ -1,7 +1,14 @@
 ## Unreleased
 
+- Fix empty WhatsApp capture by inspecting unread notifications immediately,
+  retaining results after listening stops, and exposing safe diagnostic counts.
+- Add explicitly confirmed exact-chat-name rules when message notifications lack
+  a conversation ID; show duplicate-name/rename limitations before saving.
+- Simplify relay setup with a visible Choose people card, collapsed completed
+  device setup, clearer capture states and a nearby sanitized debug report.
+
 - Add example-only WhatsApp/WhatsApp Business conversation allowlists with
-  explicit 60-second local capture, exact app-scoped conversation matching,
+  explicit 60-second local capture, app-scoped conversation matching,
   fail-closed handling of missing IDs and controls locked while relaying.
 - Keep conversation labels/IDs out of diagnostic reports and Android backups;
   direct-chat selection supports people, while selected groups allow all senders.

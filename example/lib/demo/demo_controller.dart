@@ -36,6 +36,7 @@ class DemoController extends ChangeNotifier {
   bool restrictedConversations = false;
   int captureRemainingMillis = 0;
   int unsupportedConversations = 0;
+  Map<String, int> captureDiagnostics = {};
   List<Map<String, Object?>> allowedConversations = [];
   List<Map<String, Object?>> conversationCandidates = [];
   int secureDurationSeconds = 30;
@@ -128,6 +129,22 @@ class DemoController extends ChangeNotifier {
       captureRemainingMillis =
           conversations['captureRemainingMillis'] as int? ?? 0;
       unsupportedConversations = conversations['unsupported'] as int? ?? 0;
+      const diagnosticKeys = {
+        'seen',
+        'existing',
+        'ongoing',
+        'summary',
+        'missingId',
+        'unusable',
+        'nameOnly',
+        'identified',
+        'errors',
+      };
+      captureDiagnostics =
+          Map<String, Object?>.from(
+              conversations['diagnostics'] as Map? ?? const {},
+            ).map((key, value) => MapEntry(key, value is int ? value : 0))
+            ..removeWhere((key, value) => !diagnosticKeys.contains(key));
       allowedConversations = (conversations['allowed'] as List? ?? [])
           .map((item) => Map<String, Object?>.from(item as Map))
           .toList();
@@ -424,13 +441,14 @@ class DemoController extends ChangeNotifier {
 
   Map<String, Object?> report() => {
     'schemaVersion': 1,
-    'demoVersion': '0.1.3-dev.1',
+    'demoVersion': '0.1.3-dev.2',
     'exportedAt': DateTime.now().toUtc().toIso8601String(),
     'relay': {
       'running': relayRunning,
       'history': history,
       'restrictedConversations': restrictedConversations,
       'allowedConversationCount': allowedConversations.length,
+      'captureDiagnostics': captureDiagnostics,
     },
     'trials': _trials,
     'manualObservations': _observations,

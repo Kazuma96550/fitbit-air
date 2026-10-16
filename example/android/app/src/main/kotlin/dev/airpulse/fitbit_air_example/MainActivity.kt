@@ -48,10 +48,11 @@ class MainActivity : FlutterActivity() {
                         "captureConversations", "restrictConversations", "selectConversation", "clearConversations" -> {
                             check(!CalendarRelayService.isRunning) { "Stop the relay before changing conversation rules." }
                             when (call.method) {
-                                "captureConversations" -> RelayConversations.capture(this, call.argument<Boolean>("enabled") == true)
-                                "restrictConversations" -> RelayConversations.setRestricted(this, call.argument<Boolean>("enabled") == true)
+                                "captureConversations" -> RelayConversations.capture(this, requireNotNull(call.argument<Boolean>("enabled")))
+                                "restrictConversations" -> RelayConversations.setRestricted(this, requireNotNull(call.argument<Boolean>("enabled")))
                                 "selectConversation" -> RelayConversations.select(this,
-                                    requireNotNull(call.argument<String>("id")), call.argument<Boolean>("enabled") == true)
+                                    requireNotNull(call.argument<String>("id")), requireNotNull(call.argument<Boolean>("enabled")),
+                                    call.argument<Boolean>("allowNameMatch") == true)
                                 "clearConversations" -> RelayConversations.clear(this)
                             }
                             result.success(null)
