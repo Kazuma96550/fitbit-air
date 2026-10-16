@@ -13,70 +13,79 @@ void main() {
     tester,
   ) async {
     final controller = DemoController();
-    await tester.pumpWidget(DemoApp(controller: controller));
-    for (var i = 0; i < 100 && !controller.initialized; i++) {
-      await tester.pump(const Duration(milliseconds: 100));
-    }
-    expect(controller.initialized, isTrue);
-    await tester.tap(find.byKey(const ValueKey('nav-lab')));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('secure-duration')), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('nav-device')));
-    await tester.pumpAndSettle();
-    expect(controller.actionIds, contains('readDeviceInfo'));
+    try {
+      await tester.pumpWidget(DemoApp(controller: controller));
+      for (var i = 0; i < 100 && !controller.initialized; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      expect(controller.initialized, isTrue);
+      await tester.tap(find.byKey(const ValueKey('nav-lab')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('secure-duration')), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('nav-device')));
+      await tester.pumpAndSettle();
+      expect(controller.actionIds, contains('readDeviceInfo'));
 
-    if (deviceTests || hapticTests) {
-      expect(
-        controller.relayRunning,
-        isFalse,
-        reason: 'Stop the relay before running physical trials.',
-      );
-      // runAction is exactly the dispatcher used by the buttons.
-      var finished = false;
-      Object? failure;
-      final operation = controller
-          .runAction(deviceTests ? 'readDeviceInfo' : 'checkPaired')
-          .catchError((Object error) {
-            failure = error;
-          })
-          .whenComplete(() => finished = true);
-      for (var i = 0; i < 120 && !finished; i++) {
-        await tester.pump(const Duration(milliseconds: 500));
+      if (deviceTests || hapticTests) {
+        expect(
+          controller.relayRunning,
+          isFalse,
+          reason: 'Stop the relay before running physical trials.',
+        );
+        // runAction is exactly the dispatcher used by the buttons.
+        var finished = false;
+        Object? failure;
+        final operation = controller
+            .runAction(deviceTests ? 'readDeviceInfo' : 'checkPaired')
+            .catchError((Object error) {
+              failure = error;
+            })
+            .whenComplete(() => finished = true);
+        for (var i = 0; i < 120 && !finished; i++) {
+          await tester.pump(const Duration(milliseconds: 500));
+        }
+        expect(
+          finished,
+          isTrue,
+          reason: 'Read-only operation exceeded the harness deadline.',
+        );
+        await operation;
+        expect(failure, isNull);
+        expect(controller.trials.first['outcome'], 'completed');
       }
-      expect(
-        finished,
-        isTrue,
-        reason: 'Read-only operation exceeded the harness deadline.',
-      );
-      await operation;
-      expect(failure, isNull);
-      expect(controller.trials.first['outcome'], 'completed');
-    }
-    if (hapticTests) {
-      var finished = false;
-      Object? failure;
-      final operation = controller
-          .runAction('preview')
-          .catchError((Object error) {
-            failure = error;
-          })
-          .whenComplete(() => finished = true);
-      for (var i = 0; i < 120 && !finished; i++) {
-        await tester.pump(const Duration(milliseconds: 500));
+      if (hapticTests) {
+        var finished = false;
+        Object? failure;
+        final operation = controller
+            .runAction('preview')
+            .catchError((Object error) {
+              failure = error;
+            })
+            .whenComplete(() => finished = true);
+        for (var i = 0; i < 120 && !finished; i++) {
+          await tester.pump(const Duration(milliseconds: 500));
+        }
+        expect(
+          finished,
+          isTrue,
+          reason:
+              'Haptic exceeded the harness deadline; do not retry automatically.',
+        );
+        await operation;
+        expect(failure, isNull);
+        expect(controller.trials.first['outcome'], 'completed');
+        // A person must separately mark physical sensation; no synthetic receipt.
       }
-      expect(
-        finished,
-        isTrue,
-        reason:
-            'Haptic exceeded the harness deadline; do not retry automatically.',
-      );
-      await operation;
-      expect(failure, isNull);
-      expect(controller.trials.first['outcome'], 'completed');
-      // A person must separately mark physical sensation; no synthetic receipt.
+    } finally {
+      if (controller.busy) {
+        controller.observe('harness', {
+          'phase': 'harness_ended_with_operation_in_progress',
+        });
+        controller.finishOperation('interrupted');
+      }
+      binding.reportData = controller.report();
+      await tester.pumpWidget(const SizedBox());
+      controller.dispose();
     }
-    binding.reportData = controller.report();
-    await tester.pumpWidget(const SizedBox());
-    controller.dispose();
   });
 }

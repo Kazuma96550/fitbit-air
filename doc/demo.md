@@ -116,7 +116,9 @@ flutter drive --driver=test_driver/demo_driver.dart \
   --dart-define=AIR_DEVICE_TESTS=true
 ```
 
-The binding exposes `reportData` to that integration driver. For interactive
+The driver writes sanitized reports on success and assertion failure. An active
+operation when the harness ends is recorded as interrupted, not successful. The
+binding exposes `reportData` to that integration driver. For interactive
 trials, use the copy button and physical manual markers. Default automation must
 not claim physical confirmation or send haptics without the explicit haptic flag.
 APK builds and device integration tests run on a development machine or CI,
