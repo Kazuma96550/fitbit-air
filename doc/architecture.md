@@ -41,7 +41,16 @@ small typed Dart methods and implemented behind this boundary.
 3. Write the alternate intensity using `POST /settings`.
 4. Wait 800 ms, producing the user-visible haptic effect.
 5. Restore the original intensity and read it back.
-6. Close the Golden Gate stack and Android GATT connection.
+6. Hand the tracker channel back to Google Health (see below).
+7. Close the Golden Gate stack and Android GATT connection.
+
+### Channel handoff
+
+The Air's tracker channel is single-tenant. After every DTLS operation the
+plugin runs a short session whose key resolver refuses every identity. The Air
+answers the failed handshake by resetting the link for all clients; the plugin
+stops sending at that reset and closes, leaving Google Health to handshake
+alone. The method-channel result is returned after the handoff (6 s maximum).
 
 An operation error after the read triggers another best-effort restore. The API
 returns success only after a follow-up read matches the original value.

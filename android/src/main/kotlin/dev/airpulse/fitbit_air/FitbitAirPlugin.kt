@@ -24,11 +24,14 @@ import com.fitbit.goldengate.bindings.coap.CoapEndpoint
 import com.fitbit.goldengate.bindings.coap.data.Method
 import com.fitbit.goldengate.bindings.coap.data.OutgoingRequestBuilder
 import com.fitbit.goldengate.bindings.dtls.DtlsProtocolStatus.TlsProtocolState.TLS_STATE_SESSION
+import com.fitbit.goldengate.bindings.dtls.TlsKeyResolver
 import com.fitbit.goldengate.bindings.io.RxSource
 import com.fitbit.goldengate.bindings.io.TxSink
 import com.fitbit.goldengate.bindings.node.BluetoothAddressNodeKey
+import com.fitbit.goldengate.bindings.node.NodeKey
 import com.fitbit.goldengate.bindings.stack.DtlsSocketNetifGattlink
 import com.fitbit.goldengate.bindings.stack.Stack
+import com.fitbit.goldengate.bindings.stack.StackEvent
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
@@ -92,6 +95,7 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
     private val deviceInfo = mutableMapOf<String, Any>()
     private var heartRateSubscribed = false
     private var scanCallback: ScanCallback? = null
+    private var handoff: Handoff? = null
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         appContext = binding.applicationContext
@@ -702,6 +706,7 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
             rxSource = source
             disposables.add(sink.dataObservable.subscribe({ data ->
                 gattCallbacks.dispatch(activeGatt) {
+                    if (txSink !== sink) return@dispatch
                     synchronized(txQueue) { txQueue.addLast(data) }
                     writeNextPacket(activeGatt)
                 }
@@ -713,7 +718,11 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
             val coap = CoapEndpoint()
             endpoint = coap
             coap.attach(newStack)
+            disposables.add(newStack.stackEventObservable.subscribe({ event ->
+                android.util.Log.d("FitbitAir", "session stack event ${event.javaClass.simpleName}")
+            }, { }))
             disposables.add(newStack.dtlsEventObservable.subscribe({ state ->
+                android.util.Log.d("FitbitAir", "session DTLS ${state.state} error=${state.lastError}")
                 sessionCallbacks.dispatch(coap) {
                     if (state.state == TLS_STATE_SESSION && !sessionStarted) {
                         sessionStarted = true
@@ -940,10 +949,12 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
             return
         }
         val reply = pendingResult ?: return
-        pendingResult = null
+        if (handoff != null) return
         activeOperation = null
-        closeTransport()
-        reply.success(value)
+        handOffTrackerChannel {
+            pendingResult = null
+            reply.success(value)
+        }
     }
 
     @SuppressLint("MissingPermission")
@@ -953,20 +964,131 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
             return
         }
         val reply = pendingResult ?: return
+        handoff?.let { pending ->
+            // The link failed or the handoff errored: release now.
+            completeHandoff(pending)
+            return
+        }
         if (activeOperation == Operation.CaptureSecureEvents) {
             secureEvents?.success((secureCapture?.summary() ?: mapOf("observationMillis" to 0L)) + mapOf(
                 "kind" to "interrupted", "errorCode" to code,
                 "receivedAtMillis" to System.currentTimeMillis(),
             ))
         }
-        pendingResult = null
         activeOperation = null
+        val reportError = {
+            pendingResult = null
+            reply.error(code, message, null)
+        }
+        if (code.startsWith("GATT_")) {
+            closeTransport()
+            reportError()
+        } else {
+            handOffTrackerChannel(reportError)
+        }
+    }
+
+    /**
+     * Returns the tracker channel to Google Health before releasing the link.
+     *
+     * The Air has one Gattlink/DTLS channel, shared by every client on the
+     * same BLE link. Our session leaves Google Health's Gattlink out of sync,
+     * and it otherwise only recovers through its ~60 s ack-timeout watchdog.
+     * A fresh Gattlink reset makes the Air offer its normal identity, which
+     * this SDK cannot resolve; the Air then resets the link for every client.
+     * Google Health obeys that reset, so we go silent at that point and let it
+     * complete the handshake alone.
+     */
+    @SuppressLint("MissingPermission")
+    private fun handOffTrackerChannel(done: () -> Unit) {
+        val activeGatt = gatt
+        val device = activeGatt?.device
+        if (activeGatt == null || device == null || stack == null || txCharacteristic == null) {
+            closeTransport()
+            done()
+            return
+        }
+        val pending = Handoff(done)
+        handoff = pending
+        timeout?.let(handler::removeCallbacks)
+        timeout = null
+        val deadline = Runnable {
+            android.util.Log.d("FitbitAir", "handoff deadline reached")
+            completeHandoff(pending)
+        }
+        pending.deadline = deadline
+        handler.postDelayed(deadline, HANDOFF_TIMEOUT_MS)
+        try {
+            disposables.clear()
+            secureCapture?.close(); secureCapture = null
+            endpoint?.close(); endpoint = null
+            stack?.close(); stack = null
+            rxSource?.close(); rxSource = null
+            txSink?.close(); txSink = null
+            synchronized(txQueue) { txQueue.clear() }
+            val sink = TxSink()
+            txSink = sink
+            val source = RxSource()
+            rxSource = source
+            disposables.add(sink.dataObservable.subscribe({ data ->
+                // Checked on the native loop thread, so nothing queued after
+                // the Air's reset can reach the tracker.
+                if (pending.muted) return@subscribe
+                gattCallbacks.dispatch(activeGatt) {
+                    if (handoff !== pending || txSink !== sink || pending.muted) return@dispatch
+                    synchronized(txQueue) { txQueue.addLast(data) }
+                    writeNextPacket(activeGatt)
+                }
+            }, { handler.post { if (handoff === pending) completeHandoff(pending) } }))
+            val kick = Stack(BluetoothAddressNodeKey(device.address), sink.thisPointer, source.thisPointer, DtlsSocketNetifGattlink(), false, RefusingTlsKeyResolver)
+            stack = kick
+            disposables.add(kick.stackEventObservable.subscribe({ event ->
+                android.util.Log.d("FitbitAir", "handoff stack event ${event.javaClass.simpleName}")
+                // The Air reset the link after the refused handshake. Go silent
+                // before replying so Google Health alone resynchronizes.
+                if (event is StackEvent.GattlinkSessionResent) {
+                    pending.muted = true
+                    pending.resetObserved = true
+                    handler.post { if (handoff === pending) completeHandoff(pending) }
+                }
+            }, { }))
+            disposables.add(kick.dtlsEventObservable.subscribe({ state ->
+                android.util.Log.d("FitbitAir", "handoff DTLS ${state.state} error=${state.lastError}")
+            }, { }))
+            kick.start()
+        } catch (error: Throwable) {
+            completeHandoff(pending)
+        }
+    }
+
+    private fun completeHandoff(pending: Handoff) {
+        if (handoff !== pending) return
+        android.util.Log.d("FitbitAir", "handoff complete resetObserved=${pending.resetObserved}")
+        pending.muted = true
+        pending.deadline?.let(handler::removeCallbacks)
+        handoff = null
         closeTransport()
-        reply.error(code, message, null)
+        pending.done()
+    }
+
+    /** Refuses every identity, so the Air's next handshake fails and it resets the link. */
+    private object RefusingTlsKeyResolver : TlsKeyResolver() {
+        override fun resolveKey(nodeKey: NodeKey<*>, keyId: ByteArray): ByteArray? = null
+    }
+
+    private class Handoff(val done: () -> Unit) {
+        @Volatile var muted = false
+        @Volatile var resetObserved = false
+        var deadline: Runnable? = null
     }
 
     @SuppressLint("MissingPermission")
     private fun closeTransport() {
+        handoff?.let { pending ->
+            handoff = null
+            pending.muted = true
+            pending.deadline?.let(handler::removeCallbacks)
+        }
         val trace = AirCleanupTrace()
         val closingGatt = gatt
         gatt = null
@@ -1033,6 +1155,7 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
         private const val CHANNEL = "fitbit_air"
         private const val PERMISSION_REQUEST = 49217
         private const val OPERATION_TIMEOUT_MS = 45_000L
+        private const val HANDOFF_TIMEOUT_MS = 6_000L
         private val TRACKER_SERVICE = UUID.fromString("abbaff00-e56a-484c-b832-8b17cf6cbfe8")
         private val TRACKER_TX = UUID.fromString("abbaff01-e56a-484c-b832-8b17cf6cbfe8")
         private val TRACKER_RX = UUID.fromString("abbaff02-e56a-484c-b832-8b17cf6cbfe8")

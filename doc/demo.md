@@ -266,3 +266,33 @@ session replaces the old one. These address code-level races, not a confirmed
 explanation or fix for Google Health error 3000. Test both idle relay-on sync and
 sync after stopping; a vibration still opens a separate secure tracker session
 which can contend with Health during the operation.
+
+### Root cause and fix (dev.5)
+
+Logcat from both apps on the paired phone established the cause. The Air
+exposes a single Gattlink/DTLS channel (`ABBAFF01`/`ABBAFF02`) and every GATT
+client on the shared BLE link receives its notifications. When the SDK opens
+its session, the Air resets that channel and its DTLS handshake; Google Health
+logs `unexpected reset complete`, foreign packet sequence numbers, and its own
+`resetting DTLS`. Our handshake completes; Google Health's does not. After the
+SDK disconnects, Google Health logs `Data Ack Timeout` and `max resend count
+reached` until its watchdog disconnects and reconnects about 60 s later. Any
+sync in that window fails, and repeated relay vibrations extend the outage.
+
+The Air retries a failed handshake by resetting the link for all clients and
+offering its other identity (normal mobile key ↔ bootstrap key). Dev.5 uses
+this: after each DTLS operation, the plugin starts a short handoff session
+whose key resolver refuses every identity. When the Air resets the link
+(`GattlinkSessionResent`), the plugin stops transmitting before replying and
+closes. Google Health resynchronizes and handshakes alone, without a
+disconnect. If no reset arrives within 6 s, the plugin closes as before.
+
+Measured on 2026-10-16 (Pixel 7 Pro, Android 17, Google Health 5.10.1):
+without the handoff, Google Health was out of sync for 57–61 s after each
+vibration. With it, Google Health restarted DTLS at the handoff and logged
+no ack timeouts or watchdog disconnects in five vibrations: four from the UI
+engine (three with Google Health in the foreground polling the Air) and one
+from the running relay worker. Google Health sometimes performs one more
+DTLS restart 5–20 s later without errors; its cause is not established. During the
+command itself (about 5–15 s) the two apps still compete for the channel;
+that window is inherent to a second session on the same tracker channel.

@@ -1,5 +1,14 @@
 ## Unreleased
 
+- Fix Google Health sync stalling for about a minute after every DTLS command.
+  The Air has one Gattlink/DTLS channel shared by all clients on the link; our
+  session left Google Health's channel out of sync until its ~60 s watchdog
+  reconnected. Commands now end with a handoff: a short session that refuses
+  the Air's key, which makes the Air reset the link for every client, after
+  which the SDK goes silent so Google Health re-handshakes alone. Results are
+  returned after the handoff (typically 1–3 s). Verified in five vibrations on
+  a Pixel 7 Pro, including the relay worker and Google Health in foreground.
+
 - Serialize command Bluetooth callbacks with teardown, discard stale native
   callbacks/completions, and track partially initialized resources for cleanup.
   These fix lifecycle races; Health sync coexistence still needs phone validation.
