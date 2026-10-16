@@ -12,12 +12,14 @@ class CalendarNotificationListener : NotificationListenerService() {
     }
 
     override fun onListenerDisconnected() {
+        RelayConversations.stopCapture()
         instance = null
         connected = false
         CalendarRelayService.active?.requestStop("Notification access disconnected. Start the relay again when access is available.")
     }
 
     override fun onDestroy() {
+        RelayConversations.stopCapture()
         instance = null
         connected = false
         CalendarRelayService.active?.requestStop("Notification listener stopped. Start the relay again when access is available.")
@@ -25,12 +27,14 @@ class CalendarNotificationListener : NotificationListenerService() {
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
+        runCatching { RelayConversations.observe(sbn.packageName, sbn.notification, sbn.postTime, sbn.isOngoing) }
         val relay = CalendarRelayService.active ?: return
         if (!relay.acceptsPackage(sbn.packageName)) return
         relay.onAlert(
             sbn.packageName, sbn.key, sbn.postTime, sbn.isOngoing,
             sbn.notification.flags and Notification.FLAG_GROUP_SUMMARY != 0,
-            latestMessageTimestamp(sbn.notification)
+            latestMessageTimestamp(sbn.notification),
+            RelayConversations.identity(sbn.packageName, sbn.notification)
         )
     }
 

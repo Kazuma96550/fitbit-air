@@ -35,6 +35,8 @@ class CalendarRelayService : Service() {
     private var sequence = 0
     private val inFlight = mutableMapOf<String, Pair<String?, Long>>()
     private var selectedPackages = emptySet<String>()
+    private var restrictedConversations = false
+    private var allowedConversations = emptySet<String>()
     private val handler = Handler(Looper.getMainLooper())
     private val watchdog = Runnable {
         saveOutcome("Relay command exceeded its deadline; stopped. Delivery is uncertain; no retry.")
@@ -54,6 +56,9 @@ class CalendarRelayService : Service() {
             return START_NOT_STICKY
         }
         if (engine != null) return START_NOT_STICKY
+        RelayConversations.stopCapture()
+        restrictedConversations = RelayConversations.restricted(this)
+        allowedConversations = RelayConversations.allowed(this)
         selectedPackages = RelayAppSelection.selected(this)
         if (selectedPackages.isEmpty()) {
             saveOutcome("Select at least one notification app before starting.")
@@ -124,10 +129,11 @@ class CalendarRelayService : Service() {
 
     fun acceptsPackage(packageName: String): Boolean = ready && !stopping && packageName in selectedPackages
 
-    fun onAlert(packageName: String, key: String, postedAt: Long, ongoing: Boolean, summary: Boolean, messageTimestamp: Long?) {
+    fun onAlert(packageName: String, key: String, postedAt: Long, ongoing: Boolean, summary: Boolean, messageTimestamp: Long?, conversationId: String?) {
         if (!ready || stopping) return
         val now = System.currentTimeMillis()
         if (filter?.accept(packageName, key, postedAt, now, ongoing, summary, messageTimestamp) != true) return
+        if (!RelayConversationPolicy.accepts(packageName, restrictedConversations, allowedConversations, conversationId)) return
         submit(sbnPackage = packageName, postedAt = postedAt)
     }
 
@@ -263,6 +269,7 @@ class CalendarRelayService : Service() {
             "ready" to (active?.ready == true),
             "stopping" to (active?.stopping == true),
             "selectedApps" to RelayAppSelection.selected(context).sorted(),
+            "conversations" to RelayConversations.status(context),
             "history" to RelayHistory.read(context).asReversed().map { it.toMap() },
             "bluetoothPermission" to bluetoothPermission(context),
             "bluetoothEnabled" to if (bluetoothPermission(context)) runCatching {

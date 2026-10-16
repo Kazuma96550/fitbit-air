@@ -1,3 +1,11 @@
+## Unreleased
+
+- Add example-only WhatsApp/WhatsApp Business conversation allowlists with
+  explicit 60-second local capture, exact app-scoped conversation matching,
+  fail-closed handling of missing IDs and controls locked while relaying.
+- Keep conversation labels/IDs out of diagnostic reports and Android backups;
+  direct-chat selection supports people, while selected groups allow all senders.
+
 ## 0.1.2
 
 - Organize the example into Relay, Device and Lab screens with a shared named

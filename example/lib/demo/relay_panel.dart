@@ -255,6 +255,8 @@ class RelayPanel extends StatelessWidget {
             ],
           ),
         ),
+        const SizedBox(height: 12),
+        _conversations(context),
         const SizedBox(height: 16),
         Text('Recent activity', style: Theme.of(context).textTheme.titleLarge),
         const Text(
@@ -287,6 +289,109 @@ class RelayPanel extends StatelessWidget {
           ],
         ),
       ],
+    );
+  }
+
+  Widget _conversations(BuildContext context) {
+    final state = controller;
+    final blocked = state.relayRunning || state.changingRelay;
+    final allowedIds = state.allowedConversations
+        .map((item) => item['id'])
+        .toSet();
+    final chats = [
+      ...state.allowedConversations,
+      ...state.conversationCandidates.where(
+        (item) => !allowedIds.contains(item['id']),
+      ),
+    ];
+    void configure(String method, [Object? arguments]) =>
+        perform(() => state.configureConversations(method, arguments));
+    return Card(
+      child: ExpansionTile(
+        key: const ValueKey('conversation-picker'),
+        title: const Text('WhatsApp conversations'),
+        subtitle: Text(
+          state.restrictedConversations
+              ? 'Only selected chats · ${allowedIds.length} selected'
+              : 'All chats in selected WhatsApp apps',
+        ),
+        childrenPadding: const EdgeInsets.all(12),
+        children: [
+          const Text(
+            'For one person, select their direct chat. Selecting a group allows everyone in that group. Applies to WhatsApp and WhatsApp Business; other selected apps stay unchanged.',
+          ),
+          SwitchListTile(
+            key: const ValueKey('restrict-conversations'),
+            title: const Text('Only selected WhatsApp chats'),
+            value: state.restrictedConversations,
+            onChanged: blocked
+                ? null
+                : (value) =>
+                      configure('restrictConversations', {'enabled': value}),
+          ),
+          if (state.restrictedConversations && allowedIds.isEmpty)
+            const Text(
+              'No WhatsApp chats allowed. Capture a notification and select a chat below.',
+            ),
+          if (blocked)
+            const Text('Stop the relay to capture or change conversations.'),
+          const Text(
+            'Capture reads conversation names and IDs locally for 60 seconds, without vibrating. Have someone send a fresh notification while their chat is closed. Message text is never read. Names and IDs are excluded from reports.',
+          ),
+          OutlinedButton(
+            key: const ValueKey('capture-conversations'),
+            onPressed: blocked || (!state.access || !state.listenerConnected)
+                ? null
+                : () => configure('captureConversations', {
+                    'enabled': state.captureRemainingMillis == 0,
+                  }),
+            child: Text(
+              state.captureRemainingMillis > 0
+                  ? 'Stop capture (${(state.captureRemainingMillis / 1000).ceil()} s)'
+                  : 'Capture chats for 60 seconds',
+            ),
+          ),
+          if (state.unsupportedConversations > 0)
+            const Text(
+              'A WhatsApp notification had no conversation ID. It cannot be selected or allowed in restricted mode.',
+            ),
+          const Text(
+            'Names are labels only; matching requires Android’s conversation ID. If WhatsApp omits or changes that ID, capture again. Restricted mode skips unidentified chats. Saved selections stay on this device until removed or app data is cleared.',
+          ),
+          if (chats.isNotEmpty)
+            SizedBox(
+              height: 220,
+              child: ListView.builder(
+                key: const ValueKey('conversation-list'),
+                itemCount: chats.length,
+                itemBuilder: (context, index) {
+                  final chat = chats[index];
+                  final id = chat['id']! as String;
+                  final selected = allowedIds.contains(id);
+                  return CheckboxListTile(
+                    key: ValueKey('conversation-$id'),
+                    title: Text(chat['label']! as String),
+                    subtitle: Text(
+                      '${chat['packageName'] == 'com.whatsapp.w4b' ? 'WhatsApp Business' : 'WhatsApp'} · ID …${id.substring(id.length - 6)}',
+                    ),
+                    value: selected,
+                    onChanged: blocked
+                        ? null
+                        : (value) => configure('selectConversation', {
+                            'id': id,
+                            'enabled': value,
+                          }),
+                  );
+                },
+              ),
+            ),
+          TextButton(
+            key: const ValueKey('clear-conversations'),
+            onPressed: blocked ? null : () => configure('clearConversations'),
+            child: const Text('Forget all selected and captured chats'),
+          ),
+        ],
+      ),
     );
   }
 

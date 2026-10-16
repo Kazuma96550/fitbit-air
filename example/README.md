@@ -104,3 +104,9 @@ waits for an active command to finish restoration. Browsing those screens leaves
 the relay running; it must be restarted explicitly after the operation. Explicitly start it again after reboot, process death, access
 revocation, or force stop. Repeated deep-idle delivery and Google Health
 coexistence still require physical validation.
+
+After 0.1.2, the demo also offers **WhatsApp conversations** on the Relay screen:
+stop the relay, enable selected-chat mode, capture a fresh notification for up to
+60 seconds, select the chat and start relaying. A direct chat selects one person;
+a selected group allows everyone in that group. See [setup, privacy and acceptance
+steps](../doc/demo.md#selected-whatsapp-conversations-after-012).

@@ -12,7 +12,7 @@ class DemoAction {
   final Map<String, Object?> Function()? parameters;
 }
 
-/// Shared by the UI and integration tests; contains no notification contents.
+/// Shared by UI and tests. Conversation labels stay local and out of reports.
 class DemoController extends ChangeNotifier {
   static const channel = MethodChannel('fitbit_air_example/calendar');
   final actions = <String, DemoAction>{};
@@ -33,6 +33,11 @@ class DemoController extends ChangeNotifier {
   Set<String> selectedApps = {'com.google.android.calendar'};
   List<Map<String, Object?>> apps = [];
   List<Map<String, Object?>> history = [];
+  bool restrictedConversations = false;
+  int captureRemainingMillis = 0;
+  int unsupportedConversations = 0;
+  List<Map<String, Object?>> allowedConversations = [];
+  List<Map<String, Object?>> conversationCandidates = [];
   int secureDurationSeconds = 30;
   Timer? _poll;
   bool _disposed = false;
@@ -116,6 +121,19 @@ class DemoController extends ChangeNotifier {
       relayOutcome = state['outcome'] as String? ?? 'Relay is off.';
       final selected = state['selectedApps'] as List?;
       if (selected != null) selectedApps = selected.cast<String>().toSet();
+      final conversations = Map<String, Object?>.from(
+        state['conversations'] as Map? ?? const {},
+      );
+      restrictedConversations = conversations['restricted'] == true;
+      captureRemainingMillis =
+          conversations['captureRemainingMillis'] as int? ?? 0;
+      unsupportedConversations = conversations['unsupported'] as int? ?? 0;
+      allowedConversations = (conversations['allowed'] as List? ?? [])
+          .map((item) => Map<String, Object?>.from(item as Map))
+          .toList();
+      conversationCandidates = (conversations['candidates'] as List? ?? [])
+          .map((item) => Map<String, Object?>.from(item as Map))
+          .toList();
       history = (state['history'] as List? ?? [])
           .map((entry) => Map<String, Object?>.from(entry as Map))
           .toList();
@@ -182,6 +200,21 @@ class DemoController extends ChangeNotifier {
     final packages = {...selectedApps};
     selected ? packages.add(packageName) : packages.remove(packageName);
     await _relayCall('selectApps', {'packages': packages.toList()});
+  }
+
+  Future<void> configureConversations(String method, [Object? arguments]) {
+    if (!const {
+      'captureConversations',
+      'restrictConversations',
+      'selectConversation',
+      'clearConversations',
+    }.contains(method)) {
+      throw ArgumentError.value(method);
+    }
+    if (relayRunning || changingRelay) {
+      throw StateError('Stop the relay before changing conversation rules.');
+    }
+    return _relayCall(method, arguments);
   }
 
   Future<void> _relayCall(String method, [Object? arguments]) async {
@@ -391,9 +424,14 @@ class DemoController extends ChangeNotifier {
 
   Map<String, Object?> report() => {
     'schemaVersion': 1,
-    'demoVersion': '0.1.2',
+    'demoVersion': '0.1.3-dev.1',
     'exportedAt': DateTime.now().toUtc().toIso8601String(),
-    'relay': {'running': relayRunning, 'history': history},
+    'relay': {
+      'running': relayRunning,
+      'history': history,
+      'restrictedConversations': restrictedConversations,
+      'allowedConversationCount': allowedConversations.length,
+    },
     'trials': _trials,
     'manualObservations': _observations,
   };

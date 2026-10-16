@@ -16,12 +16,20 @@ void main() {
   late List<String> calls;
   late List<String> selected;
   late DemoController controller;
+  late Map<String, Object?> conversations;
 
   setUp(() {
     access = false;
     running = false;
     paired = true;
     deferStop = false;
+    conversations = {
+      'restricted': false,
+      'captureRemainingMillis': 0,
+      'unsupported': 0,
+      'allowed': <Map<String, Object?>>[],
+      'candidates': <Map<String, Object?>>[],
+    };
     history = [];
     calls = [];
     selected = ['com.google.android.calendar'];
@@ -41,7 +49,28 @@ void main() {
                 'bluetoothEnabled': true,
                 'bluetoothPermission': true,
                 'history': history,
+                'conversations': conversations,
               };
+            case 'restrictConversations':
+              conversations['restricted'] = (call.arguments as Map)['enabled'];
+              return null;
+            case 'captureConversations':
+              conversations['captureRemainingMillis'] = 60000;
+              conversations['candidates'] = [
+                {
+                  'id': 'abcdef012345',
+                  'label': 'Private Alice',
+                  'packageName': 'com.whatsapp',
+                },
+              ];
+              return null;
+            case 'selectConversation':
+              conversations['allowed'] = conversations['candidates'];
+              return null;
+            case 'clearConversations':
+              conversations['allowed'] = <Map<String, Object?>>[];
+              conversations['candidates'] = <Map<String, Object?>>[];
+              return null;
             case 'apps':
               return [
                 {
@@ -306,6 +335,61 @@ void main() {
     expect(controller.history, hasLength(2));
     expect(controller.exportJson(), contains('TIMEOUT'));
     expect(find.textContaining('delivery is uncertain'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
+  testWidgets(
+    'capture and select chats locally without leaking report identities',
+    (tester) async {
+      access = true;
+      await mount(tester);
+      await tap(tester, 'conversation-picker');
+      await tap(tester, 'restrict-conversations');
+      expect(controller.restrictedConversations, isTrue);
+      await tap(tester, 'capture-conversations');
+      expect(controller.captureRemainingMillis, 60000);
+      await tap(tester, 'conversation-abcdef012345');
+      expect(controller.allowedConversations.single['label'], 'Private Alice');
+      expect(controller.exportJson(), isNot(contains('Private Alice')));
+      expect(controller.exportJson(), isNot(contains('abcdef012345')));
+      expect(
+        controller.report()['relay'],
+        containsPair('allowedConversationCount', 1),
+      );
+      await tap(tester, 'clear-conversations');
+      expect(controller.allowedConversations, isEmpty);
+      expect(controller.restrictedConversations, isTrue);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets('active relay locks conversation rules in UI and controller', (
+    tester,
+  ) async {
+    access = true;
+    running = true;
+    await mount(tester);
+    await tap(tester, 'conversation-picker');
+    expect(
+      tester
+          .widget<SwitchListTile>(
+            find.byKey(const ValueKey('restrict-conversations')),
+          )
+          .onChanged,
+      isNull,
+    );
+    expect(
+      tester
+          .widget<OutlinedButton>(
+            find.byKey(const ValueKey('capture-conversations')),
+          )
+          .onPressed,
+      isNull,
+    );
+    expect(
+      () => controller.configureConversations('clearConversations'),
+      throwsStateError,
+    );
+    expect(calls, isNot(contains('clearConversations')));
     await tester.pumpWidget(const SizedBox());
   });
 }

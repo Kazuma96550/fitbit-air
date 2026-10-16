@@ -45,6 +45,17 @@ class MainActivity : FlutterActivity() {
                             getSharedPreferences("demo_lab", MODE_PRIVATE).edit().putInt("duration", seconds).apply()
                             result.success(null)
                         }
+                        "captureConversations", "restrictConversations", "selectConversation", "clearConversations" -> {
+                            check(!CalendarRelayService.isRunning) { "Stop the relay before changing conversation rules." }
+                            when (call.method) {
+                                "captureConversations" -> RelayConversations.capture(this, call.argument<Boolean>("enabled") == true)
+                                "restrictConversations" -> RelayConversations.setRestricted(this, call.argument<Boolean>("enabled") == true)
+                                "selectConversation" -> RelayConversations.select(this,
+                                    requireNotNull(call.argument<String>("id")), call.argument<Boolean>("enabled") == true)
+                                "clearConversations" -> RelayConversations.clear(this)
+                            }
+                            result.success(null)
+                        }
                         "selectApps" -> {
                             check(!CalendarRelayService.isRunning) { "Stop the relay before changing apps." }
                             val packages = requireNotNull(call.argument<List<String>>("packages"))
