@@ -17,7 +17,34 @@ class MainActivity : FlutterActivity() {
                 try {
                     when (call.method) {
                         "status" -> result.success(CalendarRelayService.status(this))
-                        "apps" -> result.success(RelayAppSelection.available(this))
+                        "apps" -> Thread {
+                            try {
+                                val apps = RelayAppSelection.available(this)
+                                runOnUiThread { result.success(apps) }
+                            } catch (error: Exception) {
+                                runOnUiThread { result.error("APP_LIST", "Could not load apps.", null) }
+                            }
+                        }.start()
+                        "clearHistory" -> {
+                            RelayHistory.clear(this)
+                            result.success(null)
+                        }
+                        "testPulse" -> {
+                            checkNotNull(CalendarRelayService.active) { "Start the relay first." }.testPulse()
+                            result.success(null)
+                        }
+                        "bluetoothSettings" -> {
+                            startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
+                            result.success(null)
+                        }
+                        "labSettings" -> result.success(mapOf("secureDurationSeconds" to
+                            getSharedPreferences("demo_lab", MODE_PRIVATE).getInt("duration", 30)))
+                        "setLabSettings" -> {
+                            val seconds = requireNotNull(call.argument<Int>("secureDurationSeconds"))
+                            require(seconds in setOf(30, 60, 90))
+                            getSharedPreferences("demo_lab", MODE_PRIVATE).edit().putInt("duration", seconds).apply()
+                            result.success(null)
+                        }
                         "selectApps" -> {
                             check(!CalendarRelayService.isRunning) { "Stop the relay before changing apps." }
                             val packages = requireNotNull(call.argument<List<String>>("packages"))

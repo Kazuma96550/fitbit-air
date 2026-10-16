@@ -2,6 +2,10 @@ package dev.airpulse.fitbit_air_example
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.util.Base64
+import java.io.ByteArrayOutputStream
 
 /** Host-app preferences, deliberately separate from the device-control package. */
 internal object RelayAppSelection {
@@ -31,7 +35,21 @@ internal object RelayAppSelection {
         // Keep saved selections visible even after an app is uninstalled.
         for (name in selected(context)) apps.putIfAbsent(name,
             if (name == DEFAULT_APP) "Google Calendar" else name)
-        return apps.entries.sortedBy { it.value.lowercase() }
-            .map { mapOf("packageName" to it.key, "label" to it.value) }
+        return apps.entries.sortedBy { it.value.lowercase() }.map { app ->
+            val entry = mutableMapOf("packageName" to app.key, "label" to app.value)
+            runCatching {
+                val icon = manager.getApplicationIcon(app.key)
+                val bitmap = Bitmap.createBitmap(48, 48, Bitmap.Config.ARGB_8888)
+                val bounds = icon.copyBounds()
+                icon.setBounds(0, 0, 48, 48)
+                icon.draw(Canvas(bitmap))
+                icon.bounds = bounds
+                val bytes = ByteArrayOutputStream()
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, bytes)
+                bitmap.recycle()
+                entry["icon"] = Base64.encodeToString(bytes.toByteArray(), Base64.NO_WRAP)
+            }
+            entry
+        }
     }
 }

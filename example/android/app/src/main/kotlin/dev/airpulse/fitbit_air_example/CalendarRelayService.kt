@@ -1,5 +1,8 @@
 package dev.airpulse.fitbit_air_example
 
+import android.Manifest
+import android.bluetooth.BluetoothManager
+import android.content.pm.PackageManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -30,6 +33,7 @@ class CalendarRelayService : Service() {
     private var ready = false
     private var stopping = false
     private var sequence = 0
+    private val inFlight = mutableMapOf<String, Pair<String?, Long>>()
     private var selectedPackages = emptySet<String>()
     private val handler = Handler(Looper.getMainLooper())
     private val watchdog = Runnable {
@@ -124,7 +128,24 @@ class CalendarRelayService : Service() {
         if (!ready || stopping) return
         val now = System.currentTimeMillis()
         if (filter?.accept(packageName, key, postedAt, now, ongoing, summary, messageTimestamp) != true) return
+        submit(sbnPackage = packageName, postedAt = postedAt)
+    }
+
+    fun testPulse() {
+        check(ready && !stopping) { "Wait until the relay is listening." }
+        submit(sbnPackage = null, postedAt = System.currentTimeMillis())
+    }
+
+    private fun submit(sbnPackage: String?, postedAt: Long) {
+        val id = "relay-${System.currentTimeMillis()}-${++sequence}"
+        fun record(stage: String, code: String? = null) {
+            val now = System.currentTimeMillis()
+            RelayHistory.add(this, RelayActivity(id, sbnPackage, stage, now,
+                maxOf(0, now - postedAt), code))
+        }
+        record("detected")
         if (pending >= 4) {
+            record("queue_full")
             saveOutcome("Notification dropped: queue full.")
             return
         }
@@ -135,23 +156,28 @@ class CalendarRelayService : Service() {
                 .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "fitbit_air_example:CalendarRelay")
                 .apply { acquire(240_000) }
         }
-        channel?.invokeMethod("dispatch", mapOf(
-            "id" to "notification-${++sequence}", "expiresAt" to postedAt + 30_000
-        ), object : MethodChannel.Result {
-            override fun success(result: Any?) { finished(result?.toString() ?: "Unknown outcome") }
-            override fun error(code: String, message: String?, details: Any?) { finished("Failed: $code") }
-            override fun notImplemented() { finished("Relay worker unavailable") }
-        })
-    }
-
-    private fun finished(outcome: String) {
-        saveOutcome("Notification haptic: $outcome")
-        pending--
-        if (pending == 0) {
-            handler.removeCallbacks(watchdog)
-            releaseWakeLock()
-            if (stopping) stopSelf()
+        inFlight[id] = sbnPackage to postedAt
+        record("queued")
+        fun finished(result: RelayWorkerResult) {
+            inFlight.remove(id)
+            record(result.stage, result.errorCode)
+            saveOutcome("Haptic ${result.stage}${result.errorCode?.let { ": $it" } ?: ""}.")
+            pending--
+            if (pending == 0) {
+                handler.removeCallbacks(watchdog)
+                releaseWakeLock()
+                if (stopping) stopSelf()
+            }
         }
+        channel?.invokeMethod("dispatch", mapOf(
+            "id" to id, "expiresAt" to postedAt + 30_000
+        ), object : MethodChannel.Result {
+            override fun success(result: Any?) { finished(RelayWorkerResult.decode(result)) }
+            override fun error(code: String, message: String?, details: Any?) {
+                finished(RelayWorkerResult("failed", "WORKER_ERROR"))
+            }
+            override fun notImplemented() { finished(RelayWorkerResult("failed", "WORKER_UNAVAILABLE")) }
+        })
     }
 
     fun requestStop(reason: String) {
@@ -162,6 +188,14 @@ class CalendarRelayService : Service() {
     }
 
     override fun onDestroy() {
+        ready = false
+        stopping = true
+        val endedAt = System.currentTimeMillis()
+        inFlight.forEach { (id, source) ->
+            RelayHistory.add(this, RelayActivity(id, source.first, "interrupted", endedAt,
+                maxOf(0, endedAt - source.second), "SERVICE_STOPPED"))
+        }
+        inFlight.clear()
         if (active === this) active = null
         handler.removeCallbacks(watchdog)
         channel?.setMethodCallHandler(null)
@@ -219,12 +253,21 @@ class CalendarRelayService : Service() {
                 ?.split(':')?.any { ComponentName.unflattenFromString(it) == expected } == true
         }
 
+        private fun bluetoothPermission(context: Context): Boolean = Build.VERSION.SDK_INT < 31 ||
+            context.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
+
         fun status(context: Context): Map<String, Any?> = mapOf(
             "access" to hasAccess(context),
             "connected" to CalendarNotificationListener.connected,
             "running" to isRunning,
+            "ready" to (active?.ready == true),
             "stopping" to (active?.stopping == true),
             "selectedApps" to RelayAppSelection.selected(context).sorted(),
+            "history" to RelayHistory.read(context).asReversed().map { it.toMap() },
+            "bluetoothPermission" to bluetoothPermission(context),
+            "bluetoothEnabled" to if (bluetoothPermission(context)) runCatching {
+                context.getSystemService(BluetoothManager::class.java).adapter?.isEnabled
+            }.getOrNull() else null,
             "outcome" to context.getSharedPreferences("calendar_relay", MODE_PRIVATE).getString("outcome", null)
         )
     }

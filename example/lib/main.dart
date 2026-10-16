@@ -6,6 +6,9 @@ import 'package:fitbit_air/fitbit_air_diagnostics.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'demo/demo_controller.dart';
+import 'demo/relay_panel.dart';
+
 void main() => runApp(const DemoApp());
 
 /// Runs in a separate service-owned engine without any Flutter screen.
@@ -72,13 +75,14 @@ Future<void> airCalendarRelay() async {
         ),
       ),
     );
-    return '${result.status.name}${result.error == null ? "" : " (${result.error!.code})"}';
+    return {'status': result.status.name, 'errorCode': result.error?.code};
   });
   await channel.invokeMethod<void>('ready');
 }
 
 class DemoApp extends StatelessWidget {
-  const DemoApp({super.key});
+  const DemoApp({super.key, this.controller});
+  final DemoController? controller;
 
   @override
   Widget build(BuildContext context) => MaterialApp(
@@ -87,132 +91,190 @@ class DemoApp extends StatelessWidget {
       colorSchemeSeed: const Color(0xff405e91),
       useMaterial3: true,
     ),
-    home: const DemoPage(),
+    home: DemoPage(controller: controller),
   );
 }
 
 class DemoPage extends StatefulWidget {
-  const DemoPage({super.key});
+  const DemoPage({super.key, this.controller});
+  final DemoController? controller;
 
   @override
   State<DemoPage> createState() => _DemoPageState();
 }
 
 class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
-  static const _calendarChannel = MethodChannel('fitbit_air_example/calendar');
-  bool _relayRunning = false;
-  bool _relayStarting = false;
-  bool _notificationAccess = false;
-  bool _listenerConnected = false;
-  bool _relayStopping = false;
-  String _relayOutcome = 'Relay is off.';
-  Timer? _relayPoll;
-  Set<String> _selectedApps = {'com.google.android.calendar'};
-  List<Map<String, String>> _relayApps = [];
+  late final DemoController _controller;
+  int _destination = 0;
+  bool get _busy => _controller.busy;
+  bool get _deviceControlsBlocked =>
+      _controller.busy || _controller.changingRelay;
 
   @override
   void initState() {
     super.initState();
+    _controller = widget.controller ?? DemoController();
+    _controller.addListener(_redraw);
+    _registerActions();
     WidgetsBinding.instance.addObserver(this);
-    unawaited(_refreshRelay());
-    unawaited(_loadRelayApps());
-    _relayPoll = Timer.periodic(const Duration(seconds: 2), (_) {
-      if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
-        unawaited(_refreshRelay());
-      }
-    });
+    unawaited(_controller.initialize());
+    _controller.setVisible(true);
+  }
+
+  void _redraw() {
+    if (mounted) setState(() {});
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      unawaited(_refreshRelay());
-      unawaited(_loadRelayApps());
-    }
+    _controller.setVisible(state == AppLifecycleState.resumed);
+    if (state == AppLifecycleState.resumed) unawaited(_controller.loadApps());
   }
 
-  Future<void> _refreshRelay() async {
-    try {
-      final status = await _calendarChannel.invokeMapMethod<String, Object?>(
-        'status',
+  void _registerActions() {
+    _controller.actions.addAll({
+      'checkPaired': DemoAction(_check),
+      'preview': DemoAction(_vibrate),
+      'pulse': DemoAction(_pulse),
+      'setLow': DemoAction(() => _setIntensity(HapticIntensity.low)),
+      'setHigh': DemoAction(() => _setIntensity(HapticIntensity.high)),
+      'readDeviceInfo': DemoAction(_readDeviceInfo),
+      'scanHeartRate': DemoAction(_scanHeartRate),
+      'watchHeartRate': DemoAction(_watchHeartRate, streaming: true),
+      'watchDeviceEvents': DemoAction(_watchDeviceEvents, streaming: true),
+      'watchSecureEvents': DemoAction(
+        _watchSecureEvents,
+        streaming: true,
+        parameters: () => {
+          'durationSeconds': _controller.secureDurationSeconds,
+          'mode': 'secure_events',
+        },
+      ),
+      'wristPresenceTrial': DemoAction(
+        () => _watchSecureEvents(wristPresence: true),
+        streaming: true,
+        parameters: () => {'durationSeconds': 30, 'mode': 'wrist_presence'},
+      ),
+      'alarmTrial': DemoAction(
+        () => _watchSecureEvents(alarm: true),
+        streaming: true,
+        parameters: () => {'durationSeconds': 90, 'mode': 'alarm_dismissal'},
+      ),
+      'probeBattery': DemoAction(_probeBattery),
+      'probeResources': DemoAction(_probeResources),
+      'headlessHaptic': DemoAction(
+        _headlessTest,
+        parameters: () => {'delaySeconds': 15},
+      ),
+      'headlessRead': DemoAction(
+        () => _headlessTest(readOnly: true),
+        parameters: () => {'delaySeconds': 15},
+      ),
+    });
+    _controller.cancelCurrent = _cancelOperation;
+  }
+
+  Future<void> _performAction(String id) async {
+    if (_controller.relayRunning) {
+      final stop = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Stop the relay for this operation?'),
+          content: const Text(
+            'An active haptic will finish restoration first. The relay stays off afterward; start it again when ready.',
+          ),
+          actions: [
+            TextButton(
+              key: const ValueKey('keep-relay'),
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Keep relay running'),
+            ),
+            FilledButton(
+              key: const ValueKey('stop-relay-for-operation'),
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Stop relay and continue'),
+            ),
+          ],
+        ),
       );
-      if (!mounted || status == null) return;
-      setState(() {
-        final selected = status['selectedApps'] as List?;
-        if (selected != null) _selectedApps = selected.cast<String>().toSet();
-        _relayRunning = status['running'] == true;
-        _relayStopping = status['stopping'] == true;
-        _notificationAccess = status['access'] == true;
-        _listenerConnected = status['connected'] == true;
-        _relayOutcome = status['outcome'] as String? ?? 'Relay is off.';
-      });
-    } on PlatformException catch (error) {
-      if (mounted) setState(() => _relayOutcome = error.message ?? error.code);
-    } on MissingPluginException {
-      if (mounted) {
-        setState(() => _relayOutcome = 'Notification relay requires Android.');
-      }
+      if (stop != true || !mounted) return;
+      await _ui(_controller.stopRelayAndWait);
+      if (_controller.relayRunning) return;
     }
+    if (mounted) await _ui(() => _controller.runAction(id));
   }
 
-  Future<void> _loadRelayApps() async {
-    try {
-      final apps = await _calendarChannel.invokeListMethod<Object?>('apps');
-      if (!mounted) return;
-      setState(
-        () => _relayApps = (apps ?? [])
-            .map((app) => Map<String, String>.from(app! as Map))
-            .toList(),
-      );
-    } on PlatformException catch (error) {
-      if (mounted) setState(() => _relayOutcome = error.message ?? error.code);
-    } on MissingPluginException {
-      // The setup status already explains Android support.
-    }
-  }
+  String _describeError(Object error) => error is FitbitAirException
+      ? DemoController.recoveryHint(error.code)
+      : error is PlatformException
+      ? DemoController.recoveryHint(error.code)
+      : error.toString();
 
-  Future<void> _selectRelayApp(String packageName, bool selected) async {
-    final packages = {..._selectedApps};
-    if (selected) {
-      packages.add(packageName);
-    } else {
-      packages.remove(packageName);
-    }
-    setState(() => _relayStarting = true);
+  Future<void> _ui(Future<void> Function() action) async {
     try {
-      await _calendarChannel.invokeMethod<void>('selectApps', {
-        'packages': packages.toList(),
-      });
-      await _refreshRelay();
+      await action();
     } catch (error) {
-      if (mounted) setState(() => _relayOutcome = error.toString());
-    } finally {
-      if (mounted) setState(() => _relayStarting = false);
+      if (!mounted) return;
+      final message = error is FitbitAirException
+          ? DemoController.recoveryHint(error.code)
+          : error is PlatformException
+          ? DemoController.recoveryHint(error.code)
+          : _describeError(error);
+      setState(() => _status = message);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
     }
   }
 
-  Future<void> _calendarAction(String action) async {
-    setState(() => _relayStarting = true);
+  Future<void> _copyReport() async {
+    await Clipboard.setData(ClipboardData(text: _controller.exportJson()));
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Sanitized JSON report copied. No notification text or BLE identifiers.',
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _cancelOperation() async {
     try {
-      if (action == 'start' && !await FitbitAir.isAirPaired()) {
-        if (mounted) {
-          setState(() => _relayOutcome = 'Pair an Air in Google Health first.');
-        }
+      if (_controller.operationId?.startsWith('headless') == true) return;
+      if (_heartRateSubscription != null) {
+        _controller.setOutcome('cancelled');
+        await _heartRateSubscription!.cancel();
+        _heartRateSubscription = null;
+      } else if (_secureEventSubscription != null) {
+        _controller.setOutcome('cancelled');
+        _stopCaptureClock();
+        await _secureEventSubscription!.cancel();
+        _secureEventSubscription = null;
+      } else if (_deviceEventSubscription != null) {
+        _controller.setOutcome('cancelled');
+        await _deviceEventSubscription!.cancel();
+        _deviceEventSubscription = null;
+      } else {
+        await FitbitAir.cancelOperation();
+        // One-shot futures finish cleanup before their controller action returns.
         return;
       }
-      await _calendarChannel.invokeMethod<void>(action);
-      await _refreshRelay();
-    } catch (error) {
-      if (mounted) setState(() => _relayOutcome = error.toString());
-    } finally {
-      if (mounted) setState(() => _relayStarting = false);
+      _controller.finishOperation('cancelled');
+      if (mounted) {
+        setState(
+          () => _status =
+              'Operation cancelled. Partial results remain in the report.',
+        );
+      }
+    } on FitbitAirException catch (error) {
+      if (mounted) {
+        setState(() => _status = DemoController.recoveryHint(error.code));
+      }
     }
   }
 
-  bool get _deviceControlsBlocked => _busy || _relayRunning || _relayStarting;
-
-  bool _busy = false;
-  bool? _paired;
   AirDeviceInfo? _deviceInfo;
   List<AirHeartRateDevice> _heartRateDevices = [];
   StreamSubscription<AirHeartRate>? _heartRateSubscription;
@@ -221,6 +283,7 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
   final List<String> _eventLog = [];
   int _notificationCount = 0;
   final _scrollController = ScrollController();
+  final _deviceScrollController = ScrollController();
   final _captureClock = Stopwatch();
   Timer? _captureTimer;
   int _captureSeconds = 0;
@@ -244,6 +307,10 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
     }
     setState(() {
       _ledMarkers++;
+      _controller.observe('manual_marker', {
+        'marker': observation,
+        'observationMillis': _captureClock.elapsedMilliseconds,
+      });
       _eventLog.insert(
         0,
         '${DateTime.now()} · USER $observation '
@@ -256,13 +323,16 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
   void _watchSecureEvents({bool wristPresence = false, bool alarm = false}) {
     _stopCaptureClock();
     setState(() {
-      _busy = true;
       _eventLog.clear();
       _ledMarkers = 0;
       _captureSeconds = 0;
       _wristPresenceTrial = wristPresence;
       _alarmTrial = alarm;
-      _captureDuration = alarm ? 90 : 30;
+      _captureDuration = alarm
+          ? 90
+          : wristPresence
+          ? 30
+          : _controller.secureDurationSeconds;
       _captureInterruption = null;
       _status = 'Opening secure event capture. Keep the Air on until READY.';
     });
@@ -289,6 +359,15 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
                 '${event.observationMillis == null ? "" : " · observed ${event.observationMillis}ms"}',
               );
               if (_eventLog.length > 20) _eventLog.removeLast();
+              _controller.observe('secure_event', {
+                'phase': event.kind,
+                'eventIds': event.eventIds,
+                'eventNames': event.eventNames,
+                if (event.observationMillis != null)
+                  'observationMillis': event.observationMillis,
+                if (event.receivedPosts != null)
+                  'receivedPosts': event.receivedPosts,
+              });
               if (event.kind == 'ready') {
                 _captureReady = true;
                 _captureClock.reset();
@@ -316,6 +395,7 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
                     '${event.droppedPosts} over diagnostic limit; '
                     '$_ledMarkers manual markers. Gesture detection remains unconfirmed.';
               } else if (event.kind == 'interrupted') {
+                _controller.setOutcome('interrupted');
                 _stopCaptureClock();
                 _captureInterruption =
                     'Incomplete trial: ${event.observationMillis ?? 0}ms observed, '
@@ -326,6 +406,7 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
             });
           },
           onError: (Object error) {
+            _controller.failOperation(error);
             _stopCaptureClock();
             if (mounted) {
               setState(() => _status = '$error\n${_captureInterruption ?? ""}');
@@ -334,7 +415,7 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
           onDone: () {
             _stopCaptureClock();
             _secureEventSubscription = null;
-            if (mounted) setState(() => _busy = false);
+            if (mounted) setState(() => _controller.finishOperation());
           },
         );
   }
@@ -352,10 +433,13 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
       });
 
   Future<void> _headlessTest({bool readOnly = false}) async {
-    setState(() => _busy = true);
+    var receivedOutcome = false;
     try {
       // Obtain runtime permission with the screen present, before service use.
       if (!await FitbitAir.isAirPaired()) {
+        _controller.failOperation(
+          const FitbitAirException('PAIRING_REQUIRED', 'Pair an Air first.'),
+        );
         if (mounted) {
           setState(() => _status = 'Pair an Air in Google Health first.');
         }
@@ -381,14 +465,41 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
           'fitbit_air_example/background',
         ).invokeMethod<String>('getLastResult');
         if (outcome != null) {
+          receivedOutcome = true;
+          if (!outcome.contains('succeeded')) {
+            _controller.failOperation(
+              const FitbitAirException(
+                'HEADLESS_FAILED',
+                'Headless trial failed.',
+              ),
+            );
+          }
+          _controller.observe('headless_result', {
+            'phase': outcome.contains('succeeded') ? 'verified' : 'failed',
+          });
           setState(() => _status = outcome);
           break;
         }
       }
+      if (!receivedOutcome) {
+        _controller.failOperation(
+          const FitbitAirException(
+            'HEADLESS_TIMEOUT',
+            'No result before deadline.',
+          ),
+        );
+        if (mounted) {
+          setState(
+            () => _status =
+                'Headless result unavailable; delivery is uncertain. No automatic retry.',
+          );
+        }
+      }
     } catch (error) {
-      if (mounted) setState(() => _status = error.toString());
+      _controller.failOperation(error);
+      if (mounted) setState(() => _status = _describeError(error));
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) setState(() => _controller.finishOperation());
     }
   }
 
@@ -403,9 +514,12 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _relayPoll?.cancel();
+    _controller.removeListener(_redraw);
+    _controller.setVisible(false);
+    if (widget.controller == null) _controller.dispose();
     _stopCaptureClock();
     _scrollController.dispose();
+    _deviceScrollController.dispose();
     _heartRateSubscription?.cancel();
     _deviceEventSubscription?.cancel();
     _secureEventSubscription?.cancel();
@@ -414,7 +528,6 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
 
   void _watchDeviceEvents() {
     setState(() {
-      _busy = true;
       _eventLog.clear();
       _notificationCount = 0;
       _status = 'Subscribing to diagnostic events…';
@@ -423,6 +536,10 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
       (event) {
         if (!mounted) return;
         setState(() {
+          _controller.observe('device_event', {
+            'phase': event.kind,
+            'payloadLength': event.payload.length,
+          });
           if (event.isNotification) _notificationCount++;
           _eventLog.insert(
             0,
@@ -439,23 +556,26 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
         });
       },
       onError: (Object error) {
-        if (mounted) setState(() => _status = error.toString());
+        _controller.failOperation(error);
+        if (mounted) setState(() => _status = _describeError(error));
       },
       onDone: () {
         _deviceEventSubscription = null;
-        if (mounted) setState(() => _busy = false);
+        if (mounted) setState(() => _controller.finishOperation());
       },
     );
   }
 
   void _watchHeartRate([AirHeartRateDevice? device]) {
     setState(() {
-      _busy = true;
       _status = 'Connecting to ${device?.name ?? "paired Air"}…';
     });
     _heartRateSubscription =
         FitbitAir.watchHeartRate(deviceId: device?.deviceId).listen(
           (heart) {
+            _controller.observe('heart_rate', {
+              'phase': 'measurement_received',
+            });
             if (mounted) {
               setState(
                 () => _status =
@@ -466,11 +586,12 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
             }
           },
           onError: (Object error) {
-            if (mounted) setState(() => _status = error.toString());
+            _controller.failOperation(error);
+            if (mounted) setState(() => _status = _describeError(error));
           },
           onDone: () {
             _heartRateSubscription = null;
-            if (mounted) setState(() => _busy = false);
+            if (mounted) setState(() => _controller.finishOperation());
           },
         );
   }
@@ -479,43 +600,49 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
 
   Future<void> _run(String pending, Future<String> Function() operation) async {
     setState(() {
-      _busy = true;
       _status = pending;
     });
     try {
       final status = await operation();
       if (mounted) setState(() => _status = status);
     } on FitbitAirException catch (error) {
-      if (mounted) setState(() => _status = error.toString());
+      _controller.failOperation(error);
+      if (mounted) setState(() => _status = _describeError(error));
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) setState(() => _controller.finishOperation());
     }
   }
 
   Future<void> _check() async {
     setState(() {
-      _busy = true;
       _status = 'Checking Android paired devices…';
     });
     try {
-      final paired = await FitbitAir.isAirPaired();
+      await _controller.checkPaired();
+      final paired = _controller.paired == true;
       if (!mounted) return;
       setState(() {
-        _paired = paired;
         _status = paired
             ? 'Fitbit Air is paired to this phone.'
             : 'No paired Fitbit Air found. Pair it in Google Health first.';
       });
     } on FitbitAirException catch (error) {
-      if (mounted) setState(() => _status = error.toString());
+      _controller.failOperation(error);
+      if (mounted) setState(() => _status = _describeError(error));
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) setState(() => _controller.finishOperation());
     }
   }
 
   Future<void> _vibrate() async {
     await _run('Sending a restore-safe two-pulse preview…', () async {
       final result = await FitbitAir.vibrate();
+      if (!result.verified || !result.restored) {
+        throw const FitbitAirException(
+          'UNVERIFIED',
+          'Haptic restoration was not verified.',
+        );
+      }
       return 'Two-pulse preview complete. Prior intensity '
           '${result.originalIntensity}; restored and verified: '
           '${result.restored && result.verified}.';
@@ -525,6 +652,9 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
   Future<void> _pulse() async {
     await _run('Sending one haptic pulse…', () async {
       final result = await FitbitAir.pulse();
+      if (!result.verified) {
+        throw const FitbitAirException('UNVERIFIED', 'Pulse was not verified.');
+      }
       return 'One pulse sent: ${result.previousIntensity.name} → '
           '${result.currentIntensity.name}; verified: ${result.verified}.';
     });
@@ -534,6 +664,10 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
     await _run('Reading device information…', () async {
       final info = await FitbitAir.readDeviceInfo();
       if (mounted) setState(() => _deviceInfo = info);
+      _controller.observe('device_info', {
+        'model': info.model,
+        'firmware': info.firmware,
+      });
       return '${info.name}\n'
           'Battery: ${info.batteryPercent == null ? "Not exposed" : "${info.batteryPercent}%"}\n'
           'Model: ${info.model ?? "Not exposed"}\n'
@@ -551,6 +685,16 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
     await _run('Scanning for heart-rate sensors…', () async {
       final devices = await FitbitAir.scanHeartRateDevices();
       if (mounted) setState(() => _heartRateDevices = devices);
+      for (var i = 0; i < devices.length; i++) {
+        final device = devices[i];
+        _controller.actions['readHeartRate$i'] = DemoAction(
+          () => _readHeartRate(deviceId: device.deviceId),
+        );
+        _controller.actions['watchHeartRate$i'] = DemoAction(
+          () => _watchHeartRate(device),
+          streaming: true,
+        );
+      }
       return devices.isEmpty
           ? 'No heart-rate advertisements found. Open Share heart rate in Google Health, then scan again.'
           : 'Select your Air below to receive heart rate.';
@@ -576,403 +720,347 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
     });
   }
 
+  Widget _action(String id, String label, IconData icon) => Padding(
+    padding: const EdgeInsets.only(bottom: 10),
+    child: FilledButton.icon(
+      key: ValueKey('action-$id'),
+      onPressed: _deviceControlsBlocked ? null : () => _performAction(id),
+      icon: Icon(icon),
+      label: Text(label),
+    ),
+  );
+
   Widget _button({
     required VoidCallback? onPressed,
     required IconData icon,
     required String label,
   }) => Padding(
-    padding: const EdgeInsets.only(bottom: 12),
-    child: FilledButton.icon(
+    padding: const EdgeInsets.only(bottom: 10),
+    child: OutlinedButton.icon(
+      key: ValueKey('marker-$label'),
       onPressed: onPressed,
       icon: Icon(icon),
       label: Text(label),
     ),
   );
 
+  List<Widget> _deviceChildren() => [
+    Text('Device', style: Theme.of(context).textTheme.headlineSmall),
+    const Text(
+      'Device controls share the transport with the relay and Lab. Heart rate requires sharing enabled in Google Health.',
+    ),
+    const SizedBox(height: 16),
+    Text(_status, key: const ValueKey('device-status')),
+    const SizedBox(height: 16),
+    _action('checkPaired', 'Check paired Air', Icons.bluetooth_searching),
+    _action('preview', 'Two-pulse preview + restore', Icons.vibration),
+    _action('pulse', 'Single pulse (alternates strength)', Icons.touch_app),
+    Row(
+      children: [
+        Expanded(child: _action('setLow', 'Set low', Icons.volume_down)),
+        const SizedBox(width: 12),
+        Expanded(child: _action('setHigh', 'Set high', Icons.volume_up)),
+      ],
+    ),
+    _action(
+      'readDeviceInfo',
+      'Read device info + services',
+      Icons.info_outline,
+    ),
+    _action('scanHeartRate', 'Scan heart-rate sensors', Icons.radar),
+    _action(
+      'watchHeartRate',
+      'Live heart rate (paired Air)',
+      Icons.monitor_heart,
+    ),
+    for (var i = 0; i < _heartRateDevices.length; i++) ...[
+      _action(
+        'readHeartRate$i',
+        '${_heartRateDevices[i].name} · read once',
+        Icons.favorite,
+      ),
+      _action(
+        'watchHeartRate$i',
+        '${_heartRateDevices[i].name} · live stream',
+        Icons.monitor_heart,
+      ),
+    ],
+    if (_deviceInfo != null)
+      ExpansionTile(
+        title: const Text('Bluetooth service details'),
+        children: [
+          for (final service in _deviceInfo!.services)
+            ListTile(
+              title: Text(service.uuid, style: const TextStyle(fontSize: 12)),
+              subtitle: Text(
+                service.characteristics
+                    .map(
+                      (c) =>
+                          '${c.uuid}\nread=${c.canRead}, notify=${c.canNotify}',
+                    )
+                    .join('\n'),
+                style: const TextStyle(fontSize: 11),
+              ),
+            ),
+        ],
+      ),
+
+    const Text(
+      'Single pulse changes and retains vibration strength. The two-pulse preview restores the original strength.',
+    ),
+  ];
+
+  List<Widget> _labChildren() => [
+    Text('Lab', style: Theme.of(context).textTheme.headlineSmall),
+    const Text(
+      'Research tools remain available here. Manual observations are distinct from tracker events. Opening Lab does not stop the relay.',
+    ),
+    const SizedBox(height: 16),
+    Text(_status, key: const ValueKey('lab-status')),
+    const SizedBox(height: 12),
+    const Text('Secure event observation duration'),
+    DropdownButton<int>(
+      key: const ValueKey('secure-duration'),
+      value: _controller.secureDurationSeconds,
+      items: [
+        for (final seconds in [30, 60, 90])
+          DropdownMenuItem(value: seconds, child: Text('$seconds seconds')),
+      ],
+      onChanged: _busy
+          ? null
+          : (value) => _ui(() => _controller.saveDuration(value!)),
+    ),
+    const Text(
+      'Wrist-presence trials use 30 seconds; alarm trials use 90 seconds. Settings are saved on this phone.',
+    ),
+    const SizedBox(height: 16),
+    if (_captureReady) ...[
+      Text(
+        _alarmTrial
+            ? 'Wait for the alarm, mark its start, then double-tap to dismiss. '
+                  'Mark the attempt and whether vibration stopped. Then stay still until capture ends. ${_captureDuration - _captureSeconds}s left.'
+            : _captureSeconds < 5
+            ? 'Baseline: keep the Air still (${5 - _captureSeconds}s).'
+            : _wristPresenceTrial
+            ? (_captureSeconds < 15
+                  ? 'Remove the Air now and mark it below. Keep it off until the next prompt.'
+                  : 'Put the Air back on and mark it below. ${30 - _captureSeconds}s left.')
+            : _captureSeconds < 25
+            ? 'Double-tap, then mark the attempt below. Mark the LED separately if it flashes. '
+                  'Space attempts at least 5 seconds apart. ${30 - _captureSeconds}s left.'
+            : 'Keep the Air still for the final ${30 - _captureSeconds}s.',
+        textAlign: TextAlign.center,
+      ),
+      if (_alarmTrial) ...[
+        _button(
+          onPressed: () => _markObservation('alarm vibration started'),
+          icon: Icons.alarm,
+          label: 'Mark: alarm started',
+        ),
+        _button(
+          onPressed: () =>
+              _markObservation('attempted alarm-dismissal double-tap'),
+          icon: Icons.touch_app,
+          label: 'Mark: dismissal double-tap attempted',
+        ),
+        _button(
+          onPressed: () =>
+              _markObservation('alarm vibration stopped after tap'),
+          icon: Icons.alarm_off,
+          label: 'Mark: alarm stopped after tap',
+        ),
+      ] else if (_wristPresenceTrial) ...[
+        _button(
+          onPressed: _captureSeconds >= 5
+              ? () => _markObservation('removed Air from wrist')
+              : null,
+          icon: Icons.watch_off,
+          label: 'Mark: Air is off my wrist',
+        ),
+        _button(
+          onPressed: _captureSeconds >= 5
+              ? () => _markObservation('put Air back on wrist')
+              : null,
+          icon: Icons.watch,
+          label: 'Mark: Air is back on my wrist',
+        ),
+      ] else ...[
+        _button(
+          onPressed: _captureSeconds >= 5 && _captureSeconds < 25
+              ? () => _markObservation('attempted double-tap')
+              : null,
+          icon: Icons.touch_app,
+          label: 'Mark: double-tap attempted',
+        ),
+        _button(
+          onPressed: _captureSeconds >= 5 && _captureSeconds < 25
+              ? () => _markObservation('observed LED flash')
+              : null,
+          icon: Icons.lightbulb_outline,
+          label: 'LED flashed — mark observed double-tap',
+        ),
+      ],
+      Text('$_ledMarkers manual markers; these are not detected gestures.'),
+    ],
+
+    _action(
+      'watchDeviceEvents',
+      'Diagnostic device-event monitor',
+      Icons.sensors,
+    ),
+    _action('watchSecureEvents', 'Research: secure events', Icons.hub_outlined),
+    _action(
+      'wristPresenceTrial',
+      'Research: wrist-presence trial (30s)',
+      Icons.watch_outlined,
+    ),
+    _action('alarmTrial', 'Research: alarm dismissal (90s)', Icons.alarm),
+    _action(
+      'probeBattery',
+      'Research: battery access (secure session)',
+      Icons.battery_unknown,
+    ),
+    _action(
+      'probeResources',
+      'Research: read-only resource access',
+      Icons.science_outlined,
+    ),
+    _action(
+      'headlessHaptic',
+      'Headless test (two pulses after 15s)',
+      Icons.notifications_active,
+    ),
+    _action(
+      'headlessRead',
+      'Headless read-only test (after 15s)',
+      Icons.info_outline,
+    ),
+    if (_eventLog.isNotEmpty)
+      ExpansionTile(
+        initiallyExpanded: true,
+        title: const Text('Diagnostic event log (local only)'),
+        children: [
+          for (final event in _eventLog)
+            ListTile(title: Text(event, style: const TextStyle(fontSize: 11))),
+        ],
+      ),
+
+    Text('Trial results', style: Theme.of(context).textTheme.titleLarge),
+    if (_controller.trials.isEmpty)
+      const Text(
+        'No trials yet. Named actions, timestamps and bounded observations appear here.',
+      ),
+    for (final trial in _controller.trials)
+      ListTile(
+        key: ValueKey('trial-${trial['id']}'),
+        title: Text('${trial['operation']} · ${trial['outcome']}'),
+        subtitle: Text('${trial['startedAt']}'),
+      ),
+    OutlinedButton.icon(
+      key: const ValueKey('lab-export'),
+      onPressed: _copyReport,
+      icon: const Icon(Icons.copy),
+      label: const Text('Copy sanitized report'),
+    ),
+    OutlinedButton(
+      key: const ValueKey('lab-marker-felt-vibration'),
+      onPressed: () => _controller.mark('felt_vibration'),
+      child: const Text('Mark: I felt vibration'),
+    ),
+  ];
+
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Fitbit Air · direct BLE demo')),
+    appBar: AppBar(title: const Text('Fitbit Air · 0.1.2')),
     body: Center(
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 480),
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: ListView(
-            controller: _scrollController,
-            children: [
-              const Icon(Icons.watch, size: 64),
-              const SizedBox(height: 20),
-              Text(
-                _status,
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const SizedBox(height: 28),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Text(
-                        'Notifications → Air',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const Text(
-                        'New alerts from selected apps trigger two pulses while the relay is on, including with the phone locked.',
-                      ),
-                      Text(
-                        'Notification access: ${_notificationAccess ? (_listenerConnected ? "connected" : "connecting") : "not enabled"}',
-                      ),
-                      Text(
-                        'Relay: ${_relayRunning ? (_relayStopping ? "stopping" : "on") : "off"}',
-                      ),
-                      Text(_relayOutcome),
-                      ExpansionTile(
-                        title: const Text('Choose notification apps'),
-                        subtitle: Text('${_selectedApps.length} selected'),
-                        children: [
-                          if (_relayApps.isEmpty)
-                            TextButton(
-                              onPressed: _loadRelayApps,
-                              child: const Text('Refresh app list'),
-                            )
-                          else
-                            SizedBox(
-                              height: 220,
-                              child: ListView.builder(
-                                itemCount: _relayApps.length,
-                                itemBuilder: (context, index) {
-                                  final app = _relayApps[index];
-                                  final packageName = app['packageName']!;
-                                  return CheckboxListTile(
-                                    title: Text(app['label']!),
-                                    subtitle: Text(packageName),
-                                    value: _selectedApps.contains(packageName),
-                                    onChanged: _relayRunning || _relayStarting
-                                        ? null
-                                        : (value) => _selectRelayApp(
-                                            packageName,
-                                            value!,
-                                          ),
-                                  );
-                                },
-                              ),
-                            ),
-                        ],
-                      ),
-                      TextButton(
-                        onPressed: _relayStarting
-                            ? null
-                            : () => _calendarAction('settings'),
-                        child: const Text('Open notification access settings'),
-                      ),
-                      FilledButton(
+        constraints: const BoxConstraints(maxWidth: 640),
+        child: Column(
+          children: [
+            Semantics(
+              liveRegion: true,
+              child: ListTile(
+                key: const ValueKey('operation-owner'),
+                leading: Icon(
+                  _busy
+                      ? Icons.science
+                      : _controller.relayRunning
+                      ? Icons.notifications_active
+                      : Icons.check_circle_outline,
+                ),
+                title: Text(
+                  _busy
+                      ? 'In progress: ${_controller.operationId}'
+                      : _controller.relayRunning
+                      ? 'Relay running'
+                      : 'Ready',
+                ),
+                subtitle: _controller.relayStopping
+                    ? const Text('Finishing an active command before stopping.')
+                    : null,
+                trailing: _busy
+                    ? TextButton(
+                        key: const ValueKey('cancel-operation'),
                         onPressed:
-                            _relayStarting ||
-                                _relayStopping ||
-                                (!_relayRunning &&
-                                    (_busy ||
-                                        _selectedApps.isEmpty ||
-                                        !_notificationAccess ||
-                                        !_listenerConnected))
+                            _controller.operationId?.startsWith('headless') ==
+                                true
                             ? null
-                            : () => _calendarAction(
-                                _relayRunning ? 'stop' : 'start',
-                              ),
-                        child: Text(
-                          _relayRunning
-                              ? 'Stop notification relay'
-                              : 'Start notification relay',
-                        ),
-                      ),
-                      const Text(
-                        'Choose apps such as Google Calendar or WhatsApp before starting. Stop the relay to change apps. Start it again after a restart. Other device controls are disabled while relaying.',
-                      ),
-                    ],
-                  ),
-                ),
+                            : () => _ui(_cancelOperation),
+                        child: const Text('Cancel operation'),
+                      )
+                    : null,
               ),
-              if (_captureReady) ...[
-                Text(
-                  _alarmTrial
-                      ? 'Wait for the alarm, mark its start, then double-tap to dismiss. '
-                            'Mark the attempt and whether vibration stopped. Then stay still until capture ends. ${_captureDuration - _captureSeconds}s left.'
-                      : _captureSeconds < 5
-                      ? 'Baseline: keep the Air still (${5 - _captureSeconds}s).'
-                      : _wristPresenceTrial
-                      ? (_captureSeconds < 15
-                            ? 'Remove the Air now and mark it below. Keep it off until the next prompt.'
-                            : 'Put the Air back on and mark it below. ${30 - _captureSeconds}s left.')
-                      : _captureSeconds < 25
-                      ? 'Double-tap, then mark the attempt below. Mark the LED separately if it flashes. '
-                            'Space attempts at least 5 seconds apart. ${30 - _captureSeconds}s left.'
-                      : 'Keep the Air still for the final ${30 - _captureSeconds}s.',
-                  textAlign: TextAlign.center,
-                ),
-                if (_alarmTrial) ...[
-                  _button(
-                    onPressed: () =>
-                        _markObservation('alarm vibration started'),
-                    icon: Icons.alarm,
-                    label: 'Mark: alarm started',
-                  ),
-                  _button(
-                    onPressed: () => _markObservation(
-                      'attempted alarm-dismissal double-tap',
+            ),
+            Expanded(
+              child: _destination == 0
+                  ? RelayPanel(
+                      controller: _controller,
+                      perform: (action) => _ui(action),
+                      testVibration: () => _controller.relayRunning
+                          ? _ui(_controller.testRelay)
+                          : _performAction('preview'),
+                      exportReport: _copyReport,
+                    )
+                  : ListView(
+                      key: ValueKey(
+                        _destination == 1 ? 'device-scroll' : 'lab-scroll',
+                      ),
+                      controller: _destination == 1
+                          ? _deviceScrollController
+                          : _scrollController,
+                      padding: const EdgeInsets.all(20),
+                      children: _destination == 1
+                          ? _deviceChildren()
+                          : _labChildren(),
                     ),
-                    icon: Icons.touch_app,
-                    label: 'Mark: dismissal double-tap attempted',
-                  ),
-                  _button(
-                    onPressed: () =>
-                        _markObservation('alarm vibration stopped after tap'),
-                    icon: Icons.alarm_off,
-                    label: 'Mark: alarm stopped after tap',
-                  ),
-                ] else if (_wristPresenceTrial) ...[
-                  _button(
-                    onPressed: _captureSeconds >= 5
-                        ? () => _markObservation('removed Air from wrist')
-                        : null,
-                    icon: Icons.watch_off,
-                    label: 'Mark: Air is off my wrist',
-                  ),
-                  _button(
-                    onPressed: _captureSeconds >= 5
-                        ? () => _markObservation('put Air back on wrist')
-                        : null,
-                    icon: Icons.watch,
-                    label: 'Mark: Air is back on my wrist',
-                  ),
-                ] else ...[
-                  _button(
-                    onPressed: _captureSeconds >= 5 && _captureSeconds < 25
-                        ? () => _markObservation('attempted double-tap')
-                        : null,
-                    icon: Icons.touch_app,
-                    label: 'Mark: double-tap attempted',
-                  ),
-                  _button(
-                    onPressed: _captureSeconds >= 5 && _captureSeconds < 25
-                        ? () => _markObservation('observed LED flash')
-                        : null,
-                    icon: Icons.lightbulb_outline,
-                    label: 'LED flashed — mark observed double-tap',
-                  ),
-                ],
-                Text(
-                  '$_ledMarkers manual markers; these are not detected gestures.',
-                ),
-              ],
-              if (_busy)
-                TextButton(
-                  onPressed: () async {
-                    try {
-                      if (_heartRateSubscription != null) {
-                        await _heartRateSubscription!.cancel();
-                        _heartRateSubscription = null;
-                        if (mounted) {
-                          setState(() {
-                            _busy = false;
-                            _status = 'Heart-rate stream stopped.';
-                          });
-                        }
-                      } else if (_secureEventSubscription != null) {
-                        _stopCaptureClock();
-                        await _secureEventSubscription!.cancel();
-                        _secureEventSubscription = null;
-                        if (mounted) {
-                          setState(() {
-                            _busy = false;
-                            _status = 'Secure event capture stopped.';
-                          });
-                        }
-                      } else if (_deviceEventSubscription != null) {
-                        await _deviceEventSubscription!.cancel();
-                        _deviceEventSubscription = null;
-                        if (mounted) {
-                          setState(() {
-                            _busy = false;
-                            _status =
-                                'Device event monitor stopped. $_notificationCount notifications received.';
-                          });
-                        }
-                      } else {
-                        await FitbitAir.cancelOperation();
-                      }
-                    } on FitbitAirException catch (error) {
-                      if (mounted) {
-                        setState(() => _status = error.message);
-                      }
-                    }
-                  },
-                  child: const Text('Cancel operation'),
-                ),
-              if (_deviceInfo != null)
-                ExpansionTile(
-                  title: const Text('Bluetooth service details'),
-                  children: [
-                    for (final service in _deviceInfo!.services)
-                      ListTile(
-                        title: Text(
-                          service.uuid,
-                          style: const TextStyle(fontSize: 12),
-                        ),
-                        subtitle: Text(
-                          service.characteristics
-                              .map(
-                                (c) =>
-                                    '${c.uuid}\nread=${c.canRead}, notify=${c.canNotify}',
-                              )
-                              .join('\n'),
-                          style: const TextStyle(fontSize: 11),
-                        ),
-                      ),
-                  ],
-                ),
-              if (_eventLog.isNotEmpty)
-                ExpansionTile(
-                  initiallyExpanded: true,
-                  title: const Text('Diagnostic event log (local only)'),
-                  children: [
-                    for (final event in _eventLog)
-                      ListTile(
-                        title: Text(
-                          event,
-                          style: const TextStyle(fontSize: 11),
-                        ),
-                      ),
-                  ],
-                ),
-              _button(
-                onPressed: _deviceControlsBlocked ? null : _check,
-                icon: Icons.bluetooth_searching,
-                label: _paired == true ? 'Check again' : 'Check paired Air',
-              ),
-              _button(
-                onPressed: _deviceControlsBlocked
-                    ? null
-                    : () => _headlessTest(),
-                icon: Icons.notifications_active,
-                label: 'Headless test (two pulses after 15s)',
-              ),
-              _button(
-                onPressed: _deviceControlsBlocked
-                    ? null
-                    : () => _headlessTest(readOnly: true),
-                icon: Icons.info_outline,
-                label: 'Headless read-only test (after 15s)',
-              ),
-              _button(
-                onPressed: _deviceControlsBlocked ? null : _readDeviceInfo,
-                icon: Icons.info_outline,
-                label: 'Read device info + services',
-              ),
-              _button(
-                onPressed: _deviceControlsBlocked ? null : _scanHeartRate,
-                icon: Icons.radar,
-                label: 'Scan heart-rate sensors',
-              ),
-              _button(
-                onPressed: _deviceControlsBlocked
-                    ? null
-                    : () => _watchHeartRate(),
-                icon: Icons.monitor_heart,
-                label: 'Live heart rate (paired Air)',
-              ),
-              _button(
-                onPressed: _deviceControlsBlocked ? null : _watchDeviceEvents,
-                icon: Icons.sensors,
-                label: 'Diagnostic device-event monitor',
-              ),
-              _button(
-                onPressed: _deviceControlsBlocked ? null : _watchSecureEvents,
-                icon: Icons.hub_outlined,
-                label: 'Research: secure events (30s)',
-              ),
-              _button(
-                onPressed: _deviceControlsBlocked
-                    ? null
-                    : () => _watchSecureEvents(alarm: true),
-                icon: Icons.alarm,
-                label: 'Research: alarm dismissal (90s)',
-              ),
-              _button(
-                onPressed: _deviceControlsBlocked
-                    ? null
-                    : () => _watchSecureEvents(wristPresence: true),
-                icon: Icons.watch_outlined,
-                label: 'Research: wrist-presence trial (30s)',
-              ),
-              _button(
-                onPressed: _deviceControlsBlocked ? null : _probeBattery,
-                icon: Icons.battery_unknown,
-                label: 'Research: battery access (secure session)',
-              ),
-              _button(
-                onPressed: _deviceControlsBlocked ? null : _probeResources,
-                icon: Icons.science_outlined,
-                label: 'Research: read-only resource access',
-              ),
-              for (final device in _heartRateDevices)
-                _button(
-                  onPressed: _deviceControlsBlocked
-                      ? null
-                      : () => _readHeartRate(deviceId: device.deviceId),
-                  icon: Icons.favorite,
-                  label: '${device.name} (${device.rssi} dBm) · read once',
-                ),
-              for (final device in _heartRateDevices)
-                _button(
-                  onPressed: _deviceControlsBlocked
-                      ? null
-                      : () => _watchHeartRate(device),
-                  icon: Icons.monitor_heart,
-                  label: '${device.name} · live stream',
-                ),
-              _button(
-                onPressed: _deviceControlsBlocked ? null : _pulse,
-                icon: Icons.touch_app,
-                label: 'Single pulse (alternates strength)',
-              ),
-              Row(
-                children: [
-                  Expanded(
-                    child: _button(
-                      onPressed: _deviceControlsBlocked
-                          ? null
-                          : () => _setIntensity(HapticIntensity.low),
-                      icon: Icons.volume_down,
-                      label: 'Set low',
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _button(
-                      onPressed: _deviceControlsBlocked
-                          ? null
-                          : () => _setIntensity(HapticIntensity.high),
-                      icon: Icons.volume_up,
-                      label: 'Set high',
-                    ),
-                  ),
-                ],
-              ),
-              _button(
-                onPressed: _deviceControlsBlocked ? null : _vibrate,
-                icon: Icons.settings_backup_restore,
-                label: 'Two-pulse preview + restore',
-              ),
-              const SizedBox(height: 12),
-              const Text(
-                'The single pulse works by changing and retaining the vibration strength. The restore-safe preview changes it and changes it back, so it produces two pulses. Wrist-tap detection is not implemented.',
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
+    ),
+    bottomNavigationBar: NavigationBar(
+      selectedIndex: _destination,
+      onDestinationSelected: (index) => setState(() => _destination = index),
+      destinations: const [
+        NavigationDestination(
+          key: ValueKey('nav-relay'),
+          icon: Icon(Icons.notifications_outlined),
+          selectedIcon: Icon(Icons.notifications_active),
+          label: 'Relay',
+        ),
+        NavigationDestination(
+          key: ValueKey('nav-device'),
+          icon: Icon(Icons.watch_outlined),
+          selectedIcon: Icon(Icons.watch),
+          label: 'Device',
+        ),
+        NavigationDestination(
+          key: ValueKey('nav-lab'),
+          icon: Icon(Icons.science_outlined),
+          selectedIcon: Icon(Icons.science),
+          label: 'Lab',
+        ),
+      ],
     ),
   );
 }
