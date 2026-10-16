@@ -1,5 +1,9 @@
 ## Unreleased
 
+- Serialize command Bluetooth callbacks with teardown, discard stale native
+  callbacks/completions, and track partially initialized resources for cleanup.
+  These fix lifecycle races; Health sync coexistence still needs phone validation.
+
 - Expose bounded, process-wide command cleanup diagnostics in demo reports,
   including teardown failures and app-local transport ownership. This aids
   Health sync investigation; it does not establish or fix the underlying cause.

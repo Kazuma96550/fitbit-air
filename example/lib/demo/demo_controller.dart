@@ -451,7 +451,7 @@ class DemoController extends ChangeNotifier {
 
   Map<String, Object?> report() => {
     'schemaVersion': 1,
-    'demoVersion': '0.1.3-dev.3',
+    'demoVersion': '0.1.3-dev.4',
     'exportedAt': DateTime.now().toUtc().toIso8601String(),
     'relay': {
       'running': relayRunning,

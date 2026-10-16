@@ -255,3 +255,14 @@ A quiet relay should not intentionally retain its command GATT client for 15
 minutes. Failed teardown is one hypothesis; shared Bluetooth or tracker protocol
 state is another. These diagnostics do not automatically reset Bluetooth or the
 tracker, and are not a confirmed fix for Health sync failures.
+
+Dev.4 serializes command GATT callbacks on the main lifecycle thread and checks
+session identity after queueing, including native outgoing packets, DTLS-ready
+notifications and operation completions. Cleanup invalidates session identity
+before disposing native resources. Partially constructed sinks and endpoints
+are registered for cleanup before subsequent initialization can throw. Regression
+tests exercise callbacks arriving during setup, after cleanup and after a new
+session replaces the old one. These address code-level races, not a confirmed
+explanation or fix for Google Health error 3000. Test both idle relay-on sync and
+sync after stopping; a vibration still opens a separate secure tracker session
+which can contend with Health during the operation.

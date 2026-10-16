@@ -79,6 +79,8 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
     private var rxSource: RxSource? = null
     private var stack: Stack? = null
     private var endpoint: CoapEndpoint? = null
+    private val gattCallbacks = AirSessionCallbacks({ gatt }) { action -> handler.post { action() } }
+    private val sessionCallbacks = AirSessionCallbacks({ endpoint }) { action -> handler.post { action() } }
     private val disposables = CompositeDisposable()
     private val txQueue = ArrayDeque<ByteArray>()
     private var writeInFlight = false
@@ -424,8 +426,8 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
         handler.postDelayed(deadline, if (operation == Operation.CaptureSecureEvents)
             (secureCaptureSeconds + 15) * 1000L else OPERATION_TIMEOUT_MS)
         val callback = object : BluetoothGattCallback() {
-            override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
-                if (g !== gatt) return
+            override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) = gattCallbacks.dispatch(g) {
+                if (g !== gatt) return@dispatch
                 if (status != BluetoothGatt.GATT_SUCCESS) {
                     finishError("GATT_CONNECT", "Bluetooth connection failed (status $status).")
                 } else if (newState == android.bluetooth.BluetoothProfile.STATE_CONNECTED) {
@@ -435,25 +437,25 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
                 }
             }
 
-            override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
-                if (g !== gatt) return
+            override fun onServicesDiscovered(g: BluetoothGatt, status: Int) = gattCallbacks.dispatch(g) {
+                if (g !== gatt) return@dispatch
                 if (status != BluetoothGatt.GATT_SUCCESS) {
                     finishError("GATT_DISCOVERY", "Could not discover Air services (status $status).")
-                    return
+                    return@dispatch
                 }
                 if (activeOperation == Operation.ReadDeviceInfo) {
                     readDeviceInformation(g, device)
-                    return
+                    return@dispatch
                 }
                 if (activeOperation == Operation.ReadHeartRate) {
                     subscribeHeartRate(g)
-                    return
+                    return@dispatch
                 }
                 val rx = g.getService(TRACKER_SERVICE)?.getCharacteristic(TRACKER_RX)
                 val cccd = rx?.getDescriptor(CCCD)
                 if (rx == null || cccd == null || !g.setCharacteristicNotification(rx, true)) {
                     finishError("TRACKER_CHANNEL", "Air tracker channel is unavailable.")
-                    return
+                    return@dispatch
                 }
                 val accepted = if (Build.VERSION.SDK_INT >= 33) {
                     g.writeDescriptor(cccd, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE) == BluetoothGatt.GATT_SUCCESS
@@ -466,10 +468,10 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
                 if (!accepted) finishError("SUBSCRIBE", "Could not subscribe to the tracker channel.")
             }
 
-            override fun onDescriptorWrite(g: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
-                if (g !== gatt) return
+            override fun onDescriptorWrite(g: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) = gattCallbacks.dispatch(g) {
+                if (g !== gatt) return@dispatch
                 android.util.Log.d("FitbitAir", "CCCD ${descriptor.characteristic.uuid} status=$status")
-                if (descriptor.uuid != CCCD) return
+                if (descriptor.uuid != CCCD) return@dispatch
                 if (status != BluetoothGatt.GATT_SUCCESS) {
                     finishError("SUBSCRIBE", "Tracker channel subscription failed (status $status).")
                 } else if (activeOperation == Operation.ReadHeartRate) {
@@ -480,30 +482,33 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
                 }
             }
 
-            override fun onCharacteristicChanged(g: BluetoothGatt, c: BluetoothGattCharacteristic, value: ByteArray) {
-                if (g !== gatt) return
+            override fun onCharacteristicChanged(g: BluetoothGatt, c: BluetoothGattCharacteristic, value: ByteArray) = gattCallbacks.dispatch(g) {
+                if (g !== gatt) return@dispatch
                 if (c.uuid == HEART_RATE_MEASUREMENT && activeOperation == Operation.ReadHeartRate) {
                     android.util.Log.d("FitbitAir", "Heart-rate notification length=${value.size}")
                     handleHeartRate(value)
-                    return
+                    return@dispatch
                 }
                 if (c.uuid == TRACKER_RX) rxSource?.receiveData(value)?.subscribe({}, { finishError("RX", it.message ?: "Receive failed.") })
             }
 
             @Suppress("DEPRECATION")
             override fun onCharacteristicChanged(g: BluetoothGatt, c: BluetoothGattCharacteristic) {
-                if (g !== gatt) return
-                if (Build.VERSION.SDK_INT < 33 && c.uuid == HEART_RATE_MEASUREMENT && activeOperation == Operation.ReadHeartRate) {
-                    handleHeartRate(c.value ?: byteArrayOf())
-                    return
-                }
-                if (Build.VERSION.SDK_INT < 33 && c.uuid == TRACKER_RX) {
-                    rxSource?.receiveData(c.value ?: byteArrayOf())?.subscribe({}, { finishError("RX", it.message ?: "Receive failed.") })
+                val value = c.value?.copyOf() ?: byteArrayOf()
+                gattCallbacks.dispatch(g) {
+                    if (g !== gatt) return@dispatch
+                    if (Build.VERSION.SDK_INT < 33 && c.uuid == HEART_RATE_MEASUREMENT && activeOperation == Operation.ReadHeartRate) {
+                        handleHeartRate(value)
+                        return@dispatch
+                    }
+                    if (Build.VERSION.SDK_INT < 33 && c.uuid == TRACKER_RX) {
+                        rxSource?.receiveData(value)?.subscribe({}, { finishError("RX", it.message ?: "Receive failed.") })
+                    }
                 }
             }
 
-            override fun onCharacteristicWrite(g: BluetoothGatt, c: BluetoothGattCharacteristic, status: Int) {
-                if (g !== gatt) return
+            override fun onCharacteristicWrite(g: BluetoothGatt, c: BluetoothGattCharacteristic, status: Int) = gattCallbacks.dispatch(g) {
+                if (g !== gatt) return@dispatch
                 writeInFlight = false
                 if (status != BluetoothGatt.GATT_SUCCESS) {
                     finishError("TX", "Tracker channel write failed (status $status).")
@@ -512,16 +517,18 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
                 }
             }
 
-            override fun onCharacteristicRead(g: BluetoothGatt, c: BluetoothGattCharacteristic, value: ByteArray, status: Int) {
-                if (g !== gatt) return
+            override fun onCharacteristicRead(g: BluetoothGatt, c: BluetoothGattCharacteristic, value: ByteArray, status: Int) = gattCallbacks.dispatch(g) {
+                if (g !== gatt) return@dispatch
                 if (activeOperation == Operation.ReadDeviceInfo) handleInfoRead(g, c, value, status)
             }
 
             @Suppress("DEPRECATION")
             override fun onCharacteristicRead(g: BluetoothGatt, c: BluetoothGattCharacteristic, status: Int) {
-                if (g !== gatt) return
-                if (Build.VERSION.SDK_INT < 33 && activeOperation == Operation.ReadDeviceInfo) {
-                    handleInfoRead(g, c, c.value ?: byteArrayOf(), status)
+                val value = c.value?.copyOf() ?: byteArrayOf()
+                gattCallbacks.dispatch(g) {
+                    if (Build.VERSION.SDK_INT < 33 && activeOperation == Operation.ReadDeviceInfo) {
+                        handleInfoRead(g, c, value, status)
+                    }
                 }
             }
         }
@@ -678,6 +685,7 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
     }
 
     private fun startGoldengate(activeGatt: BluetoothGatt, device: BluetoothDevice) {
+        if (activeGatt !== gatt || txSink != null) return
         try {
             val service = activeGatt.getService(TRACKER_SERVICE)
             val tx = service?.getCharacteristic(TRACKER_TX)
@@ -689,24 +697,30 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
             txCharacteristic = tx
             GoogleHealthNativeLoader.initialize(appContext)
             val sink = TxSink()
-            val source = RxSource()
             txSink = sink
+            val source = RxSource()
             rxSource = source
             disposables.add(sink.dataObservable.subscribe({ data ->
-                synchronized(txQueue) { txQueue.addLast(data) }
-                handler.post { writeNextPacket(gatt) }
-            }, { finishError("GOLDENGATE_TX", it.message ?: "Transport send failed.") }))
+                gattCallbacks.dispatch(activeGatt) {
+                    synchronized(txQueue) { txQueue.addLast(data) }
+                    writeNextPacket(activeGatt)
+                }
+            }, { error -> gattCallbacks.dispatch(activeGatt) {
+                finishError("GOLDENGATE_TX", error.message ?: "Transport send failed.")
+            } }))
             val newStack = Stack(BluetoothAddressNodeKey(device.address), sink.thisPointer, source.thisPointer, DtlsSocketNetifGattlink(), false)
             stack = newStack
             val coap = CoapEndpoint()
-            coap.attach(newStack)
             endpoint = coap
+            coap.attach(newStack)
             disposables.add(newStack.dtlsEventObservable.subscribe({ state ->
-                if (state.state == TLS_STATE_SESSION && !sessionStarted) {
-                    sessionStarted = true
-                    handler.post { runOperation(coap) }
+                sessionCallbacks.dispatch(coap) {
+                    if (state.state == TLS_STATE_SESSION && !sessionStarted) {
+                        sessionStarted = true
+                        runOperation(coap)
+                    }
                 }
-            }, { finishError("DTLS", it.message ?: "Secure transport failed.") }))
+            }, { error -> finishSessionError(coap, "DTLS", error.message ?: "Secure transport failed.") }))
             newStack.start()
         } catch (error: Throwable) {
             finishError("GOLDENGATE", error.message ?: error.toString())
@@ -716,22 +730,22 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
     @SuppressLint("MissingPermission")
     private fun runOperation(coap: CoapEndpoint) {
         when (val operation = activeOperation) {
-            Operation.ReadDeviceInfo -> finishError("INTERNAL", "Device information does not use DTLS.")
-            Operation.ReadHeartRate -> finishError("INTERNAL", "Standard heart rate does not use DTLS.")
+            Operation.ReadDeviceInfo -> finishSessionError(coap, "INTERNAL", "Device information does not use DTLS.")
+            Operation.ReadHeartRate -> finishSessionError(coap, "INTERNAL", "Standard heart rate does not use DTLS.")
             Operation.PreviewHaptic -> runBoundedHaptic(coap)
             Operation.ReadHapticIntensity -> runReadHapticIntensity(coap)
             Operation.ProbeBatteryAccess -> runBatteryAccessProbe(coap)
             Operation.ProbeReadOnlyResources -> disposables.add(AirReadOnlyResources.probe(coap)
-                .subscribe({ finishSuccess(it) }, {
-                    finishError("RESOURCE_PROBE_FAILED", "Read-only resource probe failed.")
+                .subscribe({ finishSessionSuccess(coap, it) }, {
+                    finishSessionError(coap, "RESOURCE_PROBE_FAILED", "Read-only resource probe failed.")
                 }))
             Operation.CaptureSecureEvents -> {
                 val events = secureEvents ?: run {
-                    finishError("CANCELLED", "Secure event listener was cancelled.")
+                    finishSessionError(coap, "CANCELLED", "Secure event listener was cancelled.")
                     return
                 }
                 val peer = gatt?.device ?: run {
-                    finishError("GATT_DISCONNECTED", "Secure event connection ended.")
+                    finishSessionError(coap, "GATT_DISCONNECTED", "Secure event connection ended.")
                     return
                 }
                 try {
@@ -742,18 +756,18 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
                         handler.post { if (secureEvents === events) events.success(event) }
                     }
                     secureCapture = capture
-                    disposables.add(capture.start().subscribe({ finishSuccess(it) }, {
-                        finishError("EVENT_CAPTURE_FAILED", "Could not observe secure device events.")
+                    disposables.add(capture.start().subscribe({ finishSessionSuccess(coap, it) }, {
+                        finishSessionError(coap, "EVENT_CAPTURE_FAILED", "Could not observe secure device events.")
                     }))
                 } catch (_: LinkageError) {
-                    finishError("EVENT_CAPTURE_ABI", "Installed native transport lacks compatible event-server bindings.")
+                    finishSessionError(coap, "EVENT_CAPTURE_ABI", "Installed native transport lacks compatible event-server bindings.")
                 } catch (_: Exception) {
-                    finishError("EVENT_CAPTURE_FAILED", "Could not initialize secure event capture.")
+                    finishSessionError(coap, "EVENT_CAPTURE_FAILED", "Could not initialize secure event capture.")
                 }
             }
             is Operation.SetHapticIntensity -> runSetHapticIntensity(coap, operation.intensity)
             Operation.SinglePulse -> runSinglePulse(coap)
-            null -> finishError("INTERNAL", "No Fitbit Air operation was selected.")
+            null -> finishSessionError(coap, "INTERNAL", "No Fitbit Air operation was selected.")
         }
     }
 
@@ -773,8 +787,8 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
                         catch (_: Exception) { put("decodeError", "Could not decode battery fields.") }
                     }
                 }
-            } }.subscribe({ result -> finishSuccess(result) }, { error ->
-                finishError("BATTERY_PROBE_FAILED", error.message ?: "Battery access probe failed.")
+            } }.subscribe({ result -> finishSessionSuccess(coap, result) }, { error ->
+                finishSessionError(coap, "BATTERY_PROBE_FAILED", error.message ?: "Battery access probe failed.")
             }))
     }
 
@@ -795,9 +809,9 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
 
     private fun runReadHapticIntensity(coap: CoapEndpoint) {
         disposables.add(readIntensity(coap).subscribe({ intensity ->
-            finishSuccess(mapOf("intensity" to intensity))
+            finishSessionSuccess(coap, mapOf("intensity" to intensity))
         }, { error ->
-            finishError("HAPTIC_READ_FAILED", error.message ?: "Could not read haptic intensity.")
+            finishSessionError(coap, "HAPTIC_READ_FAILED", error.message ?: "Could not read haptic intensity.")
         }))
     }
 
@@ -814,7 +828,7 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
                     }
             }
         }.timeout(8, TimeUnit.SECONDS).subscribe({ (previous, changed) ->
-            finishSuccess(
+            finishSessionSuccess(coap,
                 mapOf(
                     "previousIntensity" to previous,
                     "currentIntensity" to requested,
@@ -823,7 +837,7 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
                 ),
             )
         }, { error ->
-            finishError("HAPTIC_WRITE_FAILED", error.message ?: "Could not set haptic intensity.")
+            finishSessionError(coap, "HAPTIC_WRITE_FAILED", error.message ?: "Could not set haptic intensity.")
         }))
     }
 
@@ -838,7 +852,7 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
                     previous to current
                 }
         }.timeout(8, TimeUnit.SECONDS).subscribe({ (previous, current) ->
-            finishSuccess(
+            finishSessionSuccess(coap,
                 mapOf(
                     "previousIntensity" to previous,
                     "currentIntensity" to current,
@@ -847,7 +861,7 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
                 ),
             )
         }, { error ->
-            finishError("HAPTIC_PULSE_FAILED", error.message ?: "Could not send a haptic pulse.")
+            finishSessionError(coap, "HAPTIC_PULSE_FAILED", error.message ?: "Could not send a haptic pulse.")
         }))
     }
 
@@ -878,8 +892,8 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
         // Each request has its own deadline. An outer short timeout could
         // dispose the recovery write; the operation-wide 45s guard remains.
         }.subscribe({ original ->
-            finishSuccess(mapOf("originalIntensity" to original, "restored" to true, "verified" to true))
-        }, { error -> finishError("HAPTIC_FAILED", error.message ?: "Haptic command failed; check Google Health settings." ) }))
+            finishSessionSuccess(coap, mapOf("originalIntensity" to original, "restored" to true, "verified" to true))
+        }, { error -> finishSessionError(coap, "HAPTIC_FAILED", error.message ?: "Haptic command failed; check Google Health settings." ) }))
     }
 
     private fun writeIntensity(coap: CoapEndpoint, intensity: Int): Single<Boolean> {
@@ -909,6 +923,14 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
             writeInFlight = false
             synchronized(txQueue) { txQueue.addFirst(packet) }
         }
+    }
+
+    private fun finishSessionSuccess(coap: CoapEndpoint, value: Map<String, Any>) {
+        sessionCallbacks.dispatch(coap) { finishSuccess(value) }
+    }
+
+    private fun finishSessionError(coap: CoapEndpoint, code: String, message: String) {
+        sessionCallbacks.dispatch(coap) { finishError(code, message) }
     }
 
     @SuppressLint("MissingPermission")
@@ -946,7 +968,11 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
     @SuppressLint("MissingPermission")
     private fun closeTransport() {
         val trace = AirCleanupTrace()
-        val record = cleanupOperation != null || gatt != null || scanCallback != null
+        val closingGatt = gatt
+        gatt = null
+        val closingEndpoint = endpoint
+        endpoint = null
+        val record = cleanupOperation != null || closingGatt != null || scanCallback != null
         trace.step("stopScan", scanCallback != null) {
             scanCallback?.let { callback ->
                 val manager = appContext.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
@@ -960,15 +986,15 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
         timeout = null
         trace.step("subscriptions") { disposables.clear() }
         trace.step("secureCapture", secureCapture != null) { secureCapture?.close() }; secureCapture = null
-        trace.step("endpoint", endpoint != null) { endpoint?.close() }; endpoint = null
+        trace.step("endpoint", closingEndpoint != null) { closingEndpoint?.close() }
         trace.step("stack", stack != null) { stack?.close() }; stack = null
         trace.step("rxSource", rxSource != null) { rxSource?.close() }; rxSource = null
         trace.step("txSink", txSink != null) { txSink?.close() }; txSink = null
         txCharacteristic = null
         synchronized(txQueue) { txQueue.clear() }
         writeInFlight = false
-        trace.step("gattDisconnect", gatt != null) { gatt?.disconnect() }
-        trace.step("gattClose", gatt != null) { gatt?.close() }; gatt = null
+        trace.step("gattDisconnect", closingGatt != null) { closingGatt?.disconnect() }
+        trace.step("gattClose", closingGatt != null) { closingGatt?.close() }
         AirTransportLease.release(transportOwner)
         if (record) AirTransportDiagnostics.record(cleanupOperation ?: "Scan", trace.snapshot())
         cleanupOperation = null
