@@ -97,6 +97,9 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
     private var scanCallback: ScanCallback? = null
     private var handoff: Handoff? = null
     private var handoffOutcome: String? = null
+    private var linkBoosted = false
+    private var handshakeAttempts = 0
+    private var handshakeDeadline: Runnable? = null
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         appContext = binding.applicationContext
@@ -420,6 +423,7 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
             Operation.SinglePulse -> "SinglePulse"
         }
         sessionStarted = false
+        handshakeAttempts = 0
         val deadline = Runnable {
             if (activeOperation == Operation.ReadHeartRate) {
                 finishError("HEART_RATE_TIMEOUT", if (heartRateSubscribed)
@@ -483,6 +487,10 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
                     heartRateSubscribed = true
                     // The next standard Heart Rate Measurement completes this read.
                 } else {
+                    // The idle link runs at ~150 ms with peripheral latency, so each
+                    // round trip waits several radio events. Boost for our session only;
+                    // closeTransport() returns the link to low power.
+                    linkBoosted = g.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
                     startGoldengate(g, device)
                 }
             }
@@ -727,14 +735,54 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
                 sessionCallbacks.dispatch(coap) {
                     if (state.state == TLS_STATE_SESSION && !sessionStarted) {
                         sessionStarted = true
+                        handshakeDeadline?.let(handler::removeCallbacks)
+                        handshakeDeadline = null
                         runOperation(coap)
                     }
                 }
             }, { error -> finishSessionError(coap, "DTLS", error.message ?: "Secure transport failed.") }))
+            handshakeAttempts++
+            val deadline = Runnable {
+                if (endpoint === coap && !sessionStarted) retryHandshake(activeGatt, device)
+            }
+            handshakeDeadline = deadline
+            handler.postDelayed(deadline, HANDSHAKE_RETRY_MS)
             newStack.start()
         } catch (error: Throwable) {
             finishError("GOLDENGATE", error.message ?: error.toString())
         }
+    }
+
+    /**
+     * A handshake normally completes within ~2 s. When Google Health answers the
+     * Air's handshake at the same time, neither may win and ours stalls. No
+     * device command has been sent yet, so one fresh attempt is safe.
+     */
+    private fun retryHandshake(activeGatt: BluetoothGatt, device: BluetoothDevice) {
+        handshakeDeadline = null
+        if (handshakeAttempts >= MAX_HANDSHAKE_ATTEMPTS) {
+            finishError("HANDSHAKE_TIMEOUT", "The Air did not complete a secure session; Google Health may be using it.")
+            return
+        }
+        android.util.Log.d("FitbitAir", "handshake stalled; retrying")
+        try {
+            disposeSession()
+        } catch (error: Exception) {
+            finishError("GOLDENGATE", "Could not reset the secure session.")
+            return
+        }
+        startGoldengate(activeGatt, device)
+    }
+
+    /** Releases the native session but keeps the GATT connection. */
+    private fun disposeSession() {
+        disposables.clear()
+        secureCapture?.close(); secureCapture = null
+        endpoint?.close(); endpoint = null
+        stack?.close(); stack = null
+        rxSource?.close(); rxSource = null
+        txSink?.close(); txSink = null
+        synchronized(txQueue) { txQueue.clear() }
     }
 
     @SuppressLint("MissingPermission")
@@ -1017,13 +1065,7 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
         pending.deadline = deadline
         handler.postDelayed(deadline, HANDOFF_TIMEOUT_MS)
         try {
-            disposables.clear()
-            secureCapture?.close(); secureCapture = null
-            endpoint?.close(); endpoint = null
-            stack?.close(); stack = null
-            rxSource?.close(); rxSource = null
-            txSink?.close(); txSink = null
-            synchronized(txQueue) { txQueue.clear() }
+            disposeSession()
             val sink = TxSink()
             txSink = sink
             val source = RxSource()
@@ -1107,6 +1149,8 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
         deviceInfo.clear()
         timeout?.let(handler::removeCallbacks)
         timeout = null
+        handshakeDeadline?.let(handler::removeCallbacks)
+        handshakeDeadline = null
         trace.step("subscriptions") { disposables.clear() }
         trace.step("secureCapture", secureCapture != null) { secureCapture?.close() }; secureCapture = null
         trace.step("endpoint", closingEndpoint != null) { closingEndpoint?.close() }
@@ -1116,6 +1160,10 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
         txCharacteristic = null
         synchronized(txQueue) { txQueue.clear() }
         writeInFlight = false
+        trace.step("linkPriority", closingGatt != null && linkBoosted) {
+            closingGatt?.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_LOW_POWER)
+        }
+        linkBoosted = false
         trace.step("gattDisconnect", closingGatt != null) { closingGatt?.disconnect() }
         trace.step("gattClose", closingGatt != null) { closingGatt?.close() }
         AirTransportLease.release(transportOwner)
@@ -1157,6 +1205,8 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
         private const val PERMISSION_REQUEST = 49217
         private const val OPERATION_TIMEOUT_MS = 45_000L
         private const val HANDOFF_TIMEOUT_MS = 10_000L
+        private const val HANDSHAKE_RETRY_MS = 6_000L
+        private const val MAX_HANDSHAKE_ATTEMPTS = 2
         private val TRACKER_SERVICE = UUID.fromString("abbaff00-e56a-484c-b832-8b17cf6cbfe8")
         private val TRACKER_TX = UUID.fromString("abbaff01-e56a-484c-b832-8b17cf6cbfe8")
         private val TRACKER_RX = UUID.fromString("abbaff02-e56a-484c-b832-8b17cf6cbfe8")

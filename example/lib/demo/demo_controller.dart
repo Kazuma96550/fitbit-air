@@ -451,7 +451,7 @@ class DemoController extends ChangeNotifier {
 
   Map<String, Object?> report() => {
     'schemaVersion': 1,
-    'demoVersion': '0.1.3-dev.6',
+    'demoVersion': '0.1.3-dev.7',
     'exportedAt': DateTime.now().toUtc().toIso8601String(),
     'relay': {
       'running': relayRunning,
@@ -477,6 +477,8 @@ class DemoController extends ChangeNotifier {
     'BLUETOOTH_OFF' => 'Turn on Bluetooth, then try again.',
     'AIR_NOT_FOUND' ||
     'PAIRING_REQUIRED' => 'Pair the Air in Google Health, then check again.',
+    'HANDSHAKE_TIMEOUT' =>
+      'The Air did not accept a secure session, probably because Google Health was using it. No vibration was sent; try again shortly.',
     'CANNOT_CANCEL_WRITE' =>
       'This haptic must finish verification and restoration. Wait for completion.',
     'GATT_CONNECT' || 'GATT_DISCONNECTED' =>

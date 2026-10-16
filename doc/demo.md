@@ -320,3 +320,34 @@ does not trip it. The decision logic is the Android-free `RelayCoalescer`,
 covered by unit tests. On a Pixel 7 Pro, two test vibrations 1.5 s apart ran
 as one immediate session and one follow-up 20 s later, each with
 `channelHandoff: reset_observed`.
+
+### Measured cooldown, link speed and handshake races (dev.7)
+
+Manual Google Health syncs pressed relative to the handoff, on a Pixel 7 Pro
+(spaced 2.5 min apart so Google Health would not throttle them):
+
+| Sync pressed | Result |
+|---|---|
+| No vibration | Completed in ~10 s |
+| 4.5 s / 3.9 s before handoff (during the command) | Failed once; once completed after 17.5 s |
+| 4.1 s after handoff | Completed in 8.4 s |
+| 10.5–17 s after handoff | Completed in 5–11 s |
+
+Google Health needs no recovery time after the handoff. The cooldown protects
+a sync that has started from being interrupted by the next session; 15 s
+covers the longest measured sync. A follow-up therefore starts at most about
+20 s after its oldest merged alert in normal operation, and keeps a fresh 30 s
+expiry. In the worst case (a hung command plus the 10 s handoff deadline) a
+follow-up can run up to about 100 s after the oldest alert, or not at all.
+
+Commands now request high connection priority for their own session and
+restore low power afterwards (the Air or Google Health later choose their own
+parameters). Ten consecutive commands took 4.0–4.8 s, down from 8.7 s, with
+`channelHandoff: reset_observed` and no Google Health ack timeouts.
+
+About one command in 15 lost a handshake race: after the Air resets its link,
+Google Health and the SDK both answer the handshake and both stall. Before
+dev.7 this produced no vibration and left Google Health stuck until the 45 s
+timeout. A handshake missing after 6 s now gets one fresh attempt before
+failing with `HANDSHAKE_TIMEOUT`. A test build that abandoned every first
+attempt recovered in 4 of 4 runs without Google Health ack timeouts.

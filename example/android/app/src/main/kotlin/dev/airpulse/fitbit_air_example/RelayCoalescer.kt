@@ -7,8 +7,12 @@ package dev.airpulse.fitbit_air_example
  * first alert dispatches immediately; alerts arriving while a command runs or
  * within [cooldownMillis] after it finished join one follow-up command, sent
  * when the cooldown ends. A burst therefore costs at most two sessions.
+ *
+ * Google Health resynchronizes at the handoff; manual syncs started 4–17 s
+ * later completed in 5–12 s on a Pixel 7 Pro. The 15 s cooldown lets such a
+ * sync finish before the next session competes for the tracker channel.
  */
-internal class RelayCoalescer(private val cooldownMillis: Long = 20_000) {
+internal class RelayCoalescer(private val cooldownMillis: Long = 15_000) {
     sealed interface Decision {
         /** Dispatch a command for this alert now. */
         data object DispatchNow : Decision

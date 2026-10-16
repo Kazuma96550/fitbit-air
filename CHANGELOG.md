@@ -1,5 +1,17 @@
 ## Unreleased
 
+- Speed up commands by about 40%: request high connection priority for the
+  command's session only and return the link to low power afterwards. The idle
+  link (~150 ms interval with peripheral latency) made every round trip wait
+  several radio events. Measured end to end: 8.7 s before, 4.0–4.8 s after.
+- Retry a stalled handshake once. After the Air resets its link, Google Health
+  and the SDK can both answer its handshake and neither wins; previously the
+  command then hung until the 45 s timeout while Google Health was also stuck.
+  A handshake missing after 6 s now gets one fresh attempt (no device command
+  has been sent at that point), then fails with `HANDSHAKE_TIMEOUT`.
+- Relay demo: cooldown reduced from 20 s to 15 s, based on measured Google
+  Health sync times after a handoff.
+
 - Relay demo: merge notification bursts. The first alert still vibrates
   immediately; alerts during a command or its 20 s cooldown join one follow-up
   vibration sent when the cooldown ends. A burst costs at most two tracker
