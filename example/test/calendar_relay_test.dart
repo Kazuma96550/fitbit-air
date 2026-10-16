@@ -159,6 +159,29 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  testWidgets('app header fits narrow screens with large system text', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 720);
+    tester.view.devicePixelRatio = 1;
+    tester.platformDispatcher.textScaleFactorTestValue = 1.6;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    await mount(tester);
+    expect(
+      find.byKey(const ValueKey('about-air-relay')).hitTestable(),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+    await tap(tester, 'about-air-relay');
+    expect(
+      find.textContaining('independent notification companion'),
+      findsOneWidget,
+    );
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('requires notification access and keeps setup actionable', (
     tester,
   ) async {
@@ -201,6 +224,11 @@ void main() {
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pumpAndSettle();
     expect(controller.relayRunning, isFalse);
+    await tester.scrollUntilVisible(
+      find.text('Notification access: not enabled'),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(find.text('Notification access: not enabled'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
   });

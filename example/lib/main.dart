@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'demo/demo_controller.dart';
+import 'demo/app_theme.dart';
 import 'demo/relay_panel.dart';
 
 void main() => runApp(const DemoApp());
@@ -86,11 +87,9 @@ class DemoApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => MaterialApp(
-    title: 'Fitbit Air demo',
-    theme: ThemeData(
-      colorSchemeSeed: const Color(0xff405e91),
-      useMaterial3: true,
-    ),
+    title: 'Air Relay',
+    theme: airRelayTheme(Brightness.light),
+    darkTheme: airRelayTheme(Brightness.dark),
     home: DemoPage(controller: controller),
   );
 }
@@ -971,46 +970,79 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Fitbit Air · dev.7')),
+    appBar: AppBar(
+      title: const Row(
+        children: [
+          AirRelayMark(size: 34),
+          SizedBox(width: 12),
+          Flexible(child: Text('Air Relay', overflow: TextOverflow.ellipsis)),
+        ],
+      ),
+      actions: [
+        IconButton(
+          key: const ValueKey('about-air-relay'),
+          tooltip: 'About Air Relay',
+          icon: const Icon(Icons.info_outline),
+          onPressed: () => showAboutDialog(
+            context: context,
+            applicationName: 'Air Relay',
+            applicationVersion: _controller.report()['demoVersion'] as String?,
+            applicationIcon: const AirRelayMark(size: 48),
+            children: const [
+              Text(
+                'An independent notification companion for Fitbit Air. Not affiliated with Google or Fitbit.',
+              ),
+              SizedBox(height: 12),
+              Text(
+                'Early access. Google Health sync compatibility is still being tested.',
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
     body: Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 640),
         child: Column(
           children: [
-            Semantics(
-              liveRegion: true,
-              child: ListTile(
-                key: const ValueKey('operation-owner'),
-                leading: Icon(
-                  _busy
-                      ? Icons.science
-                      : _controller.relayRunning
-                      ? Icons.notifications_active
-                      : Icons.check_circle_outline,
+            if (_destination != 0 || _busy)
+              Semantics(
+                liveRegion: true,
+                child: ListTile(
+                  key: const ValueKey('operation-owner'),
+                  leading: Icon(
+                    _busy
+                        ? Icons.science
+                        : _controller.relayRunning
+                        ? Icons.notifications_active
+                        : Icons.check_circle_outline,
+                  ),
+                  title: Text(
+                    _busy
+                        ? 'In progress: ${_controller.operationId}'
+                        : _controller.relayRunning
+                        ? 'Relay running'
+                        : 'Ready',
+                  ),
+                  subtitle: _controller.relayStopping
+                      ? const Text(
+                          'Finishing an active command before stopping.',
+                        )
+                      : null,
+                  trailing: _busy
+                      ? TextButton(
+                          key: const ValueKey('cancel-operation'),
+                          onPressed:
+                              _controller.operationId?.startsWith('headless') ==
+                                  true
+                              ? null
+                              : () => _ui(_cancelOperation),
+                          child: const Text('Cancel operation'),
+                        )
+                      : null,
                 ),
-                title: Text(
-                  _busy
-                      ? 'In progress: ${_controller.operationId}'
-                      : _controller.relayRunning
-                      ? 'Relay running'
-                      : 'Ready',
-                ),
-                subtitle: _controller.relayStopping
-                    ? const Text('Finishing an active command before stopping.')
-                    : null,
-                trailing: _busy
-                    ? TextButton(
-                        key: const ValueKey('cancel-operation'),
-                        onPressed:
-                            _controller.operationId?.startsWith('headless') ==
-                                true
-                            ? null
-                            : () => _ui(_cancelOperation),
-                        child: const Text('Cancel operation'),
-                      )
-                    : null,
               ),
-            ),
             Expanded(
               child: _destination == 0
                   ? RelayPanel(

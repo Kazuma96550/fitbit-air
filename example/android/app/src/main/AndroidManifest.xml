@@ -6,7 +6,7 @@
     <application
         android:fullBackupContent="@xml/backup_rules"
         android:dataExtractionRules="@xml/data_extraction_rules"
-        android:label="Fitbit Air demo"
+        android:label="Air Relay"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <service android:name=".HeadlessHapticService"

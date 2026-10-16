@@ -51,16 +51,142 @@ class RelayPanel extends StatelessWidget {
     final apps = state.filteredApps;
     return ListView(
       key: const ValueKey('relay-scroll'),
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
       children: [
         Text(
-          'Notifications → Air',
-          style: Theme.of(context).textTheme.headlineSmall,
+          'A little nudge.\nRight on your wrist.',
+          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+            fontWeight: FontWeight.w700,
+            letterSpacing: -.7,
+          ),
         ),
-        const Text(
-          'Relay selected app notifications as two pulses, with the original strength restored.',
+        const SizedBox(height: 8),
+        Text(
+          'Choose the notifications that reach your Fitbit Air.',
+          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 24),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.primaryContainer,
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Icon(
+                        state.relayRunning
+                            ? Icons.notifications_active_outlined
+                            : Icons.notifications_paused_outlined,
+                        color: Theme.of(context).colorScheme.onPrimaryContainer,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        state.relayStopping
+                            ? 'Finishing up'
+                            : state.relayRunning
+                            ? 'Your relay is on'
+                            : 'Your relay is paused',
+                        key: const ValueKey('relay-status'),
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Semantics(
+                  liveRegion: true,
+                  child: Text(
+                    state.relayOutcome,
+                    key: const ValueKey('relay-outcome'),
+                  ),
+                ),
+                if (state.setupError != null)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Text(
+                      state.setupError!,
+                      key: const ValueKey('relay-error'),
+                    ),
+                  ),
+                const SizedBox(height: 12),
+                FilledButton.icon(
+                  key: const ValueKey('relay-toggle'),
+                  onPressed:
+                      state.changingRelay ||
+                          state.relayStopping ||
+                          (!state.relayRunning &&
+                              (state.busy ||
+                                  state.selectedApps.isEmpty ||
+                                  !state.access ||
+                                  !state.listenerConnected ||
+                                  state.bluetoothEnabled == false))
+                      ? null
+                      : () => perform(
+                          state.relayRunning
+                              ? state.stopRelay
+                              : state.startRelay,
+                        ),
+                  icon: Icon(
+                    state.relayRunning ? Icons.stop : Icons.play_arrow,
+                  ),
+                  label: Text(
+                    state.relayRunning
+                        ? 'Stop notification relay'
+                        : 'Start notification relay',
+                  ),
+                ),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  key: const ValueKey('test-vibration'),
+                  onPressed:
+                      state.busy ||
+                          state.changingRelay ||
+                          state.relayStopping ||
+                          (state.relayRunning && !state.relayReady)
+                      ? null
+                      : testVibration,
+                  icon: const Icon(Icons.vibration),
+                  label: const Text('Test vibration'),
+                ),
+                if (state.trials.isNotEmpty &&
+                    state.trials.first['operation'] == 'preview')
+                  Text(
+                    'Test vibration: ${state.trials.first['outcome'] == 'completed'
+                        ? 'command verified; mark below if you felt it'
+                        : state.trials.first['errorCode'] == null
+                        ? state.trials.first['outcome']
+                        : DemoController.recoveryHint(state.trials.first['errorCode']! as String)}',
+                    key: const ValueKey('test-vibration-result'),
+                  ),
+                if (state.trials.isNotEmpty || state.history.isNotEmpty)
+                  TextButton.icon(
+                    key: const ValueKey('marker-felt-vibration'),
+                    onPressed: () => state.mark('felt_vibration'),
+                    icon: const Icon(Icons.touch_app),
+                    label: const Text('Mark: I felt vibration'),
+                  ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Two pulses. Your original vibration strength is restored afterward.',
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
         Card(
           child: ExpansionTile(
             key: ValueKey(
@@ -134,98 +260,17 @@ class RelayPanel extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Semantics(
-                  liveRegion: true,
-                  child: Text(
-                    'Relay: ${state.relayRunning ? (state.relayStopping ? "stopping" : "on") : "off"}',
-                    key: const ValueKey('relay-status'),
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                ),
-                Text(state.relayOutcome, key: const ValueKey('relay-outcome')),
-                if (state.setupError != null)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    child: Text(
-                      state.setupError!,
-                      key: const ValueKey('relay-error'),
-                    ),
-                  ),
-                const SizedBox(height: 12),
-                FilledButton.icon(
-                  key: const ValueKey('relay-toggle'),
-                  onPressed:
-                      state.changingRelay ||
-                          state.relayStopping ||
-                          (!state.relayRunning &&
-                              (state.busy ||
-                                  state.selectedApps.isEmpty ||
-                                  !state.access ||
-                                  !state.listenerConnected ||
-                                  state.bluetoothEnabled == false))
-                      ? null
-                      : () => perform(
-                          state.relayRunning
-                              ? state.stopRelay
-                              : state.startRelay,
-                        ),
-                  icon: Icon(
-                    state.relayRunning ? Icons.stop : Icons.play_arrow,
-                  ),
-                  label: Text(
-                    state.relayRunning
-                        ? 'Stop notification relay'
-                        : 'Start notification relay',
-                  ),
-                ),
-                OutlinedButton.icon(
-                  key: const ValueKey('test-vibration'),
-                  onPressed:
-                      state.busy ||
-                          state.changingRelay ||
-                          state.relayStopping ||
-                          (state.relayRunning && !state.relayReady)
-                      ? null
-                      : testVibration,
-                  icon: const Icon(Icons.vibration),
-                  label: const Text('Test vibration'),
-                ),
-                if (state.trials.isNotEmpty &&
-                    state.trials.first['operation'] == 'preview')
-                  Text(
-                    'Test vibration: ${state.trials.first['outcome'] == 'completed'
-                        ? 'command verified; mark below if you felt it'
-                        : state.trials.first['errorCode'] == null
-                        ? state.trials.first['outcome']
-                        : DemoController.recoveryHint(state.trials.first['errorCode']! as String)}',
-                    key: const ValueKey('test-vibration-result'),
-                  ),
-                TextButton.icon(
-                  key: const ValueKey('marker-felt-vibration'),
-                  onPressed: () => state.mark('felt_vibration'),
-                  icon: const Icon(Icons.touch_app),
-                  label: const Text('Mark: I felt vibration'),
-                ),
-                const Text(
-                  'A verified command is not physical-delivery confirmation. Start the relay again after a restart.',
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 12),
-        ConversationPicker(controller: state, perform: perform),
-        const SizedBox(height: 12),
-        Card(
           child: ExpansionTile(
             key: const ValueKey('app-picker'),
+            leading: const Icon(Icons.apps_rounded),
             title: const Text('Choose notification apps'),
-            subtitle: Text('${state.selectedApps.length} selected'),
+            subtitle: Text(
+              state.selectedApps.isEmpty
+                  ? 'Choose at least one app'
+                  : '${state.selectedApps.length} selected · ${state.selectedApps.map((package) => state.apps.where((app) => app['packageName'] == package).map((app) => app['label'] as String).firstOrNull ?? package.split('.').last).join(', ')}',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
             childrenPadding: const EdgeInsets.all(12),
             children: [
               TextFormField(
@@ -290,11 +335,17 @@ class RelayPanel extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 12),
-        const SizedBox(height: 16),
-        Text('Recent activity', style: Theme.of(context).textTheme.titleLarge),
-        const Text(
-          'Times below are phone receipt times. Queue time and Bluetooth setup are included in total latency.',
+        ConversationPicker(controller: state, perform: perform),
+        const SizedBox(height: 20),
+        Text(
+          'Early access · Google Health sync is still being tested. If sync stalls after a vibration, pause the relay.',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
         ),
+        const SizedBox(height: 24),
+        Text('Recent activity', style: Theme.of(context).textTheme.titleLarge),
+        const SizedBox(height: 8),
         if (state.history.isEmpty)
           const Padding(
             padding: EdgeInsets.all(16),
@@ -302,7 +353,25 @@ class RelayPanel extends StatelessWidget {
               'No relay activity yet. Start the relay and send a notification, or use Test vibration.',
             ),
           ),
-        for (final entry in state.history.take(100)) _activity(context, entry),
+        for (final entry
+            in state.history
+                .where(
+                  (entry) =>
+                      entry['stage'] != 'detected' &&
+                      entry['stage'] != 'queued',
+                )
+                .take(5))
+          _activity(context, entry),
+        if (state.history.isNotEmpty)
+          ExpansionTile(
+            key: const ValueKey('activity-details'),
+            title: const Text('Delivery details'),
+            subtitle: const Text('Timing, queue events and troubleshooting'),
+            children: [
+              for (final entry in state.history.take(100))
+                _activity(context, entry, detailed: true),
+            ],
+          ),
         Wrap(
           spacing: 8,
           children: [
@@ -325,7 +394,11 @@ class RelayPanel extends StatelessWidget {
     );
   }
 
-  Widget _activity(BuildContext context, Map<String, Object?> entry) {
+  Widget _activity(
+    BuildContext context,
+    Map<String, Object?> entry, {
+    bool detailed = false,
+  }) {
     final stage = entry['stage'] as String? ?? 'unknown';
     final title = switch (stage) {
       'detected' => 'Notification detected',
@@ -355,7 +428,9 @@ class RelayPanel extends StatelessWidget {
           ).format(context);
     final code = entry['errorCode'] as String?;
     return ListTile(
-      key: ValueKey('activity-${entry['commandId']}-$stage'),
+      key: ValueKey(
+        '${detailed ? "detail" : "activity"}-${entry['commandId']}-$stage',
+      ),
       leading: Icon(
         stage == 'verified'
             ? Icons.check_circle_outline
