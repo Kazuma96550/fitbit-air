@@ -121,8 +121,8 @@ operation when the harness ends is recorded as interrupted, not successful. The
 binding exposes `reportData` to that integration driver. For interactive
 trials, use the copy button and physical manual markers. Default automation must
 not claim physical confirmation or send haptics without the explicit haptic flag.
-APK builds and device integration tests run on a development machine or CI,
-never on the shared VPS. Follow [resource limits](../AGENTS.md).
+APK builds run on a development machine or CI. Device integration tests require
+a connected test phone.
 
 ## 0.1.2 acceptance and release
 
