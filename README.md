@@ -202,7 +202,9 @@ session establishment; long-term and deep-idle reliability remain unproven.
 The host app must provide message reception and lifecycle management;
 a phone notification alone does not trigger the Air. The example includes an
 optional [notification relay with an app selector](example/README.md#notifications--air-google-calendar-whatsapp-and-other-apps)
-with explicit notification-access setup and Start/Stop controls.
+with explicit notification-access setup and Start/Stop controls. The demo has
+Relay, Device and Lab screens, metadata-only relay history and structured trial
+exports; see the [demo and agent guide](doc/demo.md).
 
 ## Native compatibility and provenance
 

@@ -17,6 +17,8 @@ jobs:
         with:
           channel: stable
           cache: true
+      # Validate before Flutter updates the example SDK-pinned lockfile.
+      - run: dart pub publish --dry-run
       - run: flutter pub get
       - run: flutter analyze
       - run: flutter test

@@ -1,5 +1,10 @@
 # Fitbit Air example
 
+The app has **Relay**, **Device**, and **Lab** screens. Device and research
+operations use the same named action controller as the integration-test harness.
+See the [demo and agent guide](../doc/demo.md) for stable controls, saved trial
+settings, sanitized reports, and the physical release checklist.
+
 Interactive Android demo for every operation currently supported by
 `fitbit_air`: paired-device detection, one-pulse toggling, persistent low/high
 strength, and a restore-safe two-pulse preview.
@@ -49,7 +54,7 @@ The demo discovers launcher apps without requesting `QUERY_ALL_PACKAGES`.
 
 1. Pair the Air in Google Health and enable Bluetooth.
 2. Enable notifications for the source apps you want to test.
-3. In the demo, select **Open notification access settings** and enable
+3. On Relay, select **Settings** beside **Notification access** and enable
    **Notifications to Fitbit Air** (previously **Calendar to Fitbit Air**).
    Return and wait for access to show connected. Updating the existing demo
    keeps the same listener identity and should retain the access grant.
@@ -75,7 +80,9 @@ notification may contain several messages and still produces one haptic command.
 This depends on the source app's notification format: if it does not expose
 message timestamps (or on Android below 11), updates to the same notification key
 remain suppressed.
-WhatsApp's physical notification behavior still needs validation on your phone.
+A user reported successful WhatsApp relay operation on 2026-10-16. Detailed
+versions and a structured trial report were not captured; this UI revision and
+long-term behavior still need physical validation.
 
 The filter tracks at most 256 notification keys per session without evicting old
 keys. At capacity, new keys are rejected, while newer messages on tracked chats
@@ -86,9 +93,14 @@ vibration. SDK completion verifies the protocol result, not physical delivery.
 Android grants notification access broadly; filtering happens locally before
 extracting selected apps' message timestamps. Message text, sender names, and
 calendar titles are not forwarded to Flutter or stored. Only selected package
-IDs and the latest outcome are persisted locally. The relay uses a user-started
+IDs, the latest outcome, and up to 100 metadata-only history entries are persisted
+locally. History records detection, queueing, terminal result, total latency and
+an optional error code. Test vibration uses the running relay worker; when the
+relay is off it uses the device preview. Copy sanitized report exports that
+history and the current session's bounded trial results as JSON. The relay uses a user-started
 connected-device foreground service and a separate Flutter engine, with a
-bounded wake lock only while processing work. Other device controls are disabled
-while relaying. Explicitly start it again after reboot, process death, access
+bounded wake lock only while processing work. Starting a Device/Lab operation while relaying asks you to stop the relay and
+waits for an active command to finish restoration. Browsing those screens leaves
+the relay running; it must be restarted explicitly after the operation. Explicitly start it again after reboot, process death, access
 revocation, or force stop. Repeated deep-idle delivery and Google Health
 coexistence still require physical validation.

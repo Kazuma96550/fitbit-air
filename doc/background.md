@@ -139,8 +139,9 @@ work, and allows an active command to finish before destroying the engine. A
 four-minute watchdog bounds hung processing; if it fires, physical delivery and
 restoration may be uncertain. Re-enable the relay explicitly after interruption.
 The earlier screen-off evidence above concerns the headless test, not a verified
-Calendar end-to-end trial. Calendar-triggered physical delivery remains pending
-until tested on a paired Android phone.
+Calendar end-to-end trial. A user reported successful WhatsApp notification relay operation on 2026-10-16;
+precise versions and structured evidence were not captured. The revised UI and
+repeated idle delivery still need their own physical validation.
 
 The relay now persists a user-selected app allowlist (Calendar by default),
 discovers installed launcher apps, and supports WhatsApp-style conversation
@@ -149,3 +150,10 @@ and expiry cross to Flutter; message text is not forwarded or persisted. The
 original native listener/service names and channels are retained so updating the
 demo does not intentionally reset notification access. Providers that do not
 supply message timestamps still get conservative once-per-key suppression.
+
+The relay now retains up to 100 metadata-only lifecycle entries and returns typed
+worker outcomes. Test vibration reuses the running worker rather than opening a
+second device session. Device/Lab actions explicitly stop and await relay cleanup
+before using the SDK. See the [demo guide](demo.md) for result meanings and agent
+controls. Relay history never stores notification text, sender names, raw keys,
+or BLE identifiers. A missing terminal history record is not delivery evidence.
