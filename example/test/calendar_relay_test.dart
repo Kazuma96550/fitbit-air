@@ -11,12 +11,14 @@ void main() {
   var running = false;
   var paired = true;
   late List<String> calls;
+  late List<String> selectedApps;
 
   setUp(() {
     access = false;
     running = false;
     paired = true;
     calls = [];
+    selectedApps = ['com.google.android.calendar'];
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(calendar, (call) async {
           calls.add(call.method);
@@ -27,7 +29,25 @@ void main() {
                 'connected': access,
                 'running': running,
                 'stopping': false,
+                'selectedApps': selectedApps,
               };
+            case 'apps':
+              return [
+                {
+                  'packageName': 'com.google.android.calendar',
+                  'label': 'Google Calendar',
+                },
+                {'packageName': 'com.whatsapp', 'label': 'WhatsApp'},
+                {
+                  'packageName': 'org.thoughtcrime.securesms',
+                  'label': 'Signal',
+                },
+              ];
+            case 'selectApps':
+              selectedApps = List<String>.from(
+                (call.arguments as Map)['packages'] as List,
+              );
+              return null;
             case 'start':
               running = true;
               return null;
@@ -60,10 +80,11 @@ void main() {
     await tester.pumpWidget(const DemoApp());
     await tester.pump();
     final start = tester.widget<FilledButton>(
-      find.widgetWithText(FilledButton, 'Start calendar relay'),
+      find.widgetWithText(FilledButton, 'Start notification relay'),
     );
     expect(start.onPressed, isNull);
     await tester.ensureVisible(find.text('Open notification access settings'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Open notification access settings'));
     await tester.pumpAndSettle();
     expect(calls, contains('settings'));
@@ -76,8 +97,9 @@ void main() {
     paired = false;
     await tester.pumpWidget(const DemoApp());
     await tester.pump();
-    await tester.ensureVisible(find.text('Start calendar relay'));
-    await tester.tap(find.text('Start calendar relay'));
+    await tester.ensureVisible(find.text('Start notification relay'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Start notification relay'));
     await tester.pumpAndSettle();
     expect(calls, isNot(contains('start')));
     expect(find.text('Pair an Air in Google Health first.'), findsOneWidget);
@@ -97,7 +119,7 @@ void main() {
     expect(find.text('Relay: off'), findsOneWidget);
     expect(find.text('Notification access: not enabled'), findsOneWidget);
     final start = tester.widget<FilledButton>(
-      find.widgetWithText(FilledButton, 'Start calendar relay'),
+      find.widgetWithText(FilledButton, 'Start notification relay'),
     );
     expect(start.onPressed, isNull);
     await tester.pumpWidget(const SizedBox());
@@ -109,8 +131,9 @@ void main() {
     access = true;
     await tester.pumpWidget(const DemoApp());
     await tester.pump();
-    await tester.ensureVisible(find.text('Start calendar relay'));
-    await tester.tap(find.text('Start calendar relay'));
+    await tester.ensureVisible(find.text('Start notification relay'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Start notification relay'));
     await tester.pumpAndSettle();
     expect(calls.indexOf('isAirPaired'), lessThan(calls.indexOf('start')));
     expect(find.text('Relay: on'), findsOneWidget);
@@ -127,11 +150,74 @@ void main() {
           .first,
     );
     expect(pulseButton.onPressed, isNull);
-    await tester.scrollUntilVisible(find.text('Stop calendar relay'), -400);
-    await tester.tap(find.text('Stop calendar relay'));
+    await tester.scrollUntilVisible(find.text('Stop notification relay'), -400);
+    await tester.tap(find.text('Stop notification relay'));
     await tester.pumpAndSettle();
     expect(running, isFalse);
     expect(find.text('Relay: off'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('selects WhatsApp and reloads the saved allowlist', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const DemoApp());
+    await tester.pump();
+    await tester.ensureVisible(find.text('Choose notification apps'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Choose notification apps'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('WhatsApp'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('WhatsApp'));
+    await tester.pumpAndSettle();
+    expect(
+      selectedApps,
+      containsAll(['com.google.android.calendar', 'com.whatsapp']),
+    );
+    expect(calls, contains('selectApps'));
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpWidget(const DemoApp());
+    await tester.pump();
+    expect(find.text('2 selected'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('requires a nonempty allowlist before starting', (tester) async {
+    access = true;
+    selectedApps = [];
+    await tester.pumpWidget(const DemoApp());
+    await tester.pump();
+    expect(
+      tester
+          .widget<FilledButton>(
+            find.widgetWithText(FilledButton, 'Start notification relay'),
+          )
+          .onPressed,
+      isNull,
+    );
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('app selection is disabled during a relay session', (
+    tester,
+  ) async {
+    access = true;
+    running = true;
+    await tester.pumpWidget(const DemoApp());
+    await tester.pump();
+    await tester.ensureVisible(find.text('Choose notification apps'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Choose notification apps'));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<CheckboxListTile>(
+            find.widgetWithText(CheckboxListTile, 'WhatsApp'),
+          )
+          .onChanged,
+      isNull,
+    );
     await tester.pumpWidget(const SizedBox());
   });
 }

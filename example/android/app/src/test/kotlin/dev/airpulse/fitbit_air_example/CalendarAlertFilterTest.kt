@@ -19,7 +19,7 @@ class CalendarAlertFilterTest {
     }
 
     @Test fun existingNotificationsRemainIgnoredWhenUpdatedAfterStart() {
-        val filter = CalendarAlertFilter(1_000, listOf("already-present"))
+        val filter = CalendarAlertFilter(1_000, mapOf("already-present" to null))
         assertFalse(filter.accept(calendar, "already-present", 2_000, 2_010, false, false))
         assertTrue(filter.accept(calendar, "new-reminder", 2_000, 2_010, false, false))
     }
@@ -37,4 +37,38 @@ class CalendarAlertFilterTest {
         assertFalse(filter.accept(calendar, "overflow", 1_001, 1_010, false, false))
         assertFalse(filter.accept(calendar, "key-0", 1_001, 1_010, false, false))
     }
+
+    @Test fun onlyExplicitlySelectedAppsAreRelayed() {
+        val filter = CalendarAlertFilter(1_000, selectedPackages = setOf("com.whatsapp", "com.whatsapp.w4b"))
+        assertFalse(filter.accept(calendar, "calendar", 1_001, 1_010, false, false))
+        assertFalse(filter.accept("unselected.app", "other", 1_001, 1_010, false, false))
+        assertTrue(filter.accept("com.whatsapp", "chat", 1_001, 1_010, false, false, 1_001))
+        assertTrue(filter.accept("com.whatsapp.w4b", "business", 1_001, 1_010, false, false, 1_001))
+        assertFalse(CalendarAlertFilter(1_000, selectedPackages = emptySet())
+            .accept("com.whatsapp", "empty", 1_001, 1_010, false, false))
+    }
+
+    @Test fun newerMessagesInTheSameChatAreAcceptedButRedeliveryIsNot() {
+        val filter = CalendarAlertFilter(1_000, selectedPackages = setOf("com.whatsapp"))
+        assertTrue(filter.accept("com.whatsapp", "chat", 1_001, 1_010, false, false, 1_001))
+        assertFalse(filter.accept("com.whatsapp", "chat", 2_000, 2_010, false, false, 1_001))
+        assertTrue(filter.accept("com.whatsapp", "chat", 3_000, 3_010, false, false, 3_000))
+        assertFalse(filter.accept("com.whatsapp", "chat", 4_000, 4_010, false, false, 2_000))
+        assertFalse(filter.accept("com.whatsapp", "chat", 4_000, 4_010, false, true, 4_000))
+    }
+
+    @Test fun existingChatCanReceiveNewMessagesWithoutReplayingHistory() {
+        val filter = CalendarAlertFilter(1_000, mapOf("chat" to 900L), setOf("com.whatsapp"))
+        assertFalse(filter.accept("com.whatsapp", "chat", 1_001, 1_010, false, false, 900))
+        assertTrue(filter.accept("com.whatsapp", "chat", 2_000, 2_010, false, false, 2_000))
+        assertFalse(filter.accept("com.whatsapp", "old-message", 2_000, 2_010, false, false, 900))
+    }
+
+    @Test fun knownChatUpdatesStillWorkWhenTheKeyLimitIsReached() {
+        val filter = CalendarAlertFilter(1_000, selectedPackages = setOf("com.whatsapp"))
+        repeat(256) { assertTrue(filter.accept("com.whatsapp", "key-$it", 1_001, 1_010, false, false, 1_001)) }
+        assertFalse(filter.accept("com.whatsapp", "overflow", 2_000, 2_010, false, false, 2_000))
+        assertTrue(filter.accept("com.whatsapp", "key-0", 2_000, 2_010, false, false, 2_000))
+    }
+
 }

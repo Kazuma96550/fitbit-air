@@ -123,10 +123,10 @@ References:
 - [Android background BLE guidance](https://developer.android.com/develop/connectivity/bluetooth/ble/background)
 - [FCM Flutter background handling and execution limits](https://firebase.google.com/docs/cloud-messaging/flutter/receive-messages)
 
-## Calendar relay example
+## Notification relay example
 
-The example now includes a user-enabled Google Calendar notification relay; see
-[setup and behavior](../example/README.md#google-calendar--air). Its listener and
+The example now includes a user-enabled notification relay for selected apps; see
+[setup and behavior](../example/README.md#notifications--air-google-calendar-whatsapp-and-other-apps). Its listener and
 foreground-service lifecycle belong to the example, not the published plugin.
 The listener dispatches only to an already-running service; receiving an alert
 never attempts to launch a foreground service from the background. It forwards
@@ -141,3 +141,11 @@ restoration may be uncertain. Re-enable the relay explicitly after interruption.
 The earlier screen-off evidence above concerns the headless test, not a verified
 Calendar end-to-end trial. Calendar-triggered physical delivery remains pending
 until tested on a paired Android phone.
+
+The relay now persists a user-selected app allowlist (Calendar by default),
+discovers installed launcher apps, and supports WhatsApp-style conversation
+updates through standard Android MessagingStyle timestamps. Only command IDs
+and expiry cross to Flutter; message text is not forwarded or persisted. The
+original native listener/service names and channels are retained so updating the
+demo does not intentionally reset notification access. Providers that do not
+supply message timestamps still get conservative once-per-key suppression.

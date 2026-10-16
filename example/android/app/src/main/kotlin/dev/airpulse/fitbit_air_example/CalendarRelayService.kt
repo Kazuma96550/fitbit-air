@@ -30,6 +30,7 @@ class CalendarRelayService : Service() {
     private var ready = false
     private var stopping = false
     private var sequence = 0
+    private var selectedPackages = emptySet<String>()
     private val handler = Handler(Looper.getMainLooper())
     private val watchdog = Runnable {
         saveOutcome("Relay command exceeded its deadline; stopped. Delivery is uncertain; no retry.")
@@ -49,6 +50,12 @@ class CalendarRelayService : Service() {
             return START_NOT_STICKY
         }
         if (engine != null) return START_NOT_STICKY
+        selectedPackages = RelayAppSelection.selected(this)
+        if (selectedPackages.isEmpty()) {
+            saveOutcome("Select at least one notification app before starting.")
+            stopSelf()
+            return START_NOT_STICKY
+        }
         if (!hasAccess(this) || !CalendarNotificationListener.connected) {
             saveOutcome("Enable notification access and wait for the listener to connect, then start again.")
             stopSelf()
@@ -57,7 +64,7 @@ class CalendarRelayService : Service() {
         try {
             val manager = getSystemService(NotificationManager::class.java)
             if (Build.VERSION.SDK_INT >= 26) manager.createNotificationChannel(
-                NotificationChannel(CHANNEL, "Calendar to Air", NotificationManager.IMPORTANCE_LOW)
+                NotificationChannel(CHANNEL, "Notifications to Air", NotificationManager.IMPORTANCE_LOW)
             )
             val stop = PendingIntent.getService(this, 0,
                 Intent(this, CalendarRelayService::class.java).setAction(STOP),
@@ -67,15 +74,15 @@ class CalendarRelayService : Service() {
             val builder = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, CHANNEL)
                 else @Suppress("DEPRECATION") Notification.Builder(this)
             val notification = builder.setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
-                .setContentTitle("Google Calendar → Fitbit Air")
-                .setContentText("Calendar alerts trigger two pulses. Tap Stop to disable.")
+                .setContentTitle("Notifications → Fitbit Air")
+                .setContentText("Selected app alerts trigger two pulses. Tap Stop to disable.")
                 .setContentIntent(open).setOngoing(true)
                 .addAction(Notification.Action.Builder(null, "Stop", stop).build()).build()
             if (Build.VERSION.SDK_INT >= 29)
                 startForeground(902, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
             else startForeground(902, notification)
             active = this
-            saveOutcome("Starting calendar relay…")
+            saveOutcome("Starting notification relay…")
             val loader = FlutterInjector.instance().flutterLoader()
             loader.startInitialization(applicationContext)
             loader.ensureInitializationComplete(applicationContext, null)
@@ -88,10 +95,10 @@ class CalendarRelayService : Service() {
                             try {
                                 check(hasAccess(this) && CalendarNotificationListener.connected)
                                 filter = CalendarAlertFilter(System.currentTimeMillis(),
-                                    CalendarNotificationListener.existingCalendarKeys())
+                                    CalendarNotificationListener.existingKeys(selectedPackages), selectedPackages)
                                 ready = true
                                 handler.removeCallbacks(watchdog)
-                                saveOutcome("Listening for new Google Calendar alerts.")
+                                saveOutcome("Listening for alerts from ${selectedPackages.size} selected app(s).")
                                 result.success(null)
                                 if (stopping) requestStop("Relay stopped.")
                             } catch (error: Exception) {
@@ -111,12 +118,14 @@ class CalendarRelayService : Service() {
         return START_NOT_STICKY
     }
 
-    fun onAlert(packageName: String, key: String, postedAt: Long, ongoing: Boolean, summary: Boolean) {
+    fun acceptsPackage(packageName: String): Boolean = ready && !stopping && packageName in selectedPackages
+
+    fun onAlert(packageName: String, key: String, postedAt: Long, ongoing: Boolean, summary: Boolean, messageTimestamp: Long?) {
         if (!ready || stopping) return
         val now = System.currentTimeMillis()
-        if (filter?.accept(packageName, key, postedAt, now, ongoing, summary) != true) return
+        if (filter?.accept(packageName, key, postedAt, now, ongoing, summary, messageTimestamp) != true) return
         if (pending >= 4) {
-            saveOutcome("Calendar alert dropped: queue full.")
+            saveOutcome("Notification dropped: queue full.")
             return
         }
         if (pending++ == 0) {
@@ -127,7 +136,7 @@ class CalendarRelayService : Service() {
                 .apply { acquire(240_000) }
         }
         channel?.invokeMethod("dispatch", mapOf(
-            "id" to "calendar-${++sequence}", "expiresAt" to postedAt + 30_000
+            "id" to "notification-${++sequence}", "expiresAt" to postedAt + 30_000
         ), object : MethodChannel.Result {
             override fun success(result: Any?) { finished(result?.toString() ?: "Unknown outcome") }
             override fun error(code: String, message: String?, details: Any?) { finished("Failed: $code") }
@@ -136,7 +145,7 @@ class CalendarRelayService : Service() {
     }
 
     private fun finished(outcome: String) {
-        saveOutcome("Calendar haptic: $outcome")
+        saveOutcome("Notification haptic: $outcome")
         pending--
         if (pending == 0) {
             handler.removeCallbacks(watchdog)
@@ -178,6 +187,7 @@ class CalendarRelayService : Service() {
     companion object {
         private var starting = false
         private var cancelStart = false
+        val isRunning: Boolean get() = active != null || starting
 
         fun start(context: Context) {
             if (active != null || starting) return
@@ -212,8 +222,9 @@ class CalendarRelayService : Service() {
         fun status(context: Context): Map<String, Any?> = mapOf(
             "access" to hasAccess(context),
             "connected" to CalendarNotificationListener.connected,
-            "running" to (active != null || starting),
+            "running" to isRunning,
             "stopping" to (active?.stopping == true),
+            "selectedApps" to RelayAppSelection.selected(context).sorted(),
             "outcome" to context.getSharedPreferences("calendar_relay", MODE_PRIVATE).getString("outcome", null)
         )
     }

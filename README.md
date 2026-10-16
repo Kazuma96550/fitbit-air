@@ -201,7 +201,7 @@ also completed with duplicate suppression. An earlier trial timed out during
 session establishment; long-term and deep-idle reliability remain unproven.
 The host app must provide message reception and lifecycle management;
 a phone notification alone does not trigger the Air. The example includes an
-optional [Google Calendar notification relay](example/README.md#google-calendar--air)
+optional [notification relay with an app selector](example/README.md#notifications--air-google-calendar-whatsapp-and-other-apps)
 with explicit notification-access setup and Start/Stop controls.
 
 ## Native compatibility and provenance

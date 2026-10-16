@@ -17,6 +17,13 @@ class MainActivity : FlutterActivity() {
                 try {
                     when (call.method) {
                         "status" -> result.success(CalendarRelayService.status(this))
+                        "apps" -> result.success(RelayAppSelection.available(this))
+                        "selectApps" -> {
+                            check(!CalendarRelayService.isRunning) { "Stop the relay before changing apps." }
+                            val packages = requireNotNull(call.argument<List<String>>("packages"))
+                            RelayAppSelection.save(this, packages.toSet())
+                            result.success(null)
+                        }
                         "settings" -> {
                             startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
                             result.success(null)
@@ -25,6 +32,7 @@ class MainActivity : FlutterActivity() {
                             if (!CalendarRelayService.hasAccess(this) || !CalendarNotificationListener.connected) {
                                 result.error("NOTIFICATION_ACCESS", "Enable notification access and wait for connection first.", null)
                             } else {
+                                require(RelayAppSelection.selected(this).isNotEmpty()) { "Select at least one app first." }
                                 if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
                                     requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 902)
                                 CalendarRelayService.start(this)

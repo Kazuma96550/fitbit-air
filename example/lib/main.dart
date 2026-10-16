@@ -107,12 +107,15 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
   bool _relayStopping = false;
   String _relayOutcome = 'Relay is off.';
   Timer? _relayPoll;
+  Set<String> _selectedApps = {'com.google.android.calendar'};
+  List<Map<String, String>> _relayApps = [];
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     unawaited(_refreshRelay());
+    unawaited(_loadRelayApps());
     _relayPoll = Timer.periodic(const Duration(seconds: 2), (_) {
       if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
         unawaited(_refreshRelay());
@@ -122,7 +125,10 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) unawaited(_refreshRelay());
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_refreshRelay());
+      unawaited(_loadRelayApps());
+    }
   }
 
   Future<void> _refreshRelay() async {
@@ -132,6 +138,8 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
       );
       if (!mounted || status == null) return;
       setState(() {
+        final selected = status['selectedApps'] as List?;
+        if (selected != null) _selectedApps = selected.cast<String>().toSet();
         _relayRunning = status['running'] == true;
         _relayStopping = status['stopping'] == true;
         _notificationAccess = status['access'] == true;
@@ -142,8 +150,44 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
       if (mounted) setState(() => _relayOutcome = error.message ?? error.code);
     } on MissingPluginException {
       if (mounted) {
-        setState(() => _relayOutcome = 'Calendar relay requires Android.');
+        setState(() => _relayOutcome = 'Notification relay requires Android.');
       }
+    }
+  }
+
+  Future<void> _loadRelayApps() async {
+    try {
+      final apps = await _calendarChannel.invokeListMethod<Object?>('apps');
+      if (!mounted) return;
+      setState(
+        () => _relayApps = (apps ?? [])
+            .map((app) => Map<String, String>.from(app! as Map))
+            .toList(),
+      );
+    } on PlatformException catch (error) {
+      if (mounted) setState(() => _relayOutcome = error.message ?? error.code);
+    } on MissingPluginException {
+      // The setup status already explains Android support.
+    }
+  }
+
+  Future<void> _selectRelayApp(String packageName, bool selected) async {
+    final packages = {..._selectedApps};
+    if (selected) {
+      packages.add(packageName);
+    } else {
+      packages.remove(packageName);
+    }
+    setState(() => _relayStarting = true);
+    try {
+      await _calendarChannel.invokeMethod<void>('selectApps', {
+        'packages': packages.toList(),
+      });
+      await _refreshRelay();
+    } catch (error) {
+      if (mounted) setState(() => _relayOutcome = error.toString());
+    } finally {
+      if (mounted) setState(() => _relayStarting = false);
     }
   }
 
@@ -571,11 +615,11 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       Text(
-                        'Google Calendar → Air',
+                        'Notifications → Air',
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const Text(
-                        'New Calendar alerts trigger two pulses while the relay is on, including with the phone locked.',
+                        'New alerts from selected apps trigger two pulses while the relay is on, including with the phone locked.',
                       ),
                       Text(
                         'Notification access: ${_notificationAccess ? (_listenerConnected ? "connected" : "connecting") : "not enabled"}',
@@ -584,6 +628,39 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
                         'Relay: ${_relayRunning ? (_relayStopping ? "stopping" : "on") : "off"}',
                       ),
                       Text(_relayOutcome),
+                      ExpansionTile(
+                        title: const Text('Choose notification apps'),
+                        subtitle: Text('${_selectedApps.length} selected'),
+                        children: [
+                          if (_relayApps.isEmpty)
+                            TextButton(
+                              onPressed: _loadRelayApps,
+                              child: const Text('Refresh app list'),
+                            )
+                          else
+                            SizedBox(
+                              height: 220,
+                              child: ListView.builder(
+                                itemCount: _relayApps.length,
+                                itemBuilder: (context, index) {
+                                  final app = _relayApps[index];
+                                  final packageName = app['packageName']!;
+                                  return CheckboxListTile(
+                                    title: Text(app['label']!),
+                                    subtitle: Text(packageName),
+                                    value: _selectedApps.contains(packageName),
+                                    onChanged: _relayRunning || _relayStarting
+                                        ? null
+                                        : (value) => _selectRelayApp(
+                                            packageName,
+                                            value!,
+                                          ),
+                                  );
+                                },
+                              ),
+                            ),
+                        ],
+                      ),
                       TextButton(
                         onPressed: _relayStarting
                             ? null
@@ -596,6 +673,7 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
                                 _relayStopping ||
                                 (!_relayRunning &&
                                     (_busy ||
+                                        _selectedApps.isEmpty ||
                                         !_notificationAccess ||
                                         !_listenerConnected))
                             ? null
@@ -604,12 +682,12 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
                               ),
                         child: Text(
                           _relayRunning
-                              ? 'Stop calendar relay'
-                              : 'Start calendar relay',
+                              ? 'Stop notification relay'
+                              : 'Start notification relay',
                         ),
                       ),
                       const Text(
-                        'Enable reminders in Google Calendar. Start the relay again after a restart. Other device controls are disabled while relaying.',
+                        'Choose apps such as Google Calendar or WhatsApp before starting. Stop the relay to change apps. Start it again after a restart. Other device controls are disabled while relaying.',
                       ),
                     ],
                   ),

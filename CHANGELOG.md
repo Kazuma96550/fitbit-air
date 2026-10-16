@@ -1,5 +1,9 @@
 ## 0.1.2
 
+- Generalize the example relay to a saved app allowlist with an installed-app
+  picker, including WhatsApp. Accept newer MessagingStyle timestamps on reused
+  chat notification keys while suppressing duplicate updates and old history.
+
 - Add an example-only Google Calendar notification relay with notification-access
   setup, foreground Start/Stop controls, duplicate filtering and bounded haptic
   dispatch. Calendar-triggered physical delivery still requires hardware validation.
