@@ -1,5 +1,9 @@
 ## Unreleased
 
+- Expose bounded, process-wide command cleanup diagnostics in demo reports,
+  including teardown failures and app-local transport ownership. This aids
+  Health sync investigation; it does not establish or fix the underlying cause.
+
 - Fix empty WhatsApp capture by inspecting unread notifications immediately,
   retaining results after listening stops, and exposing safe diagnostic counts.
 - Add explicitly confirmed exact-chat-name rules when message notifications lack

@@ -5,6 +5,30 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   const methods = MethodChannel('fitbit_air');
+  test(
+    'transport report is passive and preserves cleanup failure states',
+    () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(methods, (call) async {
+            expect(call.method, 'transportDiagnostics');
+            expect(call.arguments, isNull);
+            return {
+              'appLeaseHeld': false,
+              'cleanupHistory': [
+                {
+                  'steps': {'gattClose': 'failed'},
+                },
+              ],
+            };
+          });
+      final report = await FitbitAirDiagnostics.readTransportDiagnostics();
+      expect(report['appLeaseHeld'], false);
+      expect(
+        (report['cleanupHistory'] as List).single['steps']['gattClose'],
+        'failed',
+      );
+    },
+  );
   test('secure observation duration is bounded before opening transport', () {
     expect(
       () => FitbitAirDiagnostics.watchSecureEvents(durationSeconds: 29),

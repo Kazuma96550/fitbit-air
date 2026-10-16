@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:fitbit_air/fitbit_air.dart';
+import 'package:fitbit_air/fitbit_air_diagnostics.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
@@ -17,6 +18,7 @@ class DemoController extends ChangeNotifier {
   static const channel = MethodChannel('fitbit_air_example/calendar');
   final actions = <String, DemoAction>{};
   Future<void> Function()? cancelCurrent;
+  Map<String, Object?> transportDiagnostics = {};
   bool initialized = false;
   bool relayRunning = false;
   bool relayReady = false;
@@ -109,6 +111,14 @@ class DemoController extends ChangeNotifier {
   }
 
   Future<void> _readStatus() async {
+    try {
+      transportDiagnostics =
+          await FitbitAirDiagnostics.readTransportDiagnostics();
+    } on PlatformException {
+      transportDiagnostics = {'available': false};
+    } on MissingPluginException {
+      transportDiagnostics = {'available': false};
+    }
     try {
       final state = await channel.invokeMapMethod<String, Object?>('status');
       if (state == null || _disposed) return;
@@ -441,7 +451,7 @@ class DemoController extends ChangeNotifier {
 
   Map<String, Object?> report() => {
     'schemaVersion': 1,
-    'demoVersion': '0.1.3-dev.2',
+    'demoVersion': '0.1.3-dev.3',
     'exportedAt': DateTime.now().toUtc().toIso8601String(),
     'relay': {
       'running': relayRunning,
@@ -450,6 +460,7 @@ class DemoController extends ChangeNotifier {
       'allowedConversationCount': allowedConversations.length,
       'captureDiagnostics': captureDiagnostics,
     },
+    'transport': transportDiagnostics,
     'trials': _trials,
     'manualObservations': _observations,
   };

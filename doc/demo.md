@@ -232,3 +232,26 @@ selected/unselected groups, Business/app separation, private notifications,
 process restart, removal/forgetting, all-chat mode and unchanged Calendar behavior.
 Inspect reports for identity leaks. Local tests cannot establish what metadata
 WhatsApp supplies on the paired phone.
+
+### Investigating Health sync after relay use (dev.3)
+
+The copied debug report now includes `transport`: the app-local lease and the
+last 16 command cleanup traces across UI and worker engines. Each fixed cleanup
+step reports `returned`, `failed`, or `not_present`. No exception text, device
+address or notification content is retained. `returned` confirms only that the
+API call returned, not a physical disconnection or a healthy tracker session.
+Passive device-event monitor teardown is outside the trace scope. History is
+memory-only and resets when the app process exits; copy it before force-stopping.
+
+1. With relay off, verify Google Health can sync.
+2. Start relay, send one allowed notification and verify vibration.
+3. Stop relay, wait until it says off, then try Health sync again.
+4. If sync fails, return to the demo and copy the debug report before changing
+   Bluetooth or force-stopping. Note whether sync also failed while relay was on.
+5. Force-stop the demo in Android Settings and retry Health sync. If still stuck,
+   toggle Bluetooth off/on and retry. Report which step restored sync.
+
+A quiet relay should not intentionally retain its command GATT client for 15
+minutes. Failed teardown is one hypothesis; shared Bluetooth or tracker protocol
+state is another. These diagnostics do not automatically reset Bluetooth or the
+tracker, and are not a confirmed fix for Health sync failures.

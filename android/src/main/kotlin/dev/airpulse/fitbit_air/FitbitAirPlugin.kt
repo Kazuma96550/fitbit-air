@@ -85,6 +85,7 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
     private var sessionStarted = false
     private var timeout: Runnable? = null
     private var activeOperation: Operation? = null
+    private var cleanupOperation: String? = null
     private val infoReads = ArrayDeque<BluetoothGattCharacteristic>()
     private val deviceInfo = mutableMapOf<String, Any>()
     private var heartRateSubscribed = false
@@ -241,6 +242,7 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
+            "transportDiagnostics" -> result.success(AirTransportDiagnostics.snapshot())
             "cancelOperation" -> {
                 if (diagnosticEvents != null) {
                     eventMonitor?.close()
@@ -399,6 +401,17 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
         pendingResult = result
         heartRateSubscribed = false
         activeOperation = operation
+        cleanupOperation = when (operation) {
+            Operation.ReadHeartRate -> "ReadHeartRate"
+            Operation.ReadDeviceInfo -> "ReadDeviceInfo"
+            Operation.PreviewHaptic -> "PreviewHaptic"
+            Operation.ReadHapticIntensity -> "ReadHapticIntensity"
+            Operation.ProbeBatteryAccess -> "ProbeBatteryAccess"
+            Operation.ProbeReadOnlyResources -> "ProbeReadOnlyResources"
+            Operation.CaptureSecureEvents -> "CaptureSecureEvents"
+            is Operation.SetHapticIntensity -> "SetHapticIntensity"
+            Operation.SinglePulse -> "SinglePulse"
+        }
         sessionStarted = false
         val deadline = Runnable {
             if (activeOperation == Operation.ReadHeartRate) {
@@ -932,7 +945,9 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
 
     @SuppressLint("MissingPermission")
     private fun closeTransport() {
-        runCatching {
+        val trace = AirCleanupTrace()
+        val record = cleanupOperation != null || gatt != null || scanCallback != null
+        trace.step("stopScan", scanCallback != null) {
             scanCallback?.let { callback ->
                 val manager = appContext.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
                 manager.adapter?.bluetoothLeScanner?.stopScan(callback)
@@ -943,18 +958,20 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
         deviceInfo.clear()
         timeout?.let(handler::removeCallbacks)
         timeout = null
-        runCatching { disposables.clear() }
-        runCatching { secureCapture?.close() }; secureCapture = null
-        runCatching { endpoint?.close() }; endpoint = null
-        runCatching { stack?.close() }; stack = null
-        runCatching { rxSource?.close() }; rxSource = null
-        runCatching { txSink?.close() }; txSink = null
+        trace.step("subscriptions") { disposables.clear() }
+        trace.step("secureCapture", secureCapture != null) { secureCapture?.close() }; secureCapture = null
+        trace.step("endpoint", endpoint != null) { endpoint?.close() }; endpoint = null
+        trace.step("stack", stack != null) { stack?.close() }; stack = null
+        trace.step("rxSource", rxSource != null) { rxSource?.close() }; rxSource = null
+        trace.step("txSink", txSink != null) { txSink?.close() }; txSink = null
         txCharacteristic = null
         synchronized(txQueue) { txQueue.clear() }
         writeInFlight = false
-        runCatching { gatt?.disconnect() }
-        runCatching { gatt?.close() }; gatt = null
+        trace.step("gattDisconnect", gatt != null) { gatt?.disconnect() }
+        trace.step("gattClose", gatt != null) { gatt?.close() }; gatt = null
         AirTransportLease.release(transportOwner)
+        if (record) AirTransportDiagnostics.record(cleanupOperation ?: "Scan", trace.snapshot())
+        cleanupOperation = null
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {

@@ -10,6 +10,15 @@ class FitbitAirDiagnostics {
   static const _methods = MethodChannel('fitbit_air');
   static const _secureChannel = EventChannel('fitbit_air/secure_events');
 
+  /// Reads bounded command-cleanup history shared by engines in this process.
+  /// Does not connect or require Bluetooth permission. `returned` means the
+  /// cleanup call returned, not that the physical link or Health sync recovered.
+  /// `appLeaseHeld` describes this app only. History resets after process exit;
+  /// passive device-event monitor teardown is outside this history's scope.
+  static Future<Map<String, Object?>> readTransportDiagnostics() async =>
+      await _methods.invokeMapMethod<String, Object?>('transportDiagnostics') ??
+      <String, Object?>{};
+
   /// Experimental, bounded wrist-presence events from the secure monitor.
   /// Opens the same bootstrap session as [watchSecureEvents], for up to 30s
   /// after ready. Cancel before another SDK operation. Repeated events are
