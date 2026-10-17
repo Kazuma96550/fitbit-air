@@ -356,6 +356,10 @@ void main() {
     await tap(tester, 'test-vibration');
     expect(calls, contains('tap'));
     expect(calls, isNot(contains('vibrate')));
+    expect(find.text('Sent'), findsOneWidget);
+    expect(find.byKey(const ValueKey('operation-owner')), findsNothing);
+    await tester.pump(const Duration(seconds: 3));
+    expect(find.text('Try it'), findsOneWidget);
     await controller.setPulseStyle('double');
     await tester.pumpAndSettle();
     calls.clear();

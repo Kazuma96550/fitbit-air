@@ -12,11 +12,21 @@ class RelayPanel extends StatelessWidget {
     required this.perform,
     required this.testVibration,
     required this.exportReport,
+    this.testFeedback,
   });
   final DemoController controller;
   final void Function(Future<void> Function()) perform;
   final VoidCallback testVibration;
   final VoidCallback exportReport;
+
+  /// Inline Test state: null (idle), 'sending' or 'sent'.
+  final String? testFeedback;
+
+  /// Routine outcomes the title already conveys; errors still show.
+  static bool _routine(String outcome) =>
+      outcome == 'Relay stopped.' ||
+      outcome == 'Relay is off.' ||
+      outcome.startsWith('Haptic ');
 
   Widget _check(
     String label,
@@ -44,6 +54,53 @@ class RelayPanel extends StatelessWidget {
             child: Text(actionLabel ?? 'Set up'),
           ),
   );
+
+  /// Fixed-size so progress and confirmation never move the layout.
+  Widget _testButton(BuildContext context, DemoController state) {
+    final sending = testFeedback == 'sending';
+    final sent = testFeedback == 'sent';
+    final enabled =
+        testFeedback == null &&
+        !state.busy &&
+        !state.changingRelay &&
+        !state.relayStopping &&
+        (!state.relayRunning || state.relayReady);
+    return Semantics(
+      label: 'Test vibration',
+      liveRegion: true,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minWidth: 112),
+        child: TextButton.icon(
+          key: const ValueKey('test-vibration'),
+          onPressed: enabled ? testVibration : null,
+          // Keep progress and confirmation in the accent colour, not greyed.
+          style: sending || sent
+              ? TextButton.styleFrom(
+                  disabledForegroundColor: Theme.of(
+                    context,
+                  ).colorScheme.primary,
+                )
+              : null,
+          icon: sending
+              ? SizedBox.square(
+                  dimension: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                )
+              : Icon(sent ? Icons.check : Icons.vibration, size: 18),
+          label: Text(
+            sending
+                ? 'Sending…'
+                : sent
+                ? 'Sent'
+                : 'Try it',
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -105,23 +162,26 @@ class RelayPanel extends StatelessWidget {
                     ),
                   ],
                 ),
-                const SizedBox(height: 16),
-                Semantics(
-                  liveRegion: true,
-                  child: Text(
-                    state.relayOutcome,
-                    key: const ValueKey('relay-outcome'),
+                if (state.relayRunning || !_routine(state.relayOutcome))
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Semantics(
+                      liveRegion: true,
+                      child: Text(
+                        state.relayOutcome,
+                        key: const ValueKey('relay-outcome'),
+                      ),
+                    ),
                   ),
-                ),
                 if (state.setupError != null)
                   Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    padding: const EdgeInsets.only(top: 8),
                     child: Text(
                       state.setupError!,
                       key: const ValueKey('relay-error'),
                     ),
                   ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 16),
                 FilledButton.icon(
                   key: const ValueKey('relay-toggle'),
                   onPressed:
@@ -148,36 +208,12 @@ class RelayPanel extends StatelessWidget {
                         : 'Start notification relay',
                   ),
                 ),
-                const SizedBox(height: 8),
-                OutlinedButton.icon(
-                  key: const ValueKey('test-vibration'),
-                  onPressed:
-                      state.busy ||
-                          state.changingRelay ||
-                          state.relayStopping ||
-                          (state.relayRunning && !state.relayReady)
-                      ? null
-                      : testVibration,
-                  icon: const Icon(Icons.vibration),
-                  label: const Text('Test vibration'),
+                const Divider(height: 32),
+                Text(
+                  'Vibration',
+                  style: Theme.of(context).textTheme.titleSmall,
                 ),
-                // Only failures need explaining; a felt pulse speaks for itself.
-                if (state.trials.isNotEmpty &&
-                    const {
-                      'preview',
-                      'tap',
-                    }.contains(state.trials.first['operation']) &&
-                    state.trials.first['outcome'] != 'completed' &&
-                    state.trials.first['outcome'] != 'running')
-                  Text(
-                    state.trials.first['errorCode'] == null
-                        ? 'Test vibration: ${state.trials.first['outcome']}'
-                        : DemoController.recoveryHint(
-                            state.trials.first['errorCode']! as String,
-                          ),
-                    key: const ValueKey('test-vibration-error'),
-                  ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 8),
                 SegmentedButton<String>(
                   key: const ValueKey('pulse-style'),
                   segments: const [
@@ -193,21 +229,29 @@ class RelayPanel extends StatelessWidget {
                     ),
                   ],
                   selected: {state.pulseStyle},
-                  onSelectionChanged:
-                      state.relayRunning || state.changingRelay || state.busy
+                  // Changing style mid-test only affects the next alert.
+                  onSelectionChanged: state.relayRunning || state.changingRelay
                       ? null
                       : (value) =>
                             perform(() => state.setPulseStyle(value.single)),
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  state.pulseStyle == 'single'
-                      ? 'One pulse per alert at your vibration strength.'
-                      : 'Two pulses per alert. Your vibration strength is restored afterward.',
-                  key: const ValueKey('pulse-style-hint'),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        state.relayRunning
+                            ? 'Stop the relay to change this.'
+                            : state.pulseStyle == 'single'
+                            ? 'One pulse per alert at your strength.'
+                            : 'Two pulses per alert; strength restored.',
+                        key: const ValueKey('pulse-style-hint'),
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
+                    _testButton(context, state),
+                  ],
                 ),
-                if (state.relayRunning)
-                  const Text('Stop the relay to change the pulse style.'),
               ],
             ),
           ),

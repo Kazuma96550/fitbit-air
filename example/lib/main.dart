@@ -107,6 +107,10 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
   late final DemoController _controller;
   int _destination = 0;
   bool get _busy => _controller.busy;
+
+  /// Inline Test vibration state on the Relay tab: null, 'sending' or 'sent'.
+  String? _testFeedback;
+  Timer? _testFeedbackTimer;
   bool get _deviceControlsBlocked =>
       _controller.busy || _controller.changingRelay;
 
@@ -175,6 +179,54 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
     _controller.cancelCurrent = _cancelOperation;
   }
 
+  /// Relay-tab test: progress stays in the button; failures use a snackbar.
+  Future<void> _testVibration() async {
+    _testFeedbackTimer?.cancel();
+    setState(() => _testFeedback = 'sending');
+    bool sent;
+    if (_controller.relayRunning) {
+      sent = await _ui(_controller.testRelay, retry: _testVibration);
+    } else {
+      final id = _controller.pulseStyle == 'single' ? 'tap' : 'preview';
+      await _ui(() => _controller.runAction(id), retry: _testVibration);
+      final trial = _controller.trials.isEmpty
+          ? null
+          : _controller.trials.first;
+      sent = trial?['operation'] == id && trial?['outcome'] == 'completed';
+      if (!sent && trial?['operation'] == id && mounted) {
+        final code = trial?['errorCode'] as String?;
+        _showError(
+          code == null
+              ? "Couldn't reach your Air."
+              : DemoController.recoveryHint(code),
+          retry: _testVibration,
+        );
+      }
+    }
+    if (!mounted) return;
+    setState(() => _testFeedback = sent ? 'sent' : null);
+    if (sent) {
+      _testFeedbackTimer = Timer(const Duration(seconds: 2), () {
+        if (mounted) setState(() => _testFeedback = null);
+      });
+    }
+  }
+
+  void _showError(String message, {VoidCallback? retry}) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          key: const ValueKey('error-bar'),
+          behavior: SnackBarBehavior.floating,
+          content: Text(message),
+          action: retry == null
+              ? null
+              : SnackBarAction(label: 'Retry', onPressed: retry),
+        ),
+      );
+  }
+
   Future<void> _performAction(String id) async {
     if (_controller.relayRunning) {
       final stop = await showDialog<bool>(
@@ -211,20 +263,24 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
       ? DemoController.recoveryHint(error.code)
       : error.toString();
 
-  Future<void> _ui(Future<void> Function() action) async {
+  /// Runs [action], showing failures in a floating bar. Returns success.
+  Future<bool> _ui(
+    Future<void> Function() action, {
+    VoidCallback? retry,
+  }) async {
     try {
       await action();
+      return true;
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted) return false;
       final message = error is FitbitAirException
           ? DemoController.recoveryHint(error.code)
           : error is PlatformException
           ? DemoController.recoveryHint(error.code)
           : _describeError(error);
       setState(() => _status = message);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(message)));
+      _showError(message, retry: retry);
+      return false;
     }
   }
 
@@ -519,6 +575,7 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
     _controller.setVisible(false);
     if (widget.controller == null) _controller.dispose();
     _stopCaptureClock();
+    _testFeedbackTimer?.cancel();
     _scrollController.dispose();
     _deviceScrollController.dispose();
     _heartRateSubscription?.cancel();
@@ -1019,7 +1076,9 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
         constraints: const BoxConstraints(maxWidth: 640),
         child: Column(
           children: [
-            if (_destination != 0 || _busy)
+            // The Relay tab shows its own test progress inline; other work
+            // started elsewhere still gets the owner banner.
+            if (_destination != 0 || (_busy && _testFeedback == null))
               Semantics(
                 liveRegion: true,
                 child: ListTile(
@@ -1061,14 +1120,9 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
                   ? RelayPanel(
                       controller: _controller,
                       perform: (action) => _ui(action),
-                      // Match what the relay sends for the selected style.
-                      testVibration: () => _controller.relayRunning
-                          ? _ui(_controller.testRelay)
-                          : _performAction(
-                              _controller.pulseStyle == 'single'
-                                  ? 'tap'
-                                  : 'preview',
-                            ),
+                      // Matches what the relay sends for the selected style.
+                      testVibration: _testVibration,
+                      testFeedback: _testFeedback,
                       exportReport: _copyReport,
                     )
                   : ListView(
