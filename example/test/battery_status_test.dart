@@ -11,7 +11,9 @@ void main() {
   const device = MethodChannel('fitbit_air');
   late DemoController controller;
   var reads = 0;
+  var starts = 0;
   var relayReads = 0;
+  var signalReads = 0;
   var relayBusy = false;
   Map<Object?, Object?>? saved;
   Completer<Map<String, Object?>>? pending;
@@ -23,7 +25,9 @@ void main() {
           (call) async => null,
         );
     reads = 0;
+    starts = 0;
     relayReads = 0;
+    signalReads = 0;
     relayBusy = false;
     saved = null;
     pending = null;
@@ -33,6 +37,7 @@ void main() {
       ..bluetoothPermission = true;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(device, (call) async {
+          if (call.method == 'isAirPaired') return true;
           if (call.method == 'readBattery') {
             reads++;
             if (fail) throw PlatformException(code: 'TIMEOUT');
@@ -44,6 +49,11 @@ void main() {
         });
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(DemoController.channel, (call) async {
+          if (call.method == 'readRelaySignal') {
+            signalReads++;
+            return {'rssi': -67};
+          }
+          if (call.method == 'start') starts++;
           if (call.method == 'readRelayBattery') {
             relayReads++;
             if (relayBusy) throw PlatformException(code: 'BUSY');
@@ -58,6 +68,20 @@ void main() {
   tearDown(() {
     controller.dispose();
   });
+
+  test(
+    'signal reads share the active worker and reuse a recent reading',
+    () async {
+      controller.relayRunning = true;
+      controller.relayReady = true;
+      await controller.refreshSignalStrength();
+      await controller.refreshSignalStrength();
+      expect(signalReads, 1);
+      expect(reads, 0);
+      expect(controller.signalRssi, -67);
+      expect(controller.signalReadAt, isNotNull);
+    },
+  );
 
   testWidgets(
     'foreground reads a missing battery without a passive connection report and reuses it on resume',
@@ -223,10 +247,14 @@ void main() {
       pending = Completer();
       final task = controller.refreshBattery();
       await controller.refreshBattery();
-      await expectLater(controller.startRelay(), throwsStateError);
+      final start = controller.startRelay();
+      expect(controller.relayTransition, RelayTransition.starting);
+      expect(starts, 0);
       expect(controller.controlsBlocked, isTrue);
       pending!.complete({'percent': 50});
       await task;
+      await start;
+      expect(starts, 1);
       expect(reads, 1);
       expect(controller.batteryReading, isFalse);
     },

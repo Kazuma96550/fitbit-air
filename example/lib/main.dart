@@ -13,6 +13,7 @@ import 'demo/rules_panel.dart';
 import 'demo/wrist_presence_card.dart';
 import 'demo/setup_page.dart';
 import 'demo/relay_operation_queue.dart';
+import 'demo/device_overview.dart';
 
 void main() => runApp(const DemoApp());
 
@@ -71,9 +72,12 @@ Future<void> airCalendarRelay() async {
       dispatcher.close();
       return null;
     }
-    if (call.method == 'readBattery') {
+    if (call.method == 'readBattery' || call.method == 'readSignalStrength') {
       if (!operations.isIdle) throw PlatformException(code: 'BUSY');
       try {
+        if (call.method == 'readSignalStrength') {
+          return {'rssi': await operations.run(FitbitAir.readSignalStrength)};
+        }
         final value = await operations.run(FitbitAir.readBattery);
         return {'percent': value.percent, 'onCharger': value.onCharger};
       } on FitbitAirException catch (error) {
@@ -178,6 +182,7 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
   void _registerActions() {
     _controller.actions.addAll({
       'openLab': DemoAction(() {
+        _controller.setDeviceVisible(false);
         setState(() => _destination = 2);
       }, exclusive: false),
       'previewDefault': DemoAction(
@@ -862,7 +867,11 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
   );
 
   List<Widget> _deviceChildren() => [
-    Text('Device', style: Theme.of(context).textTheme.headlineMedium),
+    DeviceOverview(
+      controller: _controller,
+      model: _deviceInfo?.model,
+      firmware: _deviceInfo?.firmware,
+    ),
     const SizedBox(height: 12),
     ListTile(
       key: const ValueKey('review-setup'),
@@ -1231,8 +1240,10 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
                                       const SizedBox(height: 12),
                                       OutlinedButton.icon(
                                         key: const ValueKey('nav-lab'),
-                                        onPressed: () =>
-                                            setState(() => _destination = 2),
+                                        onPressed: () {
+                                          _controller.setDeviceVisible(false);
+                                          setState(() => _destination = 2);
+                                        },
                                         icon: const Icon(
                                           Icons.science_outlined,
                                         ),
@@ -1252,8 +1263,10 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
                   : _destination == 3
                   ? 1
                   : 2,
-              onDestinationSelected: (index) =>
-                  setState(() => _destination = [0, 3, 1][index]),
+              onDestinationSelected: (index) {
+                setState(() => _destination = [0, 3, 1][index]);
+                _controller.setDeviceVisible(index == 2);
+              },
               destinations: const [
                 NavigationDestination(
                   key: ValueKey('nav-relay'),

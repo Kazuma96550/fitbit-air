@@ -494,3 +494,20 @@ the app is visible and permission is granted. It describes the phone's Bluetooth
 link, independently of whether notification relaying is enabled. It does not
 claim that a notification will be delivered or that Google Health is syncing.
 Signal strength and channel-traffic monitoring are not enabled by Home.
+
+### Starting after a test and Device overview
+
+Start remains available during a finite Try it preview or device-status read.
+Tapping it records one start request, shows Starting with a short wait reason,
+and waits for the active operation's cleanup before starting the relay. The
+request proceeds even if the preview fails; its error remains visible. Ongoing
+Lab streams still require an explicit stop. Disposing the controller prevents
+an uncompleted queued start from launching later.
+
+Device begins with a compact overview: battery (tap for details), the passive
+connection hint, timestamped signal strength, and model/firmware after a device
+info read. Signal is only a rough proximity hint. Device checks it on entry
+and at most every two minutes while visible; explicit checks have a 15-second
+minimum interval. RSSI stays in memory, since an old proximity reading is not
+useful across app restarts. Signal and battery reads share the worker queue
+when the relay is on, and a pending Start takes priority over new status reads.

@@ -16,6 +16,7 @@ void main() {
   var stopping = false;
   var failStart = false;
   Completer<void>? startAcknowledgement;
+  Completer<void>? tapAcknowledgement;
   var setupCompleted = true;
   var setupStep = 0;
   var controlsAllowed = true;
@@ -47,6 +48,7 @@ void main() {
     stopping = false;
     failStart = false;
     startAcknowledgement = null;
+    tapAcknowledgement = null;
     setupCompleted = true;
     setupStep = 0;
     controlsAllowed = true;
@@ -237,6 +239,7 @@ void main() {
             return {'originalIntensity': 2, 'restored': true, 'verified': true};
           }
           if (call.method == 'tap') {
+            await tapAcknowledgement?.future;
             lastTapArguments = call.arguments;
             return {'intensity': 3, 'verified': true};
           }
@@ -558,6 +561,33 @@ void main() {
       expect(background({}), startColor);
       expect(calls.where((call) => call == 'stop'), hasLength(1));
       await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets(
+    'Start accepts a tap during Try it and waits for its cleanup before starting once',
+    (tester) async {
+      access = true;
+      tapAcknowledgement = Completer<void>();
+      await mount(tester);
+      await tester.tap(find.byKey(const ValueKey('test-vibration')));
+      await tester.pump();
+      expect(find.text('Sending…'), findsOneWidget);
+      final toggle = find.byKey(const ValueKey('relay-toggle'));
+      expect(tester.widget<FilledButton>(toggle).onPressed, isNotNull);
+      await tester.tap(toggle);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 150));
+      expect(find.text('Starting…'), findsOneWidget);
+      expect(find.text('Finishing your test first…'), findsOneWidget);
+      expect(calls.where((c) => c == 'start'), isEmpty);
+      await tester.tap(toggle);
+      tapAcknowledgement!.complete();
+      await tester.pumpAndSettle();
+      expect(find.text('Notifications on'), findsOneWidget);
+      expect(calls.where((c) => c == 'start'), hasLength(1));
+      expect(find.text('Finishing your test first…'), findsNothing);
+      expect(find.byKey(const ValueKey('error-bar')), findsNothing);
     },
   );
 

@@ -1,5 +1,11 @@
 ## Unreleased
 
+- Queue Start behind a finishing test or battery check with visible feedback,
+  preserving the user's intent without overlapping Bluetooth operations.
+- Add a styled Device overview with timestamped battery and signal readings,
+  passive connection state, and model/firmware when available. Signal checks
+  share the relay worker and reuse recent readings while Device is visible.
+
 - Fix automatic battery reads being blocked by passive connection status and
   an enabled relay. Serialize reads and notification commands in the relay's
   existing worker, defer reads while it is busy, and expose read failures.

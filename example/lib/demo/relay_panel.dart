@@ -152,10 +152,12 @@ class RelayPanel extends StatelessWidget {
     final enabled =
         state.initialized &&
         !state.changingRelay &&
-        (!state.batteryReading || state.relayRunning) &&
+        (!state.batteryReading ||
+            state.relayRunning ||
+            state.canQueueRelayStart) &&
         !transitioning &&
         !state.relayStopping &&
-        (state.relayRunning || !state.busy);
+        (state.relayRunning || !state.busy || state.canQueueRelayStart);
     final recoveryLabel = switch (status.recovery) {
       RelayRecovery.bluetooth => 'Turn on Bluetooth',
       RelayRecovery.notifications => 'Review notification access',
@@ -209,6 +211,8 @@ class RelayPanel extends StatelessWidget {
               Text(
                 needsSetup
                     ? 'Pick up where you left off.'
+                    : state.startWaitMessage != null
+                    ? state.startWaitMessage!
                     : needsFix && !transitioning
                     ? status.detail
                     : state.selectedAppsSummary,

@@ -34,12 +34,93 @@ class DemoController extends ChangeNotifier {
   AirBattery? battery;
   DateTime? batteryReadAt;
   bool batteryReading = false;
+  bool signalReading = false;
+  int? signalRssi;
+  DateTime? signalReadAt;
+  DateTime? _lastSignalAttempt;
+  String? signalError;
+  bool _deviceVisible = false;
+  bool get canReadSignal =>
+      _deviceReadInFlight == null &&
+      initialized &&
+      !busy &&
+      !previewing &&
+      !changingRelay &&
+      !batteryReading &&
+      !signalReading &&
+      !relayStopping &&
+      (!relayRunning || relayReady) &&
+      relayTransition == null &&
+      bluetoothPermission &&
+      bluetoothEnabled != false &&
+      (_lastSignalAttempt == null ||
+          DateTime.now().difference(_lastSignalAttempt!) >=
+              const Duration(seconds: 15));
+
+  void setDeviceVisible(bool visible) {
+    _deviceVisible = visible;
+    if (visible && _visible) unawaited(refreshSignalStrength());
+  }
+
+  Future<void> refreshSignalStrength({bool force = false}) {
+    if (!canReadSignal ||
+        (!force &&
+            _lastSignalAttempt != null &&
+            DateTime.now().difference(_lastSignalAttempt!) <
+                const Duration(minutes: 2))) {
+      return Future<void>.value();
+    }
+    final task = _readSignalStrength();
+    _deviceReadInFlight = task;
+    return task.whenComplete(() => _deviceReadInFlight = null);
+  }
+
+  Future<void> _readSignalStrength() async {
+    signalReading = true;
+    _lastSignalAttempt = DateTime.now();
+    signalError = null;
+    _changed();
+    try {
+      if (relayRunning) {
+        final result = await channel
+            .invokeMapMethod<String, Object?>('readRelaySignal')
+            .timeout(const Duration(seconds: 30));
+        signalRssi = result?['rssi'] as int?;
+      } else {
+        signalRssi = await FitbitAir.readSignalStrength();
+      }
+      if (signalRssi == null) throw StateError('No signal reading');
+      signalReadAt = DateTime.now();
+    } catch (_) {
+      signalError = 'Could not check signal. Try again shortly.';
+    } finally {
+      signalReading = false;
+      _changed();
+    }
+  }
+
+  Future<void>? _deviceReadInFlight;
+  Future<void>? _previewInFlight;
+  bool get canQueueRelayStart =>
+      (!busy || _previewInFlight != null) &&
+      ((!batteryReading && !signalReading) || _deviceReadInFlight != null);
+  String? get startWaitMessage =>
+      _requestedRelayTransition != RelayTransition.starting
+      ? null
+      : _previewInFlight != null
+      ? 'Finishing your test first…'
+      : _deviceReadInFlight != null
+      ? batteryReading
+            ? 'Finishing battery check…'
+            : 'Finishing device check…'
+      : null;
   String? batteryError;
   String? batteryErrorCode;
   bool? airConnected;
   StreamSubscription<AirConnectionEvent>? _connection;
   bool _visible = false;
   Timer? _automaticBatteryTimer;
+  bool get batteryPending => batteryReading || _automaticBatteryTimer != null;
   DateTime? _lastBatteryAttempt;
   static const batteryFreshness = Duration(hours: 6);
 
@@ -69,6 +150,7 @@ class DemoController extends ChangeNotifier {
   }
 
   bool get canReadBattery =>
+      _deviceReadInFlight == null &&
       initialized &&
       !busy &&
       !previewing &&
@@ -77,14 +159,21 @@ class DemoController extends ChangeNotifier {
       !relayStopping &&
       relayTransition == null &&
       !batteryReading &&
+      !signalReading &&
       bluetoothPermission &&
       bluetoothEnabled != false &&
       (batteryReadAt == null ||
           DateTime.now().difference(batteryReadAt!) >=
               const Duration(minutes: 1));
 
-  Future<void> refreshBattery() async {
-    if (!canReadBattery) return;
+  Future<void> refreshBattery() {
+    if (!canReadBattery) return Future<void>.value();
+    final task = _readBattery();
+    _deviceReadInFlight = task;
+    return task.whenComplete(() => _deviceReadInFlight = null);
+  }
+
+  Future<void> _readBattery() async {
     _lastBatteryAttempt = DateTime.now();
     batteryReading = true;
     batteryError = null;
@@ -204,7 +293,7 @@ class DemoController extends ChangeNotifier {
   bool get busy => _activeTrial != null;
   String? get operationId => _activeTrial?['operation'] as String?;
   bool get controlsBlocked =>
-      busy || relayRunning || changingRelay || batteryReading;
+      busy || relayRunning || changingRelay || batteryReading || signalReading;
   List<Map<String, Object?>> get trials => List.unmodifiable(_trials);
   List<String> get actionIds => actions.keys.toList()..sort();
 
@@ -377,6 +466,7 @@ class DemoController extends ChangeNotifier {
     } finally {
       _watchConnectionIfAllowed();
       _scheduleBatteryUpdate();
+      if (_visible && _deviceVisible) unawaited(refreshSignalStrength());
       _changed();
     }
   }
@@ -461,11 +551,24 @@ class DemoController extends ChangeNotifier {
     {'enabled': enabled, 'startMinute': start, 'endMinute': end},
   );
 
-  Future<void> previewPreset(VibrationPreset preset) async {
+  Future<void> previewPreset(VibrationPreset preset) {
+    if (_previewInFlight != null) {
+      return Future<void>.error(StateError('Wait for the current test.'));
+    }
+    final task = _previewPreset(preset);
+    _previewInFlight = task;
+    return task.whenComplete(() => _previewInFlight = null);
+  }
+
+  Future<void> _previewPreset(VibrationPreset preset) async {
     if (preset == VibrationPreset.mute) {
       throw ArgumentError('Silent rules cannot vibrate.');
     }
-    if (busy || changingRelay || previewing || batteryReading) {
+    if (busy ||
+        changingRelay ||
+        previewing ||
+        batteryReading ||
+        signalReading) {
       throw StateError('Wait for the current operation.');
     }
     if (relayRunning) {
@@ -581,9 +684,8 @@ class DemoController extends ChangeNotifier {
   }
 
   Future<void> startRelay() async {
-    if (busy ||
+    if (!canQueueRelayStart ||
         changingRelay ||
-        batteryReading ||
         _requestedRelayTransition != null) {
       throw StateError('Wait for the current operation.');
     }
@@ -594,6 +696,19 @@ class DemoController extends ChangeNotifier {
     setupError = null;
     _changed();
     try {
+      final waiting = [
+        _previewInFlight,
+        _deviceReadInFlight,
+      ].whereType<Future<void>>();
+      await Future.wait(
+        waiting.map(
+          (task) => task.then<void>(
+            (_) {},
+            onError: (Object error, StackTrace stack) {},
+          ),
+        ),
+      );
+      if (_disposed) return;
       await checkPaired();
       if (paired != true) {
         setupError = 'Pair the Air in Google Health, then check again.';
@@ -683,7 +798,11 @@ class DemoController extends ChangeNotifier {
       await auxiliary.run();
       return;
     }
-    if (busy || changingRelay || previewing || batteryReading) {
+    if (busy ||
+        changingRelay ||
+        previewing ||
+        batteryReading ||
+        signalReading) {
       throw StateError('An operation is already running.');
     }
     if (relayRunning) {
@@ -802,7 +921,7 @@ class DemoController extends ChangeNotifier {
 
   Map<String, Object?> report() => {
     'schemaVersion': 1,
-    'demoVersion': '0.1.4-dev.7',
+    'demoVersion': '0.1.4-dev.8',
     'exportedAt': DateTime.now().toUtc().toIso8601String(),
     'battery': {
       'hasReading': battery != null,

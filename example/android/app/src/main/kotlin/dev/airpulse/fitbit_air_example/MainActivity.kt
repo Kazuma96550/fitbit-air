@@ -16,9 +16,10 @@ class MainActivity : FlutterActivity() {
             .setMethodCallHandler { call, result ->
                 try {
                     when (call.method) {
-                        "readRelayBattery" -> {
+                        "readRelayBattery", "readRelaySignal" -> {
                             val relay = CalendarRelayService.active
                             if (relay == null) result.error("BUSY", "The relay is changing state.", null)
+                            else if (call.method == "readRelaySignal") relay.readSignal(result)
                             else relay.readBattery(result)
                         }
                         "batteryCache" -> {

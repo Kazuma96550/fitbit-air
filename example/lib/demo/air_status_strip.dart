@@ -6,8 +6,7 @@ class AirStatusStrip extends StatelessWidget {
   const AirStatusStrip({super.key, required this.controller});
   final DemoController controller;
 
-  String get age {
-    final at = controller.batteryReadAt;
+  static String readingAge(DateTime? at) {
     if (at == null) return 'No reading yet';
     final elapsed = DateTime.now().difference(at);
     if (elapsed.inMinutes < 1) return 'Checked just now';
@@ -67,7 +66,7 @@ class AirStatusStrip extends StatelessWidget {
               size: 18,
             ),
             label: Text(
-              state.batteryReading
+              state.batteryPending && battery == null
                   ? 'Checking battery…'
                   : battery == null
                   ? state.batteryError != null
@@ -75,72 +74,73 @@ class AirStatusStrip extends StatelessWidget {
                         : 'Battery'
                   : '${battery.percent}%${stale ? ' · Saved' : ''}',
             ),
-            onPressed: () => showModalBottomSheet<void>(
-              context: context,
-              showDragHandle: true,
-              builder: (_) => AnimatedBuilder(
-                animation: state,
-                builder: (context, _) => SafeArea(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(24, 4, 24, 24),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Air battery',
-                          style: Theme.of(context).textTheme.titleLarge,
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          state.battery == null
-                              ? 'No reading yet'
-                              : '${state.battery!.percent}%',
-                          style: Theme.of(context).textTheme.displayMedium,
-                        ),
-                        Text(age),
-                        if (state.battery?.onCharger == true)
-                          const Text('On charger when checked'),
-                        const SizedBox(height: 16),
-                        Text(
-                          state.relayStopping
-                              ? 'Waiting for notifications to stop.'
-                              : state.batteryReadAt != null &&
-                                    DateTime.now().difference(
-                                          state.batteryReadAt!,
-                                        ) <
-                                        const Duration(minutes: 1)
-                              ? 'Up to date. You can check again in a minute.'
-                              : 'Updates automatically while this app is open. Battery checks share the notification queue.',
-                        ),
-                        if (state.batteryError != null) ...[
-                          const SizedBox(height: 8),
-                          Text(state.batteryError!),
-                        ],
-                        const SizedBox(height: 20),
-                        SizedBox(
-                          width: double.infinity,
-                          child: FilledButton(
-                            key: const ValueKey('refresh-battery'),
-                            onPressed: state.canReadBattery
-                                ? state.refreshBattery
-                                : null,
-                            child: Text(
-                              state.batteryReading
-                                  ? 'Checking battery…'
-                                  : 'Update battery',
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
+            onPressed: () => showDetails(context, state),
           ),
         ],
       ),
     );
   }
+
+  static Future<void> showDetails(
+    BuildContext context,
+    DemoController state,
+  ) => showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    builder: (_) => AnimatedBuilder(
+      animation: state,
+      builder: (context, _) => SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(24, 4, 24, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Air battery',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                state.battery == null
+                    ? 'No reading yet'
+                    : '${state.battery!.percent}%',
+                style: Theme.of(context).textTheme.displayMedium,
+              ),
+              Text(readingAge(state.batteryReadAt)),
+              if (state.battery?.onCharger == true)
+                const Text('On charger when checked'),
+              const SizedBox(height: 16),
+              Text(
+                state.relayStopping
+                    ? 'Waiting for notifications to stop.'
+                    : state.batteryReadAt != null &&
+                          DateTime.now().difference(state.batteryReadAt!) <
+                              const Duration(minutes: 1)
+                    ? 'Up to date. You can check again in a minute.'
+                    : 'Updates automatically while this app is open. Battery checks share the notification queue.',
+              ),
+              if (state.batteryError != null) ...[
+                const SizedBox(height: 8),
+                Text(state.batteryError!),
+              ],
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  key: const ValueKey('refresh-battery'),
+                  onPressed: state.canReadBattery ? state.refreshBattery : null,
+                  child: Text(
+                    state.batteryReading
+                        ? 'Checking battery…'
+                        : 'Update battery',
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
 }
