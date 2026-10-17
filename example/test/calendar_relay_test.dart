@@ -13,6 +13,7 @@ void main() {
   var paired = true;
   var deferStop = false;
   var nameCandidate = false;
+  var pulseStyle = 'double';
   Map<Object?, Object?>? lastSelection;
   late List<Map<String, Object?>> history;
   late List<String> calls;
@@ -26,6 +27,7 @@ void main() {
     paired = true;
     deferStop = false;
     nameCandidate = false;
+    pulseStyle = 'double';
     lastSelection = null;
     conversations = {
       'restricted': false,
@@ -50,6 +52,7 @@ void main() {
                 'ready': running,
                 'stopping': false,
                 'selectedApps': selected,
+                'pulseStyle': pulseStyle,
                 'bluetoothEnabled': true,
                 'bluetoothPermission': true,
                 'history': history,
@@ -89,6 +92,9 @@ void main() {
                   'label': 'Signal',
                 },
               ];
+            case 'setPulseStyle':
+              pulseStyle = (call.arguments as Map)['style'] as String;
+              return null;
             case 'selectApps':
               selected = List<String>.from(
                 (call.arguments as Map)['packages'] as List,
@@ -201,6 +207,33 @@ void main() {
     await tester.pumpAndSettle();
     expect(calls, contains('settings'));
     expect(calls, isNot(contains('start')));
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('pulse style is saved and locked while relaying', (
+    tester,
+  ) async {
+    access = true;
+    await mount(tester);
+    final single = find.descendant(
+      of: find.byKey(const ValueKey('pulse-style')),
+      matching: find.text('One pulse'),
+    );
+    await tester.scrollUntilVisible(
+      single,
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(single);
+    await tester.pumpAndSettle();
+    expect(pulseStyle, 'single');
+    expect(controller.pulseStyle, 'single');
+    expect(find.textContaining('switches between low and high'), findsOneWidget);
+    running = true;
+    await controller.refresh(force: true);
+    await tester.pumpAndSettle();
+    await expectLater(controller.setPulseStyle('double'), throwsStateError);
+    expect(pulseStyle, 'single');
     await tester.pumpWidget(const SizedBox());
   });
 

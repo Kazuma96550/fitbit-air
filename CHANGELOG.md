@@ -1,5 +1,11 @@
 ## Unreleased
 
+- Relay demo: choose **Two pulses** (strength restored) or **One pulse** (one
+  buzz; strength alternates between low and high). Documented why a single
+  pulse at a fixed strength is not possible without Google Health's
+  paired-device key: the Air pulses only on strength changes, and native
+  notification/sharing resources return `4.01` on the accessible session.
+
 - Speed up commands by about 40%: request high connection priority for the
   command's session only and return the link to low power afterwards. The idle
   link (~150 ms interval with peripheral latency) made every round trip wait

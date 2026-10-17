@@ -58,6 +58,56 @@ The Google Health source uses `aspen/request/adv_on`,
 `aspen/request/session/accept`, and `aspen/info` for its sharing flow. These
 resources have not been probed or exposed through this package.
 
+## Single-tap investigation (2026-10-17)
+
+Goal: one haptic pulse at the user's own strength, with no setting left changed,
+as Google Health produces for heart-rate sharing requests.
+
+**The haptic rule.** On the tested Air, writes to the `/settings` haptics field
+(OFF `1`, LOW `2`, HIGH `3`; all accepted with `2.04`) produced a pulse only
+when the strength became different from the last non-off strength. The wearer
+reported:
+
+| Write | Pulse |
+|---|---|
+| HIGH → HIGH (same value) | none |
+| HIGH → OFF | none |
+| OFF → HIGH | none |
+| HIGH → OFF → LOW | one, at LOW |
+| LOW → HIGH | one, at HIGH |
+
+Every pulse is therefore a strength change, and restoring the original strength
+costs a second pulse. No sequence of these writes yields exactly one pulse with
+the original strength retained. The package offers both trade-offs: `vibrate()`
+(two pulses, restored) and `pulse()` (one pulse, strength alternates).
+
+**Native single-pulse paths need the paired-device key.** Google Health source
+inspection shows two mechanisms that produce single, configurable haptics:
+notification records posted to `sb/records` (a switchboard record whose common
+notification part carries a haptic-pattern field) and the heart-rate sharing
+flow (`aspen/request/adv_on`, `aspen/request/session/accept`, `aspen/info`;
+states IDLE → READY_FOR_CONNECTION → CONNECTING → SESSION_REQUESTED →
+SESSION_ACCEPTED → SHARING_HR). Over the bootstrap session, `POST sb/records`
+with an empty body, `GET aspen/info` and `GET aspen/summary` all returned
+`4.01 Unauthorized`, like `liveactivity`, `/alarms` and `/sync/status`. Only
+`/settings` and `/md/606` were accessible. The normal key is fetched by Google
+Health from the user's account and stored privately; this project does not
+obtain it.
+
+Google Health also hosts a phone-side GATT notification service
+(`16BCFD00-253F-C348-E831-0DB3E334D580`, ANCS-like source/control/data
+characteristics) to which the Air connects. It belongs to Google Health's GATT
+server registration; another app cannot notify through it, and registering a
+duplicate service would risk Google Health's own link. Google Health's
+all-app notification listener was not enabled on the test phone.
+
+**No standard alert service.** The Air's GATT database contains GAP, GATT,
+Device Information, `ABBAFD00` (link status), `ABBAFF00` (tracker channel),
+`AC2F0045` (Golden Gate GATT-cache confirmation), `180D` (heart rate) and
+`4EEE1C00` (not referenced by Google Health). There is no Immediate Alert
+(`1802`) or Alert Notification (`1811`). Writable characteristics of unknown
+services were not written.
+
 ## Live activity and heart rate
 
 Google Health reads `GET liveactivity` once per second in its normal direct

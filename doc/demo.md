@@ -52,7 +52,7 @@ Stable Flutter keys are part of the demo's test interface:
 |---|---|
 | Navigation | `nav-relay`, `nav-device`, `nav-lab` |
 | Ownership and cancellation | `operation-owner`, `cancel-operation` |
-| Relay controls | `relay-toggle`, `relay-status`, `test-vibration` |
+| Relay controls | `relay-toggle`, `relay-status`, `test-vibration`, `pulse-style`, `pulse-style-hint` |
 | App selection | `app-picker`, `app-search`, `app-<packageName>` |
 | Device/research action | `action-<actionId>` |
 | Saved observation duration | `secure-duration` |
@@ -351,3 +351,16 @@ dev.7 this produced no vibration and left Google Health stuck until the 45 s
 timeout. A handshake missing after 6 s now gets one fresh attempt before
 failing with `HANDSHAKE_TIMEOUT`. A test build that abandoned every first
 attempt recovered in 4 of 4 runs without Google Health ack timeouts.
+
+### Pulse style (dev.8)
+
+The relay panel offers **Two pulses** (default; `vibrate()`, original strength
+restored and verified) or **One pulse** (`pulse()`, one setting change). The Air
+only pulses when its strength changes, so in One pulse mode consecutive alerts
+alternate between low and high and the strength stays at whichever value the
+last alert set. A true single pulse at a fixed strength is not available without
+Google Health's paired-device key; see [research](research.md#single-tap-investigation-2026-10-17).
+The choice is stored in app-private preferences and can only be changed while
+the relay is stopped. One-pulse commands are also shorter (about 1.3 s from
+session to handoff instead of about 2.5 s), and were verified through the relay
+worker with `channelHandoff: reset_observed`.

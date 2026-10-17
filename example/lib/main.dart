@@ -74,6 +74,9 @@ Future<void> airCalendarRelay() async {
         expiresAt: DateTime.fromMillisecondsSinceEpoch(
           args['expiresAt']! as int,
         ),
+        kind: args['kind'] == 'singlePulse'
+            ? AirHapticKind.singlePulse
+            : AirHapticKind.preview,
       ),
     );
     return {'status': result.status.name, 'errorCode': result.error?.code};

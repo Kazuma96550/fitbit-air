@@ -33,6 +33,10 @@ class DemoController extends ChangeNotifier {
   String? setupError;
   String appSearch = '';
   Set<String> selectedApps = {'com.google.android.calendar'};
+
+  /// `double` (two pulses, strength restored) or `single` (one pulse,
+  /// strength alternates). Applies to the relay; persisted natively.
+  String pulseStyle = 'double';
   List<Map<String, Object?>> apps = [];
   List<Map<String, Object?>> history = [];
   bool restrictedConversations = false;
@@ -132,6 +136,7 @@ class DemoController extends ChangeNotifier {
       relayOutcome = state['outcome'] as String? ?? 'Relay is off.';
       final selected = state['selectedApps'] as List?;
       if (selected != null) selectedApps = selected.cast<String>().toSet();
+      pulseStyle = state['pulseStyle'] == 'single' ? 'single' : 'double';
       final conversations = Map<String, Object?>.from(
         state['conversations'] as Map? ?? const {},
       );
@@ -227,6 +232,16 @@ class DemoController extends ChangeNotifier {
     final packages = {...selectedApps};
     selected ? packages.add(packageName) : packages.remove(packageName);
     await _relayCall('selectApps', {'packages': packages.toList()});
+  }
+
+  Future<void> setPulseStyle(String style) async {
+    if (style != 'double' && style != 'single') {
+      throw ArgumentError.value(style, 'style');
+    }
+    if (relayRunning || changingRelay) {
+      throw StateError('Stop the relay before changing the pulse style.');
+    }
+    await _relayCall('setPulseStyle', {'style': style});
   }
 
   Future<void> configureConversations(String method, [Object? arguments]) {
@@ -451,7 +466,7 @@ class DemoController extends ChangeNotifier {
 
   Map<String, Object?> report() => {
     'schemaVersion': 1,
-    'demoVersion': '0.1.3-dev.7',
+    'demoVersion': '0.1.3-dev.8',
     'exportedAt': DateTime.now().toUtc().toIso8601String(),
     'relay': {
       'running': relayRunning,

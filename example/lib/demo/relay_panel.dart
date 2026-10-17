@@ -179,9 +179,36 @@ class RelayPanel extends StatelessWidget {
                     label: const Text('Mark: I felt vibration'),
                   ),
                 const SizedBox(height: 12),
-                const Text(
-                  'Two pulses. Your original vibration strength is restored afterward.',
+                SegmentedButton<String>(
+                  key: const ValueKey('pulse-style'),
+                  segments: const [
+                    ButtonSegment(
+                      value: 'double',
+                      label: Text('Two pulses'),
+                      icon: Icon(Icons.restore),
+                    ),
+                    ButtonSegment(
+                      value: 'single',
+                      label: Text('One pulse'),
+                      icon: Icon(Icons.swap_vert),
+                    ),
+                  ],
+                  selected: {state.pulseStyle},
+                  onSelectionChanged:
+                      state.relayRunning || state.changingRelay || state.busy
+                      ? null
+                      : (value) =>
+                            perform(() => state.setPulseStyle(value.single)),
                 ),
+                const SizedBox(height: 8),
+                Text(
+                  state.pulseStyle == 'single'
+                      ? 'One pulse per alert. The Air only buzzes when its strength changes, so each alert switches between low and high.'
+                      : 'Two pulses per alert. Your original vibration strength is restored afterward.',
+                  key: const ValueKey('pulse-style-hint'),
+                ),
+                if (state.relayRunning)
+                  const Text('Stop the relay to change the pulse style.'),
               ],
             ),
           ),

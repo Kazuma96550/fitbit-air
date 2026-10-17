@@ -57,6 +57,11 @@ class MainActivity : FlutterActivity() {
                             }
                             result.success(null)
                         }
+                        "setPulseStyle" -> {
+                            check(!CalendarRelayService.isRunning) { "Stop the relay before changing the pulse style." }
+                            RelayAppSelection.savePulseStyle(this, requireNotNull(call.argument<String>("style")))
+                            result.success(null)
+                        }
                         "selectApps" -> {
                             check(!CalendarRelayService.isRunning) { "Stop the relay before changing apps." }
                             val packages = requireNotNull(call.argument<List<String>>("packages"))
