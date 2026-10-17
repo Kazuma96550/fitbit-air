@@ -54,7 +54,11 @@ void main() {
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
-      final controller = DemoController();
+      final controller = DemoController()
+        ..apps = List.generate(
+          100,
+          (index) => {'packageName': 'app.$index', 'label': 'App $index'},
+        );
       addTearDown(controller.dispose);
       await tester.pumpWidget(
         MaterialApp(
@@ -71,6 +75,25 @@ void main() {
         ),
       );
       await tester.scrollUntilVisible(
+        find.byKey(const ValueKey('conversation-picker')),
+        100,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('conversation-picker')),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('conversation-picker')).hitTestable(),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(const ValueKey('conversation-picker')));
+      await tester.pumpAndSettle();
+      expect(find.text('Who can reach your wrist?'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
         find.byKey(const ValueKey('app-search')),
         200,
         scrollable: find.byType(Scrollable).first,
@@ -78,7 +101,7 @@ void main() {
       expect(find.byKey(const ValueKey('app-search')), findsOneWidget);
       await tester.scrollUntilVisible(
         find.byKey(const ValueKey('conversation-picker')),
-        200,
+        -200,
         scrollable: find.byType(Scrollable).first,
       );
       expect(tester.takeException(), isNull);

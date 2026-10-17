@@ -124,7 +124,7 @@ class RelayPanel extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         Text(
-          'Choose the notifications that reach your Fitbit Air.',
+          'Alerts on your wrist.',
           style: Theme.of(context).textTheme.bodyLarge?.copyWith(
             color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),

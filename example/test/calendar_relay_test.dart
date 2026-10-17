@@ -76,7 +76,8 @@ void main() {
               conversations['restricted'] = (call.arguments as Map)['enabled'];
               return null;
             case 'captureConversations':
-              conversations['captureRemainingMillis'] = 60000;
+              conversations['captureRemainingMillis'] =
+                  (call.arguments as Map)['enabled'] == true ? 60000 : 0;
               conversations['candidates'] = [
                 {
                   'id': 'abcdef012345',
@@ -218,10 +219,15 @@ void main() {
     }
     if (key == 'app-picker' ||
         key == 'conversation-picker' ||
-        key == 'capture-conversations') {
+        (key == 'capture-conversations' &&
+            find.text('Who can reach your wrist?').evaluate().isEmpty)) {
       await tester.tap(find.byKey(const ValueKey('nav-rules')));
       await tester.pumpAndSettle();
       if (key == 'app-picker') return;
+      if (key == 'capture-conversations') {
+        await tester.tap(find.byKey(const ValueKey('conversation-picker')));
+        await tester.pumpAndSettle();
+      }
     }
     final target = find.byKey(ValueKey(key));
     if (target.evaluate().isEmpty) {
@@ -509,10 +515,25 @@ void main() {
       access = true;
       await mount(tester);
       await tap(tester, 'conversation-picker');
-      await tap(tester, 'restrict-conversations');
+      await tester.tap(find.text('Selected'));
+      await tester.pumpAndSettle();
       expect(controller.restrictedConversations, isTrue);
       await tap(tester, 'capture-conversations');
       expect(controller.captureRemainingMillis, 60000);
+      await tester.enterText(
+        find.byKey(const ValueKey('chat-search')),
+        'Nobody',
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.text('No matching people found. Try another name.'),
+        findsOneWidget,
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('chat-search')),
+        'alice',
+      );
+      await tester.pumpAndSettle();
       await tap(tester, 'conversation-abcdef012345');
       expect(controller.allowedConversations.single['label'], 'Private Alice');
       expect(controller.exportJson(), isNot(contains('Private Alice')));
@@ -521,36 +542,30 @@ void main() {
         controller.report()['relay'],
         containsPair('allowedConversationCount', 1),
       );
-      await tap(tester, 'clear-conversations');
-      expect(controller.allowedConversations, isEmpty);
+      await tap(tester, 'done-adding-people');
+      expect(controller.captureRemainingMillis, 0);
+      expect(
+        find.byKey(const ValueKey('chat-rule-abcdef012345')),
+        findsOneWidget,
+      );
       expect(controller.restrictedConversations, isTrue);
       await tester.pumpWidget(const SizedBox());
     },
   );
 
-  testWidgets('active relay locks conversation rules in UI and controller', (
+  testWidgets('editing people asks before stopping an active relay', (
     tester,
   ) async {
     access = true;
     running = true;
     await mount(tester);
     await tap(tester, 'conversation-picker');
-    expect(
-      tester
-          .widget<SwitchListTile>(
-            find.byKey(const ValueKey('restrict-conversations')),
-          )
-          .onChanged,
-      isNull,
-    );
-    expect(
-      tester
-          .widget<OutlinedButton>(
-            find.byKey(const ValueKey('capture-conversations')),
-          )
-          .onPressed,
-      isNull,
-    );
+    await tap(tester, 'capture-conversations');
+    expect(find.text('Stop relay to edit people?'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(running, isTrue);
+    expect(calls, isNot(contains('stop')));
     expect(
       () => controller.configureConversations('clearConversations'),
       throwsStateError,
@@ -631,6 +646,7 @@ void main() {
     ];
     await mount(tester);
     await tap(tester, 'nav-rules');
+    await tap(tester, 'conversation-picker');
     await tap(tester, 'chat-rule-private-chat');
     expect(find.text('Use app vibration'), findsOneWidget);
     await tap(tester, 'preview-rule');
@@ -660,6 +676,10 @@ void main() {
     conversations['diagnostics'] = {'seen': 0, 'privateLabel': 'SECRET'};
     await mount(tester);
     await tap(tester, 'nav-rules');
+    await tap(tester, 'capture-conversations');
+    conversations['candidates'] = <Map<String, Object?>>[];
+    await controller.refresh();
+    await tester.pumpAndSettle();
     final target = find.byKey(const ValueKey('capture-diagnostics'));
     await tester.scrollUntilVisible(
       target,

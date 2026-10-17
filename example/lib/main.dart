@@ -981,7 +981,7 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
               ? () => _markObservation('observed LED flash')
               : null,
           icon: Icons.lightbulb_outline,
-          label: 'LED flashed — mark observed double-tap',
+          label: 'LED flashed: mark observed double-tap',
         ),
       ],
       Text('$_ledMarkers manual markers; these are not detected gestures.'),

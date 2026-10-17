@@ -8,6 +8,10 @@
   `readSignalStrength()` for a rough proximity hint in dBm.
 - Add `FitbitAirDiagnostics.watchChannelActivity()`: passively reports whether
   Google Health is idle, polling or syncing on the Air's shared channel.
+- Give WhatsApp people a dedicated screen above the app list, with chat search,
+  integrated vibration editing and a separate guided discovery flow.
+- Shorten the Home subtitle and remove em dashes from app text.
+
 - Sync-aware hold: before each secure command, passively observe the shared
   tracker channel and wait (up to 10 s) while Google Health is transferring
   data. Polling never blocks a command. Reported as `channelHold`. In 8

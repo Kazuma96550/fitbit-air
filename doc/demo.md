@@ -154,20 +154,18 @@ future work.
 
 ## Selected WhatsApp conversations (after 0.1.2)
 
-This example-only feature is independent of the published 0.1.2 plugin. The demo
-is `0.1.3-dev.2` and the app bar shows `dev.2`. It supports WhatsApp and WhatsApp
-Business; other app selections retain their existing behavior.
+This example-only feature supports WhatsApp and WhatsApp Business. Other app
+selections retain their existing behavior.
 
-1. Stop the relay. In **Choose people**, enable WhatsApp notifications if needed
-   and turn on **Only selected WhatsApp chats**. An empty list allows no WhatsApp
-   notifications; it never means “allow all”.
-2. Leave a WhatsApp message unread and tap **Find chats**. The app immediately
-   inspects currently visible WhatsApp notifications, then listens for new ones
-   for up to 60 seconds. Capture never vibrates. You can close the demo and have
-   the chosen person send a notification while their WhatsApp chat is closed.
-3. Select the observed chat. Results remain available for five minutes after
-   listening ends or you tap **Stop listening**. You no longer have to return
-   within the 60-second listening window.
+1. Open **Rules > WhatsApp people**, above the app list. Choose **All chats** or
+   **Selected**. An empty Selected list allows no WhatsApp notifications.
+2. Tap **Add people**. The app checks unread notifications and listens for up to
+   60 seconds. If the relay is running, confirm **Stop and continue** first.
+   Leave a message unread, or receive a new message while that chat is closed.
+3. Tap a found person to add them. Name-only matches require confirmation.
+   Close discovery to stop listening. Saved people appear in one list where you
+   can edit their vibration, mute them, or remove them. Results remain available
+   for five minutes. Start the relay from Home when you finish.
 4. An available **Conversation ID** rule matches the app-scoped Android shortcut
    ID. Existing selections from dev.1 keep their original IDs.
 5. If WhatsApp provides message-notification metadata and a chat title without
