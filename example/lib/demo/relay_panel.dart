@@ -1,9 +1,7 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 
 import 'demo_controller.dart';
-import 'conversation_picker.dart';
+import 'rules_panel.dart';
 
 class RelayPanel extends StatelessWidget {
   const RelayPanel({
@@ -13,11 +11,15 @@ class RelayPanel extends StatelessWidget {
     required this.testVibration,
     required this.exportReport,
     this.testFeedback,
+    this.openRules,
+    this.scrollController,
   });
   final DemoController controller;
   final void Function(Future<void> Function()) perform;
   final VoidCallback testVibration;
   final VoidCallback exportReport;
+  final VoidCallback? openRules;
+  final ScrollController? scrollController;
 
   /// Inline Test state: null (idle), 'sending' or 'sent'.
   final String? testFeedback;
@@ -62,8 +64,10 @@ class RelayPanel extends StatelessWidget {
     final enabled =
         testFeedback == null &&
         !state.busy &&
+        !state.previewing &&
         !state.changingRelay &&
         !state.relayStopping &&
+        (!state.relayRunning || state.settings.silenceReason == null) &&
         (!state.relayRunning || state.relayReady);
     return Semantics(
       label: 'Test vibration',
@@ -105,9 +109,10 @@ class RelayPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = controller;
-    final apps = state.filteredApps;
+
     return ListView(
       key: const ValueKey('relay-scroll'),
+      controller: scrollController,
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
       children: [
         Text(
@@ -151,9 +156,13 @@ class RelayPanel extends StatelessWidget {
                       child: Text(
                         state.relayStopping
                             ? 'Finishing up'
-                            : state.relayRunning
-                            ? 'Your relay is on'
-                            : 'Your relay is paused',
+                            : !state.relayRunning
+                            ? 'Relay is off'
+                            : state.settings.silenceReason == 'paused'
+                            ? 'Taking a break'
+                            : state.settings.silenceReason == 'quiet_hours'
+                            ? 'Quiet hours'
+                            : 'Listening for your notifications',
                         key: const ValueKey('relay-status'),
                         style: Theme.of(context).textTheme.titleLarge?.copyWith(
                           fontWeight: FontWeight.w600,
@@ -208,44 +217,67 @@ class RelayPanel extends StatelessWidget {
                         : 'Start notification relay',
                   ),
                 ),
-                const Divider(height: 32),
-                Text(
-                  'Vibration',
-                  style: Theme.of(context).textTheme.titleSmall,
-                ),
-                const SizedBox(height: 8),
-                SegmentedButton<String>(
-                  key: const ValueKey('pulse-style'),
-                  segments: const [
-                    ButtonSegment(
-                      value: 'single',
-                      label: Text('One pulse'),
-                      icon: Icon(Icons.touch_app),
+                if (state.relayRunning) ...[
+                  const SizedBox(height: 12),
+                  if (state.settings.silenceReason == 'paused')
+                    Text(
+                      state.settings.pauseUntil == -1
+                          ? 'Paused until you resume.'
+                          : 'Paused until ${TimeOfDay.fromDateTime(DateTime.fromMillisecondsSinceEpoch(state.settings.pauseUntil)).format(context)}.',
                     ),
-                    ButtonSegment(
-                      value: 'double',
-                      label: Text('Two pulses'),
-                      icon: Icon(Icons.vibration),
+                  if (state.settings.silenceReason == 'quiet_hours')
+                    Text(
+                      'Quiet until ${formatMinute(context, state.settings.endMinute)}. No missed alerts will be replayed.',
                     ),
-                  ],
-                  selected: {state.pulseStyle},
-                  // Changing style mid-test only affects the next alert.
-                  onSelectionChanged: state.relayRunning || state.changingRelay
-                      ? null
-                      : (value) =>
-                            perform(() => state.setPulseStyle(value.single)),
-                ),
-                const SizedBox(height: 4),
+                  if (state.settings.silenceReason == 'paused')
+                    OutlinedButton.icon(
+                      key: const ValueKey('resume-relay'),
+                      onPressed: state.changingRelay
+                          ? null
+                          : () => perform(() => state.setPause(0)),
+                      icon: const Icon(Icons.play_arrow),
+                      label: const Text('Resume notifications'),
+                    )
+                  else
+                    PopupMenuButton<int>(
+                      key: const ValueKey('pause-relay'),
+                      tooltip: 'Pause notifications',
+                      enabled: !state.changingRelay,
+                      onSelected: (minutes) =>
+                          perform(() => state.setPause(minutes)),
+                      itemBuilder: (_) => const [
+                        PopupMenuItem(
+                          value: 15,
+                          child: Text('Pause for 15 minutes'),
+                        ),
+                        PopupMenuItem(
+                          value: 60,
+                          child: Text('Pause for 1 hour'),
+                        ),
+                        PopupMenuItem(
+                          value: -1,
+                          child: Text('Pause until I resume'),
+                        ),
+                      ],
+                      child: const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.pause),
+                            SizedBox(width: 8),
+                            Text('Take a break'),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
+                const Divider(height: 28),
                 Row(
                   children: [
                     Expanded(
                       child: Text(
-                        state.relayRunning
-                            ? 'Stop the relay to change this.'
-                            : state.pulseStyle == 'single'
-                            ? 'One pulse per alert at your strength.'
-                            : 'Two pulses per alert; strength restored.',
-                        key: const ValueKey('pulse-style-hint'),
+                        'Default · ${state.settings.defaultPreset.label}',
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
                     ),
@@ -330,82 +362,17 @@ class RelayPanel extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         Card(
-          child: ExpansionTile(
-            key: const ValueKey('app-picker'),
-            leading: const Icon(Icons.apps_rounded),
-            title: const Text('Choose notification apps'),
+          child: ListTile(
+            key: const ValueKey('home-rules'),
+            leading: const Icon(Icons.tune),
+            title: const Text('Your notification rules'),
             subtitle: Text(
-              state.selectedApps.isEmpty
-                  ? 'Choose at least one app'
-                  : '${state.selectedApps.length} selected · ${state.selectedApps.map((package) => state.apps.where((app) => app['packageName'] == package).map((app) => app['label'] as String).firstOrNull ?? package.split('.').last).join(', ')}',
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
+              '${state.selectedApps.length} apps selected · Custom vibrations and quiet hours',
             ),
-            childrenPadding: const EdgeInsets.all(12),
-            children: [
-              TextFormField(
-                key: const ValueKey('app-search'),
-                initialValue: state.appSearch,
-                decoration: const InputDecoration(
-                  labelText: 'Search apps',
-                  prefixIcon: Icon(Icons.search),
-                  border: OutlineInputBorder(),
-                ),
-                onChanged: state.searchApps,
-              ),
-              const SizedBox(height: 8),
-              if (state.selectedApps.isEmpty)
-                const Text('Select at least one app before starting.'),
-              if (state.relayRunning)
-                const Text('Stop the relay to change selected apps.'),
-              if (apps.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.all(12),
-                  child: Text(
-                    'No matching apps. Try another search or refresh the list.',
-                  ),
-                )
-              else
-                SizedBox(
-                  height: 240,
-                  child: ListView.builder(
-                    key: const ValueKey('app-list'),
-                    itemCount: apps.length,
-                    itemBuilder: (context, index) {
-                      final app = apps[index];
-                      final packageName = app['packageName']! as String;
-                      final icon = app['icon'] as String?;
-                      return CheckboxListTile(
-                        key: ValueKey('app-$packageName'),
-                        secondary: icon == null
-                            ? const Icon(Icons.apps)
-                            : Image.memory(
-                                base64Decode(icon),
-                                width: 32,
-                                height: 32,
-                                gaplessPlayback: true,
-                              ),
-                        title: Text(app['label']! as String),
-                        value: state.selectedApps.contains(packageName),
-                        onChanged: state.relayRunning || state.changingRelay
-                            ? null
-                            : (value) => perform(
-                                () => state.selectApp(packageName, value!),
-                              ),
-                      );
-                    },
-                  ),
-                ),
-              TextButton(
-                key: const ValueKey('refresh-apps'),
-                onPressed: () => perform(state.loadApps),
-                child: const Text('Refresh app list'),
-              ),
-            ],
+            trailing: const Icon(Icons.chevron_right),
+            onTap: openRules,
           ),
         ),
-        const SizedBox(height: 12),
-        ConversationPicker(controller: state, perform: perform),
         const SizedBox(height: 20),
         Text(
           'Early access · Google Health sync is still being tested. If sync stalls after a vibration, pause the relay.',
@@ -428,7 +395,8 @@ class RelayPanel extends StatelessWidget {
                 .where(
                   (entry) =>
                       entry['stage'] != 'detected' &&
-                      entry['stage'] != 'queued',
+                      entry['stage'] != 'queued' &&
+                      entry['stage'] != 'merged',
                 )
                 .take(5))
           _activity(context, entry),
@@ -472,6 +440,10 @@ class RelayPanel extends StatelessWidget {
     final stage = entry['stage'] as String? ?? 'unknown';
     final title = switch (stage) {
       'detected' => 'Notification detected',
+      'combined' => 'Combined into one vibration',
+      'paused' => 'Quiet: notifications paused',
+      'quiet_hours' => 'Quiet: scheduled quiet hours',
+      'filtered' => 'Skipped by your rules',
       'merged' => 'Merged into next vibration',
       'queued' => 'Queued',
       'verified' => 'Command verified',

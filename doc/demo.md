@@ -5,15 +5,16 @@ notification filtering and Android lifecycle management are not package APIs.
 
 ## Screens
 
-- **Relay:** permission/Bluetooth/pairing setup, selected apps with search and
-  icons, Start/Stop, Test vibration, and recent command activity. Selected apps
-  sort first. Test vibration uses the existing relay worker while the relay is
-  listening; when stopped, it uses the shared device preview action.
-- **Device:** pairing, haptic controls, device information and heart rate.
-- **Lab:** all existing diagnostic monitors, resource probes, headless tests,
-  timed wrist-presence/alarm trials, manual markers and structured trial results.
+- **Home:** relay status, Start/Stop, timed pause, default vibration preview,
+  setup checks and recent outcomes.
+- **Rules:** selected apps, per-app/chat vibration presets, WhatsApp capture and
+  restrictions, and daily quiet hours. App edits apply to new alerts while on.
+- **Device:** pairing, device controls/information, heart rate and historical
+  wrist observation. **Developer tools** opens Lab.
+- **Lab:** existing monitors, probes, headless tests, timed wrist/alarm trials,
+  manual markers and structured results. Android Back returns to Device.
 
-The owner banner always identifies a running operation or relay session. Merely
+Home owns the relay status; an owner banner identifies active device work. Merely
 opening Device/Lab does not stop the relay. An exclusive device action asks
 whether to stop it, waits for any active command's verification/restoration, and
 leaves the relay stopped afterward. Cancelled/incomplete trials keep their
@@ -366,3 +367,71 @@ tap (keeps strength)** alongside the older alternating **Single pulse**. Four
 production taps (two from the Device tab, two through the relay worker) were
 felt as single pulses at the wearer's strength, each with
 `channelHandoff: reset_observed`.
+
+## Custom notification rules (0.1.4 development)
+
+Everyday navigation is **Home**, **Rules**, **Device**. Home owns Start/Stop,
+Try it and timed pause. Rules owns app selection, default and app-specific
+vibrations, WhatsApp chat overrides and a daily quiet-hours window. Device
+retains device controls and opens **Developer tools** (Lab). Lab has a normal
+back action to Device; entering it never stops the relay. Device experiments
+still require the existing explicit relay-stop handoff.
+
+The four presets are `single` (current strength), `low`, `high`, and `double`
+(two-pulse preview with restoration). Explicit low/high persists that strength
+on the band. Chat overrides additionally support `mute`. Removing an override
+uses the app rule, subject to the selected-chat allowlist. Choosing or forgetting
+chats and capture still requires a stopped relay; app and vibration edits apply
+to new alerts while running. In-flight commands keep their captured preset.
+
+The existing 15-second transport cooldown is retained. A follow-up combines
+fresh alerts, preferring chat-specific presets over app presets and the newest
+match for equal specificity. It does not send a vibration for each merged
+notification. Muted or restricted-out alerts cannot win a burst. Stop, pause
+and quiet hours cancel waiting follow-ups; the active write/handoff finishes.
+Notification freshness advances during silence and there is no replay afterward.
+Alerts older than 30 seconds expire rather than being refreshed by combining.
+
+Pause supports 15 minutes, one hour or until resumed; resuming never starts a
+stopped relay. Quiet hours are disabled by default, run daily in local phone
+time, and support overnight intervals. The service rechecks time at dispatch,
+after time/timezone changes and at minute/pause boundaries without opening BLE
+or acquiring a periodic wake lock. Missed timers during sleep do not bypass the
+dispatch-time silence check. No exact-alarm permission is needed.
+
+Settings migrate existing selected apps and pulse style once. Existing WhatsApp
+restrictions and identities remain authoritative. `relay_rules.xml` is excluded
+from cloud backup and device transfer along with captured chats. A migration
+marker prevents an older backed-up app selection from being re-enabled if the
+private rule file is absent after restore; users must choose apps again. Invalid
+configuration fails closed. Reports contain rule counts, preset and suppression
+reasons, not chat names, hashes, titles or message text.
+
+### Agent and integration access
+
+The same `DemoController` drives UI and automation. Existing device action IDs
+remain. `runAction('openLab')` opens Lab, `previewDefault` tries the configured
+default, and `pause15`, `pause60`, `pauseUntilResumed`, `resumeRelay` control
+silence without acquiring transport ownership. Existing transport actions still
+require exclusivity. `nav-relay` remains the Home tab key, `nav-rules` identifies
+Rules, `nav-device` identifies Device, and `nav-lab` now identifies the Developer
+tools entry on Device. Integration navigation uses `openLab` so it does not
+depend on the entry's scroll position.
+
+Typed controller methods expose `saveAppRule(packageName, enabled, preset)`,
+`saveChatRule(id, preset)`, `saveDefaultPreset`, `previewPreset`, `setPause` and
+`saveQuietHours`. Null app/chat preset means inheritance; `mute` is chat-only in
+the editor. Preview does not save; while relaying it waits for the service-owned
+worker's verified result. Pause/Stop remain available during that preview.
+
+A manual secure-event Lab trial can populate **Wrist presence** on Device. It is
+explicitly the last observed on/off-wrist state and receipt timestamp, never live
+presence, and is discarded when the process exits. It never filters relay rules
+or adds a continuous Bluetooth monitor.
+
+Before release, exercise low/high retained strength, current-strength single
+and restored double, app/chat overrides, mute, quiet hours crossing midnight,
+timezone changes, pause expiry, combined bursts and Google Health sync after
+both previews and real relay commands. Builds and physical trials belong in CI
+or on a development machine. Keep the connection agent's handoff and recovery
+implementation intact.

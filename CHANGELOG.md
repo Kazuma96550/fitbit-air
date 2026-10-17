@@ -19,6 +19,14 @@
 - Research: taps, including a recognized alarm dismissal, send nothing to the
   phone; real-time tap detection is not possible with the tested firmware.
 
+- Add Home/Rules/Device navigation with accessible Lab tools, per-app and
+  WhatsApp-chat vibration presets, quiet hours and timed pause in the example.
+- Preserve transport cooldown while choosing a deterministic preset for merged
+  alerts; suppress waiting work during silence and expire stale alerts.
+- Add optional explicit tap intensity to `AirHapticCommand`; other command kinds
+  reject it. Existing commands and defaults remain compatible.
+- Show timestamped, non-live wrist observations from manual Lab trials only.
+
 ## 0.1.3
 
 - Add `FitbitAir.tap()`: exactly one pulse at the strength set in Google Health,

@@ -1,4 +1,5 @@
 import 'package:fitbit_air_example/demo/demo_controller.dart';
+import 'package:fitbit_air_example/demo/relay_settings.dart';
 import 'package:fitbit_air_example/main.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -15,11 +16,13 @@ void main() {
   var nameCandidate = false;
   var pulseStyle = 'single';
   Map<Object?, Object?>? lastSelection;
+  Object? lastTapArguments;
   late List<Map<String, Object?>> history;
   late List<String> calls;
   late List<String> selected;
   late DemoController controller;
   late Map<String, Object?> conversations;
+  late Map<String, Object?> rules;
 
   setUp(() {
     access = false;
@@ -28,7 +31,17 @@ void main() {
     deferStop = false;
     nameCandidate = false;
     pulseStyle = 'single';
+    rules = {
+      'defaultPreset': 'single',
+      'apps': <String, Object?>{},
+      'chats': <String, Object?>{},
+      'pauseUntil': 0,
+      'quietEnabled': false,
+      'startMinute': 1320,
+      'endMinute': 420,
+    };
     lastSelection = null;
+    lastTapArguments = null;
     conversations = {
       'restricted': false,
       'captureRemainingMillis': 0,
@@ -53,6 +66,7 @@ void main() {
                 'stopping': false,
                 'selectedApps': selected,
                 'pulseStyle': pulseStyle,
+                'rules': {...rules, 'defaultPreset': pulseStyle},
                 'bluetoothEnabled': true,
                 'bluetoothPermission': true,
                 'history': history,
@@ -92,6 +106,49 @@ void main() {
                   'label': 'Signal',
                 },
               ];
+            case 'saveAppRule':
+              final args = call.arguments as Map;
+              final pkg = args['packageName'] as String;
+              (rules['apps'] as Map)[pkg] = {
+                'enabled': args['enabled'],
+                'preset': args['preset'],
+              };
+              if (args['enabled'] == true) {
+                selected = {...selected, pkg}.toList();
+              } else {
+                selected.remove(pkg);
+              }
+              return null;
+            case 'saveChatRule':
+              final args = call.arguments as Map;
+              if (args['preset'] == null) {
+                (rules['chats'] as Map).remove(args['id']);
+              } else {
+                (rules['chats'] as Map)[args['id']] = args['preset'];
+              }
+              return null;
+            case 'saveDefaultPreset':
+              pulseStyle = (call.arguments as Map)['preset'] as String;
+              return null;
+            case 'setPause':
+              final minutes = (call.arguments as Map)['minutes'] as int;
+              rules['pauseUntil'] = minutes == -1
+                  ? -1
+                  : minutes == 0
+                  ? 0
+                  : DateTime.now().millisecondsSinceEpoch + minutes * 60000;
+              rules['silenceReason'] = minutes == 0 ? null : 'paused';
+              return null;
+            case 'saveQuietHours':
+              final args = call.arguments as Map;
+              rules.addAll({
+                'quietEnabled': args['enabled'],
+                'startMinute': args['startMinute'],
+                'endMinute': args['endMinute'],
+              });
+              return null;
+            case 'previewPreset':
+              return null;
             case 'setPulseStyle':
               pulseStyle = (call.arguments as Map)['style'] as String;
               return null;
@@ -134,6 +191,7 @@ void main() {
             return {'originalIntensity': 2, 'restored': true, 'verified': true};
           }
           if (call.method == 'tap') {
+            lastTapArguments = call.arguments;
             return {'intensity': 3, 'verified': true};
           }
           throw MissingPluginException();
@@ -154,12 +212,30 @@ void main() {
   }
 
   Future<void> tap(WidgetTester tester, String key) async {
+    if (key == 'nav-lab') {
+      await tester.tap(find.byKey(const ValueKey('nav-device')));
+      await tester.pumpAndSettle();
+    }
+    if (key == 'app-picker' ||
+        key == 'conversation-picker' ||
+        key == 'capture-conversations') {
+      await tester.tap(find.byKey(const ValueKey('nav-rules')));
+      await tester.pumpAndSettle();
+      if (key == 'app-picker') return;
+    }
     final target = find.byKey(ValueKey(key));
     if (target.evaluate().isEmpty) {
       await tester.scrollUntilVisible(
         target,
         200,
-        scrollable: find.byType(Scrollable).first,
+        scrollable: find.byType(BottomSheet).evaluate().isNotEmpty
+            ? find
+                  .descendant(
+                    of: find.byType(BottomSheet),
+                    matching: find.byType(Scrollable),
+                  )
+                  .first
+            : find.byType(Scrollable).first,
       );
     }
     await tester.ensureVisible(target);
@@ -213,30 +289,19 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('pulse style is saved and locked while relaying', (tester) async {
+  testWidgets('default preset can change while relay is running', (
+    tester,
+  ) async {
     access = true;
-    await mount(tester);
-    expect(controller.pulseStyle, 'single');
-    expect(find.textContaining('One pulse per alert'), findsOneWidget);
-    final double = find.descendant(
-      of: find.byKey(const ValueKey('pulse-style')),
-      matching: find.text('Two pulses'),
-    );
-    await tester.scrollUntilVisible(
-      double,
-      200,
-      scrollable: find.byType(Scrollable).first,
-    );
-    await tester.tap(double);
-    await tester.pumpAndSettle();
-    expect(pulseStyle, 'double');
-    expect(controller.pulseStyle, 'double');
-    expect(find.textContaining('Two pulses per alert'), findsOneWidget);
     running = true;
-    await controller.refresh(force: true);
-    await tester.pumpAndSettle();
-    await expectLater(controller.setPulseStyle('single'), throwsStateError);
-    expect(pulseStyle, 'double');
+    await mount(tester);
+    await tap(tester, 'nav-rules');
+    await tap(tester, 'default-vibration');
+    await tap(tester, 'preset-double');
+    await tap(tester, 'save-rule');
+    expect(controller.settings.defaultPreset, VibrationPreset.doublePulse);
+    expect(running, isTrue);
+    expect(calls, isNot(contains('stop')));
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -308,12 +373,17 @@ void main() {
   ) async {
     await mount(tester);
     await tap(tester, 'app-picker');
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('app-search')),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
     await tester.ensureVisible(find.byKey(const ValueKey('app-search')));
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const ValueKey('app-search')), 'whats');
     await tester.pumpAndSettle();
     expect(controller.filteredApps.single['packageName'], 'com.whatsapp');
-    await tap(tester, 'app-com.whatsapp');
+    await tap(tester, 'app-enabled-com.whatsapp');
     expect(
       selected,
       containsAll(['com.google.android.calendar', 'com.whatsapp']),
@@ -341,7 +411,7 @@ void main() {
       running = true;
       await mount(tester);
       await tap(tester, 'test-vibration');
-      expect(calls, contains('testPulse'));
+      expect(calls, contains('previewPreset'));
       expect(calls, isNot(contains('vibrate')));
       expect(running, isTrue);
       await tester.pumpWidget(const SizedBox());
@@ -511,12 +581,85 @@ void main() {
     },
   );
 
+  testWidgets('Home pause and resume preserve the running relay', (
+    tester,
+  ) async {
+    access = true;
+    running = true;
+    await mount(tester);
+    await tap(tester, 'pause-relay');
+    await tester.tap(find.text('Pause for 15 minutes'));
+    await tester.pumpAndSettle();
+    expect(controller.settings.silenceReason, 'paused');
+    expect(running, isTrue);
+    await tap(tester, 'resume-relay');
+    expect(controller.settings.silenceReason, isNull);
+    expect(calls, isNot(contains('stop')));
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets(
+    'preset preview does not save and explicit strength is disclosed',
+    (tester) async {
+      access = true;
+      running = true;
+      await mount(tester);
+      await tap(tester, 'nav-rules');
+      await tap(tester, 'default-vibration');
+      await tap(tester, 'preset-low');
+      expect(
+        find.textContaining('It keeps that strength afterward'),
+        findsOneWidget,
+      );
+      await tap(tester, 'preview-rule');
+      expect(calls, contains('previewPreset'));
+      expect(calls, isNot(contains('saveDefaultPreset')));
+      expect(controller.settings.defaultPreset, VibrationPreset.single);
+      expect(find.text('Command verified. Did you feel it?'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets('a chat inherits its app preset when previewed without saving', (
+    tester,
+  ) async {
+    access = true;
+    selected.add('com.whatsapp');
+    (rules['apps'] as Map)['com.whatsapp'] = {'enabled': true, 'preset': 'low'};
+    conversations['allowed'] = [
+      {'id': 'private-chat', 'label': 'Alice', 'packageName': 'com.whatsapp'},
+    ];
+    await mount(tester);
+    await tap(tester, 'nav-rules');
+    await tap(tester, 'chat-rule-private-chat');
+    expect(find.text('Use app vibration'), findsOneWidget);
+    await tap(tester, 'preview-rule');
+    expect(lastTapArguments, {'intensity': 2});
+    expect(calls, isNot(contains('saveChatRule')));
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('quiet hours save without stopping the relay', (tester) async {
+    access = true;
+    running = true;
+    await mount(tester);
+    await tap(tester, 'nav-rules');
+    await tap(tester, 'quiet-hours');
+    await tap(tester, 'quiet-enabled');
+    await tap(tester, 'save-quiet-hours');
+    expect(controller.settings.quietEnabled, isTrue);
+    expect(running, isTrue);
+    expect(calls, isNot(contains('stop')));
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('zero-event diagnostics remain visible after capture ends', (
     tester,
   ) async {
     access = true;
     conversations['diagnostics'] = {'seen': 0, 'privateLabel': 'SECRET'};
     await mount(tester);
+    await tap(tester, 'nav-rules');
     final target = find.byKey(const ValueKey('capture-diagnostics'));
     await tester.scrollUntilVisible(
       target,

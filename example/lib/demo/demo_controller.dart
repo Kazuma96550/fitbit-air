@@ -6,10 +6,18 @@ import 'package:fitbit_air/fitbit_air_diagnostics.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import 'relay_settings.dart';
+
 class DemoAction {
-  const DemoAction(this.run, {this.streaming = false, this.parameters});
+  const DemoAction(
+    this.run, {
+    this.streaming = false,
+    this.parameters,
+    this.exclusive = true,
+  });
   final FutureOr<void> Function() run;
   final bool streaming;
+  final bool exclusive;
   final Map<String, Object?> Function()? parameters;
 }
 
@@ -19,6 +27,9 @@ class DemoController extends ChangeNotifier {
   final actions = <String, DemoAction>{};
   Future<void> Function()? cancelCurrent;
   Map<String, Object?> transportDiagnostics = {};
+  RelaySettings settings = const RelaySettings();
+  AirWristPresenceEvent? lastWristObservation;
+  bool previewing = false;
   bool initialized = false;
   bool relayRunning = false;
   bool relayReady = false;
@@ -137,6 +148,9 @@ class DemoController extends ChangeNotifier {
       final selected = state['selectedApps'] as List?;
       if (selected != null) selectedApps = selected.cast<String>().toSet();
       pulseStyle = state['pulseStyle'] == 'double' ? 'double' : 'single';
+      settings = state['rules'] is Map
+          ? RelaySettings.fromMap(state['rules'] as Map)
+          : RelaySettings(defaultPreset: VibrationPreset.parse(pulseStyle));
       final conversations = Map<String, Object?>.from(
         state['conversations'] as Map? ?? const {},
       );
@@ -226,9 +240,6 @@ class DemoController extends ChangeNotifier {
   }
 
   Future<void> selectApp(String packageName, bool selected) async {
-    if (relayRunning || changingRelay) {
-      throw StateError('Stop the relay before changing apps.');
-    }
     final packages = {...selectedApps};
     selected ? packages.add(packageName) : packages.remove(packageName);
     await _relayCall('selectApps', {'packages': packages.toList()});
@@ -238,10 +249,79 @@ class DemoController extends ChangeNotifier {
     if (style != 'double' && style != 'single') {
       throw ArgumentError.value(style, 'style');
     }
-    if (relayRunning || changingRelay) {
-      throw StateError('Stop the relay before changing the pulse style.');
-    }
     await _relayCall('setPulseStyle', {'style': style});
+  }
+
+  Future<void> saveAppRule(
+    String packageName,
+    bool enabled,
+    VibrationPreset? preset,
+  ) => _relayCall('saveAppRule', {
+    'packageName': packageName,
+    'enabled': enabled,
+    'preset': preset?.id,
+  });
+  Future<void> saveChatRule(String id, VibrationPreset? preset) =>
+      _relayCall('saveChatRule', {'id': id, 'preset': preset?.id});
+  Future<void> saveDefaultPreset(VibrationPreset preset) =>
+      _relayCall('saveDefaultPreset', {'preset': preset.id});
+  Future<void> setPause(int minutes) =>
+      _relayCall('setPause', {'minutes': minutes});
+  Future<void> saveQuietHours(bool enabled, int start, int end) => _relayCall(
+    'saveQuietHours',
+    {'enabled': enabled, 'startMinute': start, 'endMinute': end},
+  );
+
+  Future<void> previewPreset(VibrationPreset preset) async {
+    if (preset == VibrationPreset.mute) {
+      throw ArgumentError('Silent rules cannot vibrate.');
+    }
+    if (busy || changingRelay || previewing) {
+      throw StateError('Wait for the current operation.');
+    }
+    if (relayRunning) {
+      if (!relayReady || relayStopping) {
+        throw StateError('Wait until the relay is ready.');
+      }
+      previewing = true;
+      _changed();
+      try {
+        await channel.invokeMethod<void>('previewPreset', {
+          'preset': preset.id,
+        });
+      } finally {
+        previewing = false;
+        await refresh();
+        _changed();
+      }
+    } else {
+      final id = 'preview-${preset.id}';
+      actions[id] = DemoAction(() async {
+        if (preset == VibrationPreset.doublePulse) {
+          final result = await FitbitAir.vibrate();
+          if (!result.verified || !result.restored) {
+            throw const FitbitAirException(
+              'UNVERIFIED',
+              'Restoration was not verified.',
+            );
+          }
+        } else {
+          final result = await FitbitAir.tap(intensity: preset.intensity);
+          if (!result.verified) {
+            throw const FitbitAirException(
+              'UNVERIFIED',
+              'Tap was not verified.',
+            );
+          }
+        }
+      }, parameters: () => {'preset': preset.id});
+      await runAction(id);
+    }
+  }
+
+  void recordWristObservation(AirWristPresenceEvent observation) {
+    lastWristObservation = observation;
+    _changed();
   }
 
   Future<void> configureConversations(String method, [Object? arguments]) {
@@ -347,7 +427,12 @@ class DemoController extends ChangeNotifier {
 
   /// Same named operations for buttons and device integration tests.
   Future<void> runAction(String id) async {
-    if (busy || changingRelay) {
+    final auxiliary = actions[id];
+    if (auxiliary != null && !auxiliary.exclusive) {
+      await auxiliary.run();
+      return;
+    }
+    if (busy || changingRelay || previewing) {
       throw StateError('An operation is already running.');
     }
     if (relayRunning) {
@@ -466,7 +551,7 @@ class DemoController extends ChangeNotifier {
 
   Map<String, Object?> report() => {
     'schemaVersion': 1,
-    'demoVersion': '0.1.3',
+    'demoVersion': '0.1.4-dev.1',
     'exportedAt': DateTime.now().toUtc().toIso8601String(),
     'relay': {
       'running': relayRunning,
@@ -476,6 +561,13 @@ class DemoController extends ChangeNotifier {
       'captureDiagnostics': captureDiagnostics,
     },
     'transport': transportDiagnostics,
+    'settings': {
+      'defaultPreset': settings.defaultPreset.id,
+      'appRuleCount': settings.apps.length,
+      'chatOverrideCount': settings.chats.length,
+      'silenceReason': settings.silenceReason,
+      'quietEnabled': settings.quietEnabled,
+    },
     'trials': _trials,
     'manualObservations': _observations,
   };

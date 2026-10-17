@@ -1,6 +1,7 @@
 import 'package:fitbit_air_example/demo/app_theme.dart';
 import 'package:fitbit_air_example/demo/demo_controller.dart';
 import 'package:fitbit_air_example/demo/relay_panel.dart';
+import 'package:fitbit_air_example/demo/rules_panel.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -65,24 +66,15 @@ void main() {
             child: child!,
           ),
           home: Scaffold(
-            body: RelayPanel(
-              controller: controller,
-              perform: (_) {},
-              testVibration: () {},
-              exportReport: () {},
-            ),
+            body: RulesPanel(controller: controller, perform: (_) {}),
           ),
         ),
       );
       await tester.scrollUntilVisible(
-        find.byKey(const ValueKey('app-picker')),
+        find.byKey(const ValueKey('app-search')),
         200,
         scrollable: find.byType(Scrollable).first,
       );
-      await tester.ensureVisible(find.byKey(const ValueKey('app-picker')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Choose notification apps'));
-      await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('app-search')), findsOneWidget);
       await tester.scrollUntilVisible(
         find.byKey(const ValueKey('conversation-picker')),

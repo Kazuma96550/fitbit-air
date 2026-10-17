@@ -17,6 +17,40 @@ class MainActivity : FlutterActivity() {
                 try {
                     when (call.method) {
                         "status" -> result.success(CalendarRelayService.status(this))
+                        "saveAppRule" -> {
+                            val pkg = requireNotNull(call.argument<String>("packageName"))
+                            val enabled = requireNotNull(call.argument<Boolean>("enabled"))
+                            val preset = call.argument<String>("preset")?.let { RelayPreset.parse(it) }
+                            RelayRuleStore.update(this) { it.copy(apps = it.apps + (pkg to RelayAppRule(enabled, preset))) }
+                            result.success(null)
+                        }
+                        "saveChatRule" -> {
+                            val id = requireNotNull(call.argument<String>("id"))
+                            require(id in RelayConversations.allowed(this)) { "Choose this chat first" }
+                            val preset = call.argument<String>("preset")?.let { RelayPreset.parse(it) }
+                            RelayRuleStore.update(this) { it.copy(chats = if (preset == null) it.chats - id else it.chats + (id to preset)) }
+                            result.success(null)
+                        }
+                        "saveDefaultPreset" -> {
+                            val preset = RelayPreset.parse(requireNotNull(call.argument<String>("preset")))
+                            RelayRuleStore.update(this) { it.copy(defaultPreset = preset) }
+                            result.success(null)
+                        }
+                        "setPause" -> {
+                            val duration = requireNotNull(call.argument<Int>("minutes"))
+                            require(duration in setOf(-1, 0, 15, 60))
+                            RelayRuleStore.update(this) { it.copy(silence = it.silence.copy(pauseUntil = when(duration) {
+                                -1 -> -1L; 0 -> 0L; else -> System.currentTimeMillis() + duration * 60_000L
+                            })) }
+                            result.success(null)
+                        }
+                        "saveQuietHours" -> {
+                            val enabled = requireNotNull(call.argument<Boolean>("enabled"))
+                            val start = requireNotNull(call.argument<Int>("startMinute"))
+                            val end = requireNotNull(call.argument<Int>("endMinute"))
+                            RelayRuleStore.update(this) { it.copy(silence = it.silence.copy(quietEnabled = enabled, startMinute = start, endMinute = end)) }
+                            result.success(null)
+                        }
                         "apps" -> Thread {
                             try {
                                 val apps = RelayAppSelection.available(this)
@@ -29,8 +63,15 @@ class MainActivity : FlutterActivity() {
                             RelayHistory.clear(this)
                             result.success(null)
                         }
+                        "previewPreset" -> {
+                            checkNotNull(CalendarRelayService.active) { "Start the relay first." }
+                                .testPulse(requireNotNull(call.argument<String>("preset"))) { outcome ->
+                                    if (outcome.stage == "verified") result.success(null)
+                                    else result.error(outcome.errorCode ?: "PREVIEW_FAILED", "Vibration was not verified.", null)
+                                }
+                        }
                         "testPulse" -> {
-                            checkNotNull(CalendarRelayService.active) { "Start the relay first." }.testPulse()
+                            checkNotNull(CalendarRelayService.active) { "Start the relay first." }.testPulse(call.argument<String>("preset"))
                             result.success(null)
                         }
                         "bluetoothSettings" -> {
@@ -50,22 +91,31 @@ class MainActivity : FlutterActivity() {
                             when (call.method) {
                                 "captureConversations" -> RelayConversations.capture(this, requireNotNull(call.argument<Boolean>("enabled")))
                                 "restrictConversations" -> RelayConversations.setRestricted(this, requireNotNull(call.argument<Boolean>("enabled")))
-                                "selectConversation" -> RelayConversations.select(this,
-                                    requireNotNull(call.argument<String>("id")), requireNotNull(call.argument<Boolean>("enabled")),
-                                    call.argument<Boolean>("allowNameMatch") == true)
-                                "clearConversations" -> RelayConversations.clear(this)
+                                "selectConversation" -> {
+                                    val id = requireNotNull(call.argument<String>("id"))
+                                    val enabled = requireNotNull(call.argument<Boolean>("enabled"))
+                                    RelayConversations.select(this, id, enabled, call.argument<Boolean>("allowNameMatch") == true)
+                                    if (!enabled) RelayRuleStore.update(this) { it.copy(chats = it.chats - id) }
+                                }
+                                "clearConversations" -> {
+                                    RelayConversations.clear(this)
+                                    RelayRuleStore.update(this) { it.copy(chats = emptyMap()) }
+                                }
                             }
                             result.success(null)
                         }
                         "setPulseStyle" -> {
-                            check(!CalendarRelayService.isRunning) { "Stop the relay before changing the pulse style." }
-                            RelayAppSelection.savePulseStyle(this, requireNotNull(call.argument<String>("style")))
+                            val style = requireNotNull(call.argument<String>("style"))
+                            require(style in setOf("single", "double"))
+                            RelayRuleStore.update(this) { it.copy(defaultPreset = RelayPreset.parse(style)) }
                             result.success(null)
                         }
                         "selectApps" -> {
-                            check(!CalendarRelayService.isRunning) { "Stop the relay before changing apps." }
-                            val packages = requireNotNull(call.argument<List<String>>("packages"))
-                            RelayAppSelection.save(this, packages.toSet())
+                            val packages = requireNotNull(call.argument<List<String>>("packages")).toSet()
+                            RelayRuleStore.update(this) { config -> config.copy(apps =
+                                (config.apps.keys + packages).associateWith { pkg ->
+                                    (config.apps[pkg] ?: RelayAppRule(false)).copy(enabled = pkg in packages)
+                                }) }
                             result.success(null)
                         }
                         "settings" -> {
@@ -76,7 +126,7 @@ class MainActivity : FlutterActivity() {
                             if (!CalendarRelayService.hasAccess(this) || !CalendarNotificationListener.connected) {
                                 result.error("NOTIFICATION_ACCESS", "Enable notification access and wait for connection first.", null)
                             } else {
-                                require(RelayAppSelection.selected(this).isNotEmpty()) { "Select at least one app first." }
+                                require(RelayRuleStore.read(this).selectedPackages.isNotEmpty()) { "Select at least one app first." }
                                 if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
                                     requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 902)
                                 CalendarRelayService.start(this)
