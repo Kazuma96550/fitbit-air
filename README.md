@@ -189,7 +189,7 @@ flutter run
 | Detect taps on the Air | Not possible with the tested firmware: taps, including a recognized alarm dismissal, send nothing to the phone ([research](doc/research.md#passive-tap-observation-2026-10-17)) |
 | Headless haptics | Release-mode background and controlled screen-off commands verified; a user-reported overnight relay run worked. Deep-idle/reboot reliability not systematically measured |
 | Raw diagnostic events | Opt-in research stream; no confirmed tap decoder |
-| Battery | `readBattery()`: level matched Google Health's percentage exactly; voltage in mV; charger flag not yet observed set |
+| Battery | `readBattery()`: level matched Google Health's percentage exactly; voltage in mV; charger flag verified on and off the charger |
 | Heart rate | Standard BLE readings and continuous updates verified; requires an active Google Health sharing session |
 | Google Health coexistence | Commands wait while Google Health is transferring and end with a channel handoff, so it resynchronizes immediately instead of after a ~60 s watchdog reconnect. In 8 vibrations sent during Google Health syncs, all 8 syncs completed |
 | iOS | Not implemented |

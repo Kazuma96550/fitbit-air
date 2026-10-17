@@ -1,8 +1,8 @@
 ## Unreleased
 
 - Add `FitbitAir.readBattery()`: the battery percentage Google Health shows
-  (verified equal), plus voltage in millivolts and the charger flag when
-  reported.
+  (verified equal), voltage in millivolts, and whether the Air is on its
+  charger (verified on and off the charger).
 - Add `FitbitAir.isAirConnected()` and `watchConnection()` from Android's
   system connection events (no connection of their own), and
   `readSignalStrength()` for a rough proximity hint in dBm.

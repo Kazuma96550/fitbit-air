@@ -511,9 +511,9 @@ Health's Devices page showed "55 %"; a second read at 22:15 again returned
 `55`, with voltage `3951` and charger `0`. The level is therefore the
 percentage Google Health displays, and is exposed as `FitbitAir.readBattery()`.
 Voltage is consistent with millivolts for a lithium cell at that charge
-(3.95 V) and is reported as `voltageMillivolts`. Only charger `0` has been
-observed; `onCharger` is reported as raw nonzero-means-true until a reading on
-the charger confirms it.
+(3.95 V) and is reported as `voltageMillivolts`. At 22:21, with the Air placed
+on its charger, the charger field read `1` (level `55`, Google Health "55 %");
+every earlier off-charger read was `0`. It is exposed as `onCharger`.
 
 Other candidates—notifications, alarms, battery alerts, sync status, and the
 ping characteristic—must be traced and tested individually. They should not be

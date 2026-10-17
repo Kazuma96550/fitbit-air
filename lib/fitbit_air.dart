@@ -465,7 +465,7 @@ class AirBattery {
   /// Battery level, 0–100; matches the percentage shown in Google Health.
   final int percent;
 
-  /// Whether the Air reports being on its charger, when it reports it.
+  /// Whether the Air is on its charger, when the Air reports it.
   final bool? onCharger;
 
   /// Battery voltage in millivolts, when reported.
