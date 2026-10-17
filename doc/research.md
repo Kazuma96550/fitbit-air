@@ -127,6 +127,41 @@ Device Information, `ABBAFD00` (link status), `ABBAFF00` (tracker channel),
 (`1802`) or Alert Notification (`1811`). Writable characteristics of unknown
 services were not written.
 
+## Passive tap observation (2026-10-17)
+
+Earlier tap trials held a secure session on the Air's single tracker channel.
+That desynchronized Google Health, and the unexplained ~60 s disconnects
+(status 257) in those trials match Google Health's watchdog reconnect, which
+0.1.3 fixed. They were therefore repeated without any session of our own.
+
+**Method.** All GATT clients on the link receive the tracker channel's
+notifications. A diagnostic client subscribed to `ABBAFF02` (tracker channel,
+timing and length only; payloads are encrypted), `ABBAFD00` (link status) and
+all five notify/indicate characteristics of `4EEE1C00`, and wrote nothing
+else. Google Health was closed, so its own polling did not mask events.
+
+| Trial | Gesture recognized? | Notifications from the Air |
+|---|---|---|
+| 4+ firm double-taps over ~90 s | Unknown (status light did not respond) | 0 |
+| Alarm at 15:29 dismissed by double-taps; 4 min 18 s window | Yes (vibration stopped after several double-taps) | 0 |
+| Control: Google Health opened to set the alarm | n/a | Hundreds: a 244-byte sync burst, then a 106-byte response plus 1-byte ack each second (live-activity polling) |
+
+The control proves the listener receives everything the Air sends to the phone.
+Neither idle double-taps nor a recognized alarm dismissal produced any traffic,
+live or within the following minutes. With this firmware the Air handles taps
+on the device only. **Real-time tap detection is not possible** through the
+Bluetooth paths available to this package; a dismissal might appear in a later
+Google Health sync, which is encrypted with the paired-device key.
+
+**Follow-up: defer haptics while Google Health is active.** The same passive
+listener distinguishes an idle channel from Google Health syncing or polling
+(bursts of 244-byte packets, or a steady 1 Hz exchange). A command started
+during a Google Health sync competes for the channel and can fail that sync.
+The relay could listen passively and delay a command for a few seconds until
+the channel is quiet, closing the last remaining conflict window. Not yet
+implemented; it needs a bounded wait so alerts are not delayed indefinitely
+while Google Health is in the foreground.
+
 ## Live activity and heart rate
 
 Google Health reads `GET liveactivity` once per second in its normal direct

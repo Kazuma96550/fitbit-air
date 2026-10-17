@@ -16,7 +16,7 @@ same Android phone in the installed Google Health app.
 > This is independent reverse-engineering research, not an official Google or
 > Fitbit SDK. It relies on private, version-sensitive device protocols and on a
 > compatible, authentic Google Health installation. Android arm64 is the only
-> configuration tested so far. Reliable wrist-tap detection has not been decoded.
+> configuration tested so far. Taps on the Air are not reported to the phone.
 
 ## Install
 
@@ -164,7 +164,7 @@ flutter run
 | Scan advertised heart-rate sensors | Experimental; requires Nearby devices scan permission |
 | Restore/verify prior vibration intensity | Physically verified |
 | Root/OAuth/private PSK required | No, for the bootstrap haptic path |
-| Detect taps on the Air | Not implemented; under investigation (earlier trials were confounded by the channel conflict fixed in 0.1.3) |
+| Detect taps on the Air | Not possible with the tested firmware: taps, including a recognized alarm dismissal, send nothing to the phone ([research](doc/research.md#passive-tap-observation-2026-10-17)) |
 | Headless haptics | Release-mode background and controlled screen-off commands verified; a user-reported overnight relay run worked. Deep-idle/reboot reliability not systematically measured |
 | Raw diagnostic events | Opt-in research stream; no confirmed tap decoder |
 | Battery resource | Bootstrap read access verified; selected raw fields available in diagnostics, units/scale unverified |
