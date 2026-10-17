@@ -366,7 +366,7 @@ production taps (two from the Device tab, two through the relay worker) were
 felt as single pulses at the wearer's strength, each with
 `channelHandoff: reset_observed`.
 
-## Guided setup and readiness (0.1.4-dev.3)
+## Guided setup and readiness (0.1.4-dev.4)
 
 Setup opens full screen on first launch, resumes the saved step after closing,
 and stays out of the way once completed. Review it from **Device > Permissions
@@ -383,6 +383,10 @@ The test is optional. A verified command is distinct from the wearer confirming
 that they felt it. Setup never starts notifications automatically.
 
 Home has a single status, a primary control, app rules and three recent events.
+Start/Stop keeps the heading at the previous state while the button shows
+progress. On appears only when the native worker is ready; Off follows native
+shutdown. Fast operations skip the brief busy flash. Start uses the teal accent,
+Stop uses a neutral fill, and reduced motion disables the color animation.
 Latency, error explanations and sanitized exports are behind activity details.
 Readiness does not imply a permanent Bluetooth connection or live wrist detection.
 

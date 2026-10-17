@@ -8,6 +8,11 @@
   `readSignalStrength()` for a rough proximity hint in dBm.
 - Add `FitbitAirDiagnostics.watchChannelActivity()`: passively reports whether
   Google Health is idle, polling or syncing on the Air's shared channel.
+- Keep Start/Stop headings stable until native readiness/shutdown is confirmed;
+  retain button geometry and colors during progress, and avoid flashing busy
+  indicators for fast operations. Use a teal Start action and a neutral Stop.
+- Respect reduced motion and keep configuration updates out of the main status.
+
 - Open setup full screen on first launch and save its resume position.
 - Make reading notifications and showing relay controls explicit separate grants;
   remove the unexpected notification permission prompt when starting the relay.

@@ -8,6 +8,8 @@ import 'package:flutter/services.dart';
 
 import 'relay_settings.dart';
 
+enum RelayTransition { starting, stopping }
+
 class DemoAction {
   const DemoAction(
     this.run, {
@@ -37,6 +39,17 @@ class DemoController extends ChangeNotifier {
   bool relayReady = false;
   bool relayStopping = false;
   bool changingRelay = false;
+  RelayTransition? _requestedRelayTransition;
+
+  /// Holds the button's intent until the native worker confirms its state.
+  RelayTransition? get relayTransition =>
+      _requestedRelayTransition ??
+      (relayStopping
+          ? RelayTransition.stopping
+          : relayRunning && !relayReady
+          ? RelayTransition.starting
+          : null);
+
   bool access = false;
   bool listenerConnected = false;
   bool? bluetoothEnabled;
@@ -409,10 +422,12 @@ class DemoController extends ChangeNotifier {
   }
 
   Future<void> startRelay() async {
-    if (busy || changingRelay) {
+    if (busy || changingRelay || _requestedRelayTransition != null) {
       throw StateError('Wait for the current operation.');
     }
+    if (relayRunning) return;
     if (selectedApps.isEmpty) throw StateError('Select at least one app.');
+    _requestedRelayTransition = RelayTransition.starting;
     changingRelay = true;
     setupError = null;
     _changed();
@@ -429,12 +444,29 @@ class DemoController extends ChangeNotifier {
     } on FitbitAirException catch (error) {
       setupError = recoveryHint(error.code);
     } finally {
+      _requestedRelayTransition = null;
       changingRelay = false;
       _changed();
     }
   }
 
-  Future<void> stopRelay() => _relayCall('stop');
+  Future<void> stopRelay() async {
+    if (_requestedRelayTransition == RelayTransition.stopping ||
+        relayStopping) {
+      return;
+    }
+    if (_requestedRelayTransition == RelayTransition.starting) {
+      throw StateError('Wait until the start request finishes.');
+    }
+    _requestedRelayTransition = RelayTransition.stopping;
+    _changed();
+    try {
+      await _relayCall('stop');
+    } finally {
+      _requestedRelayTransition = null;
+      _changed();
+    }
+  }
 
   Future<void> stopRelayAndWait() async {
     await stopRelay();
@@ -608,7 +640,7 @@ class DemoController extends ChangeNotifier {
 
   Map<String, Object?> report() => {
     'schemaVersion': 1,
-    'demoVersion': '0.1.4-dev.3',
+    'demoVersion': '0.1.4-dev.4',
     'exportedAt': DateTime.now().toUtc().toIso8601String(),
     'relay': {
       'running': relayRunning,

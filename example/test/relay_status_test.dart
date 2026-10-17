@@ -91,4 +91,17 @@ void main() {
     state.relayRunning = false;
     expect(RelayStatus.fromController(state).recovery, RelayRecovery.setup);
   });
+  test(
+    'saving settings does not replace relay readiness with a generic updating state',
+    () {
+      state
+        ..relayRunning = true
+        ..relayReady = true
+        ..changingRelay = true;
+      expect(
+        RelayStatus.fromController(state).title,
+        'Ready for notifications',
+      );
+    },
+  );
 }

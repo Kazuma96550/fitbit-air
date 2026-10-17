@@ -26,12 +26,6 @@ class RelayStatus {
         'Letting the current vibration finish and releasing the Air.',
       );
     }
-    if (state.changingRelay) {
-      return const RelayStatus(
-        'Updating notifications',
-        'This should only take a moment.',
-      );
-    }
     if (!state.bluetoothPermission) {
       return const RelayStatus(
         'Allow nearby devices',

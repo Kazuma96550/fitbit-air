@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'demo_controller.dart';
 import 'rules_panel.dart';
 import 'relay_status.dart';
+import 'relay_toggle_button.dart';
 import 'setup_page.dart';
 
 class RelayPanel extends StatelessWidget {
@@ -52,6 +53,7 @@ class RelayPanel extends StatelessWidget {
         !state.busy &&
         !state.previewing &&
         !state.changingRelay &&
+        state.relayTransition == null &&
         !state.relayStopping &&
         (!state.relayRunning || state.settings.silenceReason == null) &&
         (!state.relayRunning || state.relayReady);
@@ -112,12 +114,25 @@ class RelayPanel extends StatelessWidget {
     final state = controller;
     final status = RelayStatus.fromController(state);
     final colors = Theme.of(context).colorScheme;
-    final needsSetup = !state.setupCompleted && !state.relayRunning;
+    final transition = state.relayTransition;
+    final transitioning = transition != null;
+    final displayedRunning =
+        transition == RelayTransition.stopping ||
+        (transition == null && state.relayRunning);
+    final needsSetup =
+        !state.setupCompleted && !displayedRunning && !transitioning;
     final needsFix = status.recovery != RelayRecovery.none;
-    final paused =
-        state.relayRunning && state.settings.silenceReason == 'paused';
+    final paused = displayedRunning && state.settings.silenceReason == 'paused';
     final title = needsSetup
         ? 'Finish setup'
+        : transition == RelayTransition.starting
+        ? 'Notifications off'
+        : transition == RelayTransition.stopping
+        ? (paused
+              ? 'Paused'
+              : state.settings.silenceReason == 'quiet_hours'
+              ? 'Quiet hours'
+              : 'Notifications on')
         : switch (status.title) {
             'Ready for notifications' => 'Notifications on',
             'Ready when you are' => 'Notifications off',
@@ -133,6 +148,7 @@ class RelayPanel extends StatelessWidget {
     final enabled =
         state.initialized &&
         !state.changingRelay &&
+        !transitioning &&
         !state.relayStopping &&
         (state.relayRunning || !state.busy);
     final recoveryLabel = switch (status.recovery) {
@@ -150,11 +166,16 @@ class RelayPanel extends StatelessWidget {
           padding: const EdgeInsets.symmetric(vertical: 12),
           child: Column(
             children: [
-              Container(
+              AnimatedContainer(
+                duration: MediaQuery.disableAnimationsOf(context)
+                    ? Duration.zero
+                    : const Duration(milliseconds: 180),
                 width: 88,
                 height: 88,
                 decoration: BoxDecoration(
-                  color: colors.primaryContainer.withValues(alpha: .45),
+                  color: displayedRunning
+                      ? colors.primaryContainer.withValues(alpha: .6)
+                      : colors.surfaceContainerHighest,
                   shape: BoxShape.circle,
                 ),
                 child: Icon(
@@ -164,7 +185,9 @@ class RelayPanel extends StatelessWidget {
                       ? Icons.error_outline
                       : Icons.watch_outlined,
                   size: 40,
-                  color: colors.primary,
+                  color: displayedRunning
+                      ? colors.primary
+                      : colors.onSurfaceVariant,
                 ),
               ),
               const SizedBox(height: 20),
@@ -181,7 +204,7 @@ class RelayPanel extends StatelessWidget {
               Text(
                 needsSetup
                     ? 'Pick up where you left off.'
-                    : needsFix
+                    : needsFix && !transitioning
                     ? status.detail
                     : state.selectedAppsSummary,
                 key: const ValueKey('relay-status-detail'),
@@ -217,7 +240,7 @@ class RelayPanel extends StatelessWidget {
                 : null,
             child: const Text('Continue setup'),
           )
-        else if (needsFix && !state.relayRunning)
+        else if (needsFix && !state.relayRunning && !transitioning)
           FilledButton(
             key: ValueKey(
               status.recovery == RelayRecovery.notifications
@@ -229,7 +252,7 @@ class RelayPanel extends StatelessWidget {
                 : null,
             child: Text(recoveryLabel),
           )
-        else if (paused)
+        else if (paused && !transitioning)
           FilledButton.icon(
             key: const ValueKey('resume-relay'),
             onPressed: enabled ? () => perform(() => state.setPause(0)) : null,
@@ -237,17 +260,14 @@ class RelayPanel extends StatelessWidget {
             label: const Text('Resume'),
           )
         else
-          FilledButton.icon(
-            key: const ValueKey('relay-toggle'),
+          RelayToggleButton(
+            running: displayedRunning,
+            transition: transition,
             onPressed: enabled
                 ? () => perform(
-                    state.relayRunning ? state.stopRelay : state.startRelay,
+                    displayedRunning ? state.stopRelay : state.startRelay,
                   )
                 : null,
-            icon: Icon(state.relayRunning ? Icons.stop : Icons.play_arrow),
-            label: Text(
-              state.relayRunning ? 'Stop notifications' : 'Start notifications',
-            ),
           ),
         if (state.setupError != null)
           Padding(
@@ -264,11 +284,14 @@ class RelayPanel extends StatelessWidget {
             crossAxisAlignment: WrapCrossAlignment.center,
             spacing: 8,
             children: [
-              if (state.relayRunning && !paused)
+              if (!paused || transitioning)
                 PopupMenuButton<int>(
                   key: const ValueKey('pause-relay'),
                   tooltip: 'Pause notifications',
-                  enabled: !state.changingRelay,
+                  enabled:
+                      displayedRunning &&
+                      !transitioning &&
+                      !state.changingRelay,
                   onSelected: (minutes) =>
                       perform(() => state.setPause(minutes)),
                   itemBuilder: (_) => const [
@@ -282,19 +305,32 @@ class RelayPanel extends StatelessWidget {
                       child: Text('Pause until I resume'),
                     ),
                   ],
-                  child: const Padding(
-                    padding: EdgeInsets.all(14),
+                  child: Padding(
+                    padding: const EdgeInsets.all(14),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.pause, size: 18),
-                        SizedBox(width: 6),
-                        Text('Pause'),
+                        Icon(
+                          Icons.pause,
+                          size: 18,
+                          color: displayedRunning
+                              ? colors.primary
+                              : colors.onSurfaceVariant,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Pause',
+                          style: TextStyle(
+                            color: displayedRunning
+                                ? colors.primary
+                                : colors.onSurfaceVariant,
+                          ),
+                        ),
                       ],
                     ),
                   ),
                 ),
-              if (paused)
+              if (paused && !transitioning)
                 TextButton(
                   key: const ValueKey('relay-toggle'),
                   onPressed: enabled ? () => perform(state.stopRelay) : null,

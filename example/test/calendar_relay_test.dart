@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:fitbit_air_example/demo/demo_controller.dart';
 import 'package:fitbit_air_example/demo/relay_settings.dart';
 import 'package:fitbit_air_example/main.dart';
@@ -11,6 +12,10 @@ void main() {
   const device = MethodChannel('fitbit_air');
   var access = false;
   var running = false;
+  bool? readyOverride;
+  var stopping = false;
+  var failStart = false;
+  Completer<void>? startAcknowledgement;
   var setupCompleted = true;
   var setupStep = 0;
   var controlsAllowed = true;
@@ -32,6 +37,10 @@ void main() {
   setUp(() {
     access = false;
     running = false;
+    readyOverride = null;
+    stopping = false;
+    failStart = false;
+    startAcknowledgement = null;
     setupCompleted = true;
     setupStep = 0;
     controlsAllowed = true;
@@ -75,8 +84,8 @@ void main() {
                 'access': access,
                 'connected': access,
                 'running': running,
-                'ready': running,
-                'stopping': false,
+                'ready': readyOverride ?? running,
+                'stopping': stopping && running,
                 'selectedApps': selected,
                 'pulseStyle': pulseStyle,
                 'rules': {...rules, 'defaultPreset': pulseStyle},
@@ -188,9 +197,14 @@ void main() {
             case 'setLabSettings':
               return null;
             case 'start':
+              if (failStart) {
+                throw PlatformException(code: 'BLUETOOTH_PERMISSION');
+              }
               running = true;
+              await startAcknowledgement?.future;
               return null;
             case 'stop':
+              stopping = deferStop;
               if (!deferStop) running = false;
               return null;
             case 'settings':
@@ -470,6 +484,94 @@ void main() {
     expect(controller.selectedAppsSummary, '1 app selected');
     await tap(tester, 'setup-next');
     expect(find.text('Try a vibration'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets(
+    'start and stop hold their heading, dimensions and colors until confirmed',
+    (tester) async {
+      access = true;
+      readyOverride = false;
+      startAcknowledgement = Completer<void>();
+      await mount(tester);
+      final toggle = find.byKey(const ValueKey('relay-toggle'));
+      Color? background(Set<WidgetState> states) => tester
+          .widget<FilledButton>(toggle)
+          .style!
+          .backgroundColor!
+          .resolve(states);
+      final initialRect = tester.getRect(toggle);
+      final startColor = background({});
+      expect(find.text('Notifications off'), findsOneWidget);
+      await tester.tap(toggle);
+      await tester.pump();
+      expect(find.byKey(const ValueKey('relay-toggle-progress')), findsNothing);
+      await tester.pump(const Duration(milliseconds: 150));
+      expect(find.text('Notifications off'), findsOneWidget);
+      expect(find.text('Starting…'), findsOneWidget);
+      expect(tester.widget<FilledButton>(toggle).onPressed, isNull);
+      expect(background({WidgetState.disabled}), startColor);
+      expect(tester.getRect(toggle), initialRect);
+      startAcknowledgement!.complete();
+      await tester.pump();
+      expect(
+        find.byKey(const ValueKey('relay-toggle-progress')),
+        findsOneWidget,
+      );
+      await tester.pump(const Duration(milliseconds: 150));
+      expect(controller.changingRelay, isFalse);
+      expect(controller.relayTransition, RelayTransition.starting);
+      expect(find.text('Notifications off'), findsOneWidget);
+      expect(find.text('Starting…'), findsOneWidget);
+      expect(calls.where((call) => call == 'start'), hasLength(1));
+      readyOverride = true;
+      await controller.refresh();
+      await tester.pumpAndSettle();
+      expect(find.text('Notifications on'), findsOneWidget);
+      expect(find.byKey(const ValueKey('relay-toggle-progress')), findsNothing);
+      expect(tester.getRect(toggle), initialRect);
+      final stopColor = background({});
+      expect(stopColor, isNot(startColor));
+      deferStop = true;
+      await tester.tap(toggle);
+      await tester.pump();
+      expect(find.byKey(const ValueKey('relay-toggle-progress')), findsNothing);
+      await tester.pump(const Duration(milliseconds: 150));
+      expect(find.text('Notifications on'), findsOneWidget);
+      expect(find.text('Stopping…'), findsOneWidget);
+      expect(background({WidgetState.disabled}), stopColor);
+      expect(tester.getRect(toggle), initialRect);
+      expect(tester.widget<FilledButton>(toggle).onPressed, isNull);
+      running = false;
+      stopping = false;
+      readyOverride = false;
+      await controller.refresh();
+      await tester.pumpAndSettle();
+      expect(find.text('Notifications off'), findsOneWidget);
+      expect(tester.getRect(toggle), initialRect);
+      expect(background({}), startColor);
+      expect(calls.where((call) => call == 'stop'), hasLength(1));
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets('failed start returns to a usable off state without retrying', (
+    tester,
+  ) async {
+    access = true;
+    failStart = true;
+    await mount(tester);
+    await tap(tester, 'relay-toggle');
+    expect(find.text('Notifications off'), findsOneWidget);
+    expect(controller.relayTransition, isNull);
+    expect(
+      tester
+          .widget<FilledButton>(find.byKey(const ValueKey('relay-toggle')))
+          .onPressed,
+      isNotNull,
+    );
+    expect(find.byKey(const ValueKey('relay-error')), findsOneWidget);
+    expect(calls.where((call) => call == 'start'), hasLength(1));
     await tester.pumpWidget(const SizedBox());
   });
 
