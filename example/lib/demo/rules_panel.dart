@@ -58,49 +58,43 @@ class _RulesPanelState extends State<RulesPanel> {
       padding: const EdgeInsets.all(20),
       children: [
         Text(
-          'Make each nudge yours.',
+          'Rules',
           style: Theme.of(
             context,
-          ).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w700),
-        ),
-        const SizedBox(height: 8),
-        const Text(
-          'Choose which apps reach your wrist and how they feel. Changes apply to new notifications.',
+          ).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w600),
         ),
         const SizedBox(height: 20),
         ConversationPicker(controller: state, perform: widget.perform),
         const SizedBox(height: 12),
-        Card(
-          child: ListTile(
-            key: const ValueKey('default-vibration'),
-            leading: const Icon(Icons.vibration),
-            title: const Text('Default vibration'),
-            subtitle: Text(state.settings.defaultPreset.label),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => editVibration(
-              context,
-              state,
-              title: 'Default vibration',
-              initial: state.settings.defaultPreset,
-              allowDefault: false,
-              onSave: (preset) => state.saveDefaultPreset(preset!),
-            ),
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          key: const ValueKey('default-vibration'),
+          leading: const Icon(Icons.vibration),
+          title: const Text('Default vibration'),
+          subtitle: Text(state.settings.defaultPreset.label),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => editVibration(
+            context,
+            state,
+            title: 'Default vibration',
+            initial: state.settings.defaultPreset,
+            allowDefault: false,
+            onSave: (preset) => state.saveDefaultPreset(preset!),
           ),
         ),
         const SizedBox(height: 12),
-        Card(
-          child: ListTile(
-            key: const ValueKey('quiet-hours'),
-            leading: const Icon(Icons.bedtime_outlined),
-            title: const Text('Quiet hours'),
-            subtitle: Text(
-              state.settings.quietEnabled
-                  ? '${formatMinute(context, state.settings.startMinute)} to ${formatMinute(context, state.settings.endMinute)} · Every day'
-                  : 'Off · Set a daily time to stay quiet',
-            ),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => editQuietHours(context, state),
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          key: const ValueKey('quiet-hours'),
+          leading: const Icon(Icons.bedtime_outlined),
+          title: const Text('Quiet hours'),
+          subtitle: Text(
+            state.settings.quietEnabled
+                ? '${formatMinute(context, state.settings.startMinute)} to ${formatMinute(context, state.settings.endMinute)} · Every day'
+                : 'Off · Set a daily time to stay quiet',
           ),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => editQuietHours(context, state),
         ),
         const SizedBox(height: 24),
         Wrap(
@@ -145,6 +139,7 @@ class _RulesPanelState extends State<RulesPanel> {
               final icon = app['icon'] as String?;
               return ListTile(
                 key: ValueKey('app-$pkg'),
+                contentPadding: EdgeInsets.zero,
                 leading: AppIcon(encoded: icon),
                 title: Text(app['label']! as String),
                 subtitle: Text(
@@ -175,8 +170,17 @@ class _RulesPanelState extends State<RulesPanel> {
           child: const Text('Refresh app list'),
         ),
         const SizedBox(height: 16),
-        const Text(
-          'Nearby notifications may be combined to give Google Health time to sync. A chosen chat wins over an app rule; the newest match wins ties.',
+        const ExpansionTile(
+          tilePadding: EdgeInsets.zero,
+          title: Text('How alerts work'),
+          children: [
+            Padding(
+              padding: EdgeInsets.only(bottom: 16),
+              child: Text(
+                'Nearby alerts can share one vibration to leave time for Google Health to sync. A saved person’s vibration takes priority.',
+              ),
+            ),
+          ],
         ),
       ],
     );

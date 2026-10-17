@@ -366,26 +366,25 @@ production taps (two from the Device tab, two through the relay worker) were
 felt as single pulses at the wearer's strength, each with
 `channelHandoff: reset_observed`.
 
-## Guided setup and readiness (0.1.4-dev.2)
+## Guided setup and readiness (0.1.4-dev.3)
 
-Home offers **Set up my Air**, with four steps: check the paired Air and nearby
-permission, review notification access, choose apps, then send an optional test.
-The needed Android permission action stays in the bottom button; it becomes
-Continue after access is ready. Notifications stay off until started on Home.
-A verified command is distinct from the wearer confirming they felt a vibration.
-Finishing without testing makes no claim that a vibration was felt.
+Setup opens full screen on first launch, resumes the saved step after closing,
+and stays out of the way once completed. Review it from **Device > Permissions
+& setup**. Completion and resume position stay local and are excluded from backup.
 
-Setup completion is saved locally and excluded from backup and device transfer.
-Permissions are checked again when the app resumes, regardless of completion.
-**Setup & permissions** on Home reopens the guide at any time. Notification
-access is explained before opening Android settings; ongoing relay controls
-have a separate, recommended notification permission.
+The four steps are Connect, Permissions, Apps and Test. Permissions explicitly
+handles two Android grants: reading notifications and showing Air Relay's own
+notifications (pause/stop controls). Each request is the bottom primary action.
+If app notifications are denied, the user can open settings or explicitly skip.
+Starting the relay does not request that permission again. Skipped controls have
+an Allow action on Home. Notification access is explained before requesting it.
 
-Home distinguishes starting, ready, paused, quiet hours, stopping, Bluetooth off,
-revoked permissions and a disconnected notification listener. The readiness label
-means the relay can listen for notifications, not that the Air has a permanent
-Bluetooth connection. Historical delivery failures appear separately. Live Google
-Health transfer detection is not exposed as a Home status.
+The test is optional. A verified command is distinct from the wearer confirming
+that they felt it. Setup never starts notifications automatically.
+
+Home has a single status, a primary control, app rules and three recent events.
+Latency, error explanations and sanitized exports are behind activity details.
+Readiness does not imply a permanent Bluetooth connection or live wrist detection.
 
 ## Custom notification rules (0.1.4 development)
 

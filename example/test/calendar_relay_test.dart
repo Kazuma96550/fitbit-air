@@ -12,6 +12,10 @@ void main() {
   var access = false;
   var running = false;
   var setupCompleted = true;
+  var setupStep = 0;
+  var controlsAllowed = true;
+  var denyControls = false;
+  var calendarInstalled = true;
   var paired = true;
   var deferStop = false;
   var nameCandidate = false;
@@ -29,6 +33,10 @@ void main() {
     access = false;
     running = false;
     setupCompleted = true;
+    setupStep = 0;
+    controlsAllowed = true;
+    denyControls = false;
+    calendarInstalled = true;
     paired = true;
     deferStop = false;
     nameCandidate = false;
@@ -62,6 +70,8 @@ void main() {
             case 'status':
               return {
                 'setupCompleted': setupCompleted,
+                'setupStep': setupStep,
+                'notificationControlsAllowed': controlsAllowed,
                 'access': access,
                 'connected': access,
                 'running': running,
@@ -75,6 +85,14 @@ void main() {
                 'history': history,
                 'conversations': conversations,
               };
+            case 'saveSetupStep':
+              setupStep = (call.arguments as Map)['step'] as int;
+              return null;
+            case 'allowNotificationControls':
+              if (!denyControls) controlsAllowed = true;
+              return null;
+            case 'notificationControlsSettings':
+              return null;
             case 'completeSetup':
               setupCompleted = true;
               return null;
@@ -103,10 +121,11 @@ void main() {
               return null;
             case 'apps':
               return [
-                {
-                  'packageName': 'com.google.android.calendar',
-                  'label': 'Google Calendar',
-                },
+                if (calendarInstalled)
+                  {
+                    'packageName': 'com.google.android.calendar',
+                    'label': 'Google Calendar',
+                  },
                 {'packageName': 'com.whatsapp', 'label': 'WhatsApp'},
                 {
                   'packageName': 'org.thoughtcrime.securesms',
@@ -283,20 +302,10 @@ void main() {
     tester,
   ) async {
     await mount(tester);
-    await tester.scrollUntilVisible(
-      find.byKey(const ValueKey('relay-toggle')),
-      200,
-      scrollable: find.byType(Scrollable).first,
-    );
-    expect(
-      tester
-          .widget<FilledButton>(find.byKey(const ValueKey('relay-toggle')))
-          .onPressed,
-      isNull,
-    );
+    expect(find.byKey(const ValueKey('relay-toggle')), findsNothing);
     await tap(tester, 'notification-access-settings');
     await tester.pumpAndSettle();
-    expect(find.text('Your notifications stay yours.'), findsOneWidget);
+    expect(find.text('Read notifications'), findsOneWidget);
     expect(calls, isNot(contains('settings')));
     await tap(tester, 'notification-access-settings');
     expect(calls, contains('settings'));
@@ -309,13 +318,12 @@ void main() {
     (tester) async {
       setupCompleted = false;
       await mount(tester);
-      await tap(tester, 'guided-setup');
-      expect(find.text('Meet your Air.'), findsOneWidget);
+      expect(find.text('Connect your Air'), findsOneWidget);
       expect(find.byKey(const ValueKey('setup-next')), findsNothing);
       await tap(tester, 'setup-check-air');
       expect(calls, contains('isAirPaired'));
       await tap(tester, 'setup-next');
-      expect(find.text('Your notifications stay yours.'), findsOneWidget);
+      expect(find.text('Read notifications'), findsOneWidget);
       expect(calls, isNot(contains('settings')));
       expect(find.byKey(const ValueKey('setup-next')), findsNothing);
       await tap(tester, 'notification-access-settings');
@@ -332,7 +340,7 @@ void main() {
       expect(calls, isNot(contains('completeSetup')));
       expect(calls.where((call) => call == 'tap'), hasLength(1));
       await tap(tester, 'setup-next');
-      expect(find.text('You’re ready.'), findsOneWidget);
+      expect(find.text('Setup complete'), findsOneWidget);
       expect(setupCompleted, isTrue);
       expect(calls, isNot(contains('start')));
       await tap(tester, 'setup-next');
@@ -347,15 +355,14 @@ void main() {
     access = true;
     setupCompleted = false;
     await mount(tester);
-    await tap(tester, 'guided-setup');
     await tap(tester, 'setup-check-air');
     await tap(tester, 'setup-next');
     await tap(tester, 'setup-next');
     await tap(tester, 'setup-next');
     await tap(tester, 'setup-skip-test');
-    expect(find.text('You’re ready.'), findsOneWidget);
+    expect(find.text('Setup complete'), findsOneWidget);
     expect(
-      find.textContaining('You can try a vibration from Home'),
+      find.textContaining('You can test a vibration from Home'),
       findsOneWidget,
     );
     expect(calls, isNot(contains('tap')));
@@ -369,11 +376,100 @@ void main() {
   ) async {
     setupCompleted = false;
     await mount(tester);
-    await tap(tester, 'guided-setup');
     await tap(tester, 'close-setup');
     expect(setupCompleted, isFalse);
     expect(calls, isNot(contains('completeSetup')));
     expect(calls, isNot(contains('start')));
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets(
+    'first launch requests the separate app notification permission before continuing',
+    (tester) async {
+      setupCompleted = false;
+      controlsAllowed = false;
+      access = true;
+      await mount(tester);
+      expect(find.byKey(const ValueKey('nav-relay')), findsNothing);
+      await tap(tester, 'setup-check-air');
+      await tap(tester, 'setup-next');
+      expect(find.byKey(const ValueKey('setup-next')), findsNothing);
+      expect(find.text('Show Air Relay notifications'), findsOneWidget);
+      await tap(tester, 'setup-notification-controls');
+      expect(calls, contains('allowNotificationControls'));
+      expect(controller.notificationControlsAllowed, isTrue);
+      await tap(tester, 'setup-next');
+      expect(find.byKey(const ValueKey('setup-app-search')), findsOneWidget);
+      expect(calls, isNot(contains('start')));
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets('denied app notifications offer settings or an explicit skip', (
+    tester,
+  ) async {
+    setupCompleted = false;
+    controlsAllowed = false;
+    denyControls = true;
+    access = true;
+    await mount(tester);
+    await tap(tester, 'setup-check-air');
+    await tap(tester, 'setup-next');
+    await tap(tester, 'setup-notification-controls');
+    expect(find.text('Open notification settings'), findsOneWidget);
+    await tap(tester, 'setup-notification-controls');
+    expect(calls, contains('notificationControlsSettings'));
+    expect(
+      calls.where((call) => call == 'allowNotificationControls'),
+      hasLength(1),
+    );
+    await tap(tester, 'setup-skip-controls');
+    await tap(tester, 'setup-next');
+    expect(controller.notificationControlsAllowed, isFalse);
+    expect(find.byKey(const ValueKey('setup-app-search')), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets(
+    'unfinished setup resumes on relaunch and does not reopen on polls',
+    (tester) async {
+      setupCompleted = false;
+      await mount(tester);
+      await tap(tester, 'setup-check-air');
+      await tap(tester, 'setup-next');
+      expect(setupStep, 1);
+      await tap(tester, 'close-setup');
+      await controller.refresh();
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('guided-setup')), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+      await mount(tester);
+      expect(find.text('Read notifications'), findsOneWidget);
+      expect(find.byKey(const ValueKey('nav-relay')), findsNothing);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets('setup requires a selected app that is actually installed', (
+    tester,
+  ) async {
+    setupCompleted = false;
+    access = true;
+    calendarInstalled = false;
+    await mount(tester);
+    await tap(tester, 'setup-check-air');
+    await tap(tester, 'setup-next');
+    await tap(tester, 'setup-next');
+    expect(
+      tester
+          .widget<FilledButton>(find.byKey(const ValueKey('setup-next')))
+          .onPressed,
+      isNull,
+    );
+    await tap(tester, 'setup-app-com.whatsapp');
+    expect(controller.selectedAppsSummary, '1 app selected');
+    await tap(tester, 'setup-next');
+    expect(find.text('Try a vibration'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -517,12 +613,8 @@ void main() {
     access = true;
     selected = [];
     await mount(tester);
-    expect(
-      tester
-          .widget<FilledButton>(find.byKey(const ValueKey('relay-toggle')))
-          .onPressed,
-      isNull,
-    );
+    expect(find.byKey(const ValueKey('relay-recovery')), findsOneWidget);
+    expect(calls, isNot(contains('start')));
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -619,9 +711,13 @@ void main() {
       scrollable: find.byType(Scrollable).first,
     );
     await tester.pumpAndSettle();
-    expect(find.text('WhatsApp · Command verified'), findsOneWidget);
+    expect(
+      find.descendant(of: target, matching: find.text('WhatsApp')),
+      findsOneWidget,
+    );
     expect(controller.history, hasLength(2));
     expect(controller.exportJson(), contains('TIMEOUT'));
+    await tap(tester, 'activity-two-failed');
     expect(find.textContaining('delivery is uncertain'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
   });

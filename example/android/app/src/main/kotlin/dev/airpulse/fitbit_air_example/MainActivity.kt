@@ -24,7 +24,7 @@ class MainActivity : FlutterActivity() {
                         "allowNotificationControls" -> {
                             if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                                 requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 902)
-                            } else if (Build.VERSION.SDK_INT < 33) {
+                            } else {
                                 startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:$packageName")))
                             }
                             result.success(null)
@@ -36,6 +36,12 @@ class MainActivity : FlutterActivity() {
                                 Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:$packageName"))
                             }
                             startActivity(settingsIntent)
+                            result.success(null)
+                        }
+                        "saveSetupStep" -> {
+                            val step = requireNotNull(call.argument<Int>("step"))
+                            require(step in 0..3)
+                            getSharedPreferences("relay_onboarding", MODE_PRIVATE).edit().putInt("step", step).apply()
                             result.success(null)
                         }
                         "completeSetup" -> {
@@ -153,8 +159,6 @@ class MainActivity : FlutterActivity() {
                                 result.error("NOTIFICATION_ACCESS", "Enable notification access and wait for connection first.", null)
                             } else {
                                 require(RelayRuleStore.read(this).selectedPackages.isNotEmpty()) { "Select at least one app first." }
-                                if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
-                                    requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 902)
                                 CalendarRelayService.start(this)
                                 result.success(null)
                             }

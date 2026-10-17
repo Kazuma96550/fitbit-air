@@ -32,6 +32,7 @@ class DemoController extends ChangeNotifier {
   bool previewing = false;
   bool initialized = false;
   bool setupCompleted = false;
+  int setupStep = 0;
   bool relayRunning = false;
   bool relayReady = false;
   bool relayStopping = false;
@@ -68,8 +69,15 @@ class DemoController extends ChangeNotifier {
   Map<String, Object?>? _activeTrial;
   final List<Map<String, Object?>> _observations = [];
 
-  String get selectedAppsSummary =>
-      '${selectedApps.length} ${selectedApps.length == 1 ? 'app' : 'apps'} selected';
+  int get selectedInstalledAppCount =>
+      apps.where((app) => selectedApps.contains(app['packageName'])).length;
+
+  String get selectedAppsSummary {
+    final count = apps.isEmpty
+        ? selectedApps.length
+        : selectedInstalledAppCount;
+    return '$count ${count == 1 ? 'app' : 'apps'} selected';
+  }
 
   bool get busy => _activeTrial != null;
   String? get operationId => _activeTrial?['operation'] as String?;
@@ -143,6 +151,7 @@ class DemoController extends ChangeNotifier {
       final state = await channel.invokeMapMethod<String, Object?>('status');
       if (state == null || _disposed) return;
       setupCompleted = state['setupCompleted'] == true;
+      setupStep = (state['setupStep'] as int? ?? 0).clamp(0, 3);
       relayRunning = state['running'] == true;
       relayReady = state['ready'] == true;
       relayStopping = state['stopping'] == true;
@@ -369,7 +378,18 @@ class DemoController extends ChangeNotifier {
       paired == true &&
       access &&
       listenerConnected &&
-      selectedApps.isNotEmpty;
+      selectedInstalledAppCount > 0;
+
+  Future<void> rememberSetupStep(int value) async {
+    setupStep = value.clamp(0, 3);
+    try {
+      await channel.invokeMethod<void>('saveSetupStep', {'step': setupStep});
+    } on PlatformException {
+      // Setup remains usable if its resume position cannot be saved.
+    } on MissingPluginException {
+      // Older example hosts restart setup at the first step.
+    }
+  }
 
   Future<void> completeSetup() async {
     if (!setupRequirementsMet) {
@@ -588,7 +608,7 @@ class DemoController extends ChangeNotifier {
 
   Map<String, Object?> report() => {
     'schemaVersion': 1,
-    'demoVersion': '0.1.4-dev.2',
+    'demoVersion': '0.1.4-dev.3',
     'exportedAt': DateTime.now().toUtc().toIso8601String(),
     'relay': {
       'running': relayRunning,

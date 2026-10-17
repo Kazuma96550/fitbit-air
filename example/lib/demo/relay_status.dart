@@ -74,7 +74,8 @@ class RelayStatus {
         recovery: RelayRecovery.setup,
       );
     }
-    if (state.selectedApps.isEmpty) {
+    if (state.selectedApps.isEmpty ||
+        (state.apps.isNotEmpty && state.selectedInstalledAppCount == 0)) {
       return const RelayStatus(
         'Choose your apps',
         'Select at least one app to receive its notifications.',

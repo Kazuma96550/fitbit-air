@@ -1,9 +1,8 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:fitbit_air/fitbit_air.dart';
-
 import 'app_icon.dart';
-import 'app_theme.dart';
 import 'demo_controller.dart';
 
 Future<void> showRelaySetup(
@@ -12,6 +11,7 @@ Future<void> showRelaySetup(
   int initialStep = 0,
 }) => Navigator.of(context).push<void>(
   MaterialPageRoute(
+    fullscreenDialog: true,
     builder: (_) =>
         RelaySetupPage(controller: controller, initialStep: initialStep),
   ),
@@ -31,9 +31,8 @@ class RelaySetupPage extends StatefulWidget {
 
 class _RelaySetupPageState extends State<RelaySetupPage> {
   late int step = widget.initialStep;
-  bool working = false;
-  bool sent = false;
-  bool felt = false;
+  bool working = false, sent = false, felt = false;
+  bool controlsRequested = false, skipControls = false;
   String query = '';
   String? error;
   DemoController get state => widget.controller;
@@ -51,6 +50,9 @@ class _RelaySetupPageState extends State<RelaySetupPage> {
       error = null;
     });
     if (scroll.hasClients) scroll.jumpTo(0);
+    if (!state.setupCompleted && value < 4) {
+      unawaited(state.rememberSetupStep(value));
+    }
   }
 
   Future<void> run(Future<void> Function() action) async {
@@ -65,10 +67,9 @@ class _RelaySetupPageState extends State<RelaySetupPage> {
       if (mounted) {
         setState(
           () => error = switch (failure) {
-            PlatformException error => DemoController.recoveryHint(error.code),
-            FitbitAirException error => DemoController.recoveryHint(error.code),
-            _ =>
-              'That did not finish. Check the Air and your permissions, then try again.',
+            PlatformException e => DemoController.recoveryHint(e.code),
+            FitbitAirException e => DemoController.recoveryHint(e.code),
+            _ => 'Could not finish. Check your Air and try again.',
           },
         );
       }
@@ -78,6 +79,11 @@ class _RelaySetupPageState extends State<RelaySetupPage> {
   }
 
   Future<void> finish({required bool feltVibration}) async {
+    if (state.bluetoothPermission &&
+        state.bluetoothEnabled == true &&
+        state.paired == null) {
+      await state.checkPaired();
+    }
     if (!state.setupRequirementsMet) {
       go(
         !state.bluetoothPermission ||
@@ -96,30 +102,40 @@ class _RelaySetupPageState extends State<RelaySetupPage> {
     go(4);
   }
 
-  Widget note(IconData icon, String title, String text, {bool done = false}) =>
-      Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(
-              done ? Icons.check_circle_outline : icon,
-              color: Theme.of(context).colorScheme.primary,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, style: Theme.of(context).textTheme.titleSmall),
-                  const SizedBox(height: 4),
-                  Text(text),
-                ],
-              ),
-            ),
-          ],
+  Widget permissionRow(String title, String subtitle, bool granted) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 16),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 2),
+          child: Icon(
+            granted ? Icons.check_circle : Icons.radio_button_unchecked,
+            size: 22,
+            color: granted
+                ? Theme.of(context).colorScheme.primary
+                : Theme.of(context).colorScheme.outline,
+          ),
         ),
-      );
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 4),
+              Text(
+                subtitle,
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
@@ -130,7 +146,9 @@ class _RelaySetupPageState extends State<RelaySetupPage> {
           state.bluetoothPermission &&
           state.bluetoothEnabled == true &&
           state.paired == true;
-      final notifications = state.access && state.listenerConnected;
+      final access = state.access && state.listenerConnected;
+      final controls = state.notificationControlsAllowed == true;
+      final needsControls = step == 1 && access && !controls && !skipControls;
       final blocked =
           working ||
           state.busy ||
@@ -138,22 +156,22 @@ class _RelaySetupPageState extends State<RelaySetupPage> {
           state.changingRelay ||
           state.relayStopping;
       final titles = [
-        'Meet your Air.',
-        'Only the alerts you want.',
-        'Make room for what matters.',
-        'Feel your first nudge.',
-        'You’re ready.',
+        'Connect your Air',
+        'Allow notifications',
+        'Choose your apps',
+        sent ? 'Did you feel it?' : 'Try a vibration',
+        'Setup complete',
       ];
-      final descriptions = [
-        'Keep your band nearby. We’ll use the Air you already paired in Google Health.',
-        'Give Air Relay permission to turn selected notifications into a vibration.',
-        'Pick the apps that can reach your wrist. You can change these anytime in Rules.',
-        state.relayRunning
-            ? 'Send one test vibration, then tell us if you felt it. Your existing relay keeps running.'
-            : 'Send one test vibration, then tell us if you felt it. Notifications stay off until you start them.',
+      final subtitles = [
+        'Pair it in Google Health first, then check it here.',
+        'Read alerts. Show relay controls.',
+        'Only these apps will reach your wrist.',
+        sent
+            ? 'The command was verified. Did your band vibrate?'
+            : 'Put on your Air. We’ll send one test.',
         felt
-            ? 'Your Air is paired, permissions are ready, and you felt the test vibration.'
-            : 'Your settings are ready. You can try a vibration from Home whenever you like.',
+            ? 'Your test vibration is confirmed.'
+            : 'You can test a vibration from Home anytime.',
       ];
       final apps =
           state.apps
@@ -168,12 +186,40 @@ class _RelaySetupPageState extends State<RelaySetupPage> {
                 (b['label'] as String).toLowerCase(),
               ),
             );
+      final buttonKey = step == 0 && !connected
+          ? 'setup-check-air'
+          : step == 1 && !access
+          ? 'notification-access-settings'
+          : needsControls
+          ? 'setup-notification-controls'
+          : 'setup-next';
+      final buttonLabel = step == 0 && !connected
+          ? !state.bluetoothPermission
+                ? 'Allow nearby devices'
+                : state.bluetoothEnabled == false
+                ? 'Turn on Bluetooth'
+                : 'Check my Air'
+          : step == 1 && !access
+          ? state.access
+                ? 'Check notification access'
+                : 'Allow notification access'
+          : needsControls
+          ? controlsRequested
+                ? 'Open notification settings'
+                : 'Allow Air Relay notifications'
+          : step < 3
+          ? 'Continue'
+          : step == 3
+          ? sent
+                ? 'Yes, I felt it'
+                : 'Send test vibration'
+          : 'Done';
       return PopScope(
         canPop: !working,
         child: Scaffold(
           appBar: AppBar(
             automaticallyImplyLeading: false,
-            title: const Text('Set up Air Relay'),
+            title: Text(step == 4 ? 'Air Relay' : 'Setup · ${step + 1} of 4'),
             actions: [
               IconButton(
                 key: const ValueKey('close-setup'),
@@ -187,93 +233,73 @@ class _RelaySetupPageState extends State<RelaySetupPage> {
             child: Column(
               children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        step == 4
-                            ? 'READY TO GO'
-                            : 'STEP ${step + 1} OF 4 · ${['Connect', 'Permissions', 'Apps', 'Try it'][step]}',
-                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                          color: colors.primary,
-                          letterSpacing: .7,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: List.generate(
-                          4,
-                          (index) => Expanded(
-                            child: Padding(
-                              padding: EdgeInsets.only(
-                                right: index == 3 ? 0 : 6,
-                              ),
-                              child: Container(
-                                height: 4,
-                                decoration: BoxDecoration(
-                                  color: index <= step
-                                      ? colors.primary
-                                      : colors.surfaceContainerHighest,
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                              ),
+                  padding: const EdgeInsets.fromLTRB(24, 4, 24, 0),
+                  child: Row(
+                    children: List.generate(
+                      4,
+                      (index) => Expanded(
+                        child: Padding(
+                          padding: EdgeInsets.only(right: index == 3 ? 0 : 6),
+                          child: Container(
+                            height: 3,
+                            decoration: BoxDecoration(
+                              color: index <= step
+                                  ? colors.primary
+                                  : colors.outlineVariant,
+                              borderRadius: BorderRadius.circular(4),
                             ),
                           ),
                         ),
                       ),
-                    ],
+                    ),
                   ),
                 ),
                 Expanded(
                   child: ListView(
                     controller: scroll,
-                    padding: const EdgeInsets.all(24),
+                    padding: const EdgeInsets.fromLTRB(24, 36, 24, 24),
                     children: [
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: step == 4
-                            ? Icon(
-                                Icons.check_circle_outline,
-                                size: 64,
-                                color: colors.primary,
-                              )
-                            : const AirRelayMark(size: 64),
-                      ),
-                      const SizedBox(height: 24),
                       Text(
                         titles[step],
                         style: Theme.of(context).textTheme.headlineMedium
                             ?.copyWith(
-                              fontWeight: FontWeight.w700,
+                              fontWeight: FontWeight.w600,
                               letterSpacing: -.6,
                             ),
                       ),
                       const SizedBox(height: 12),
                       Text(
-                        descriptions[step],
+                        subtitles[step],
                         style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                           color: colors.onSurfaceVariant,
                         ),
                       ),
                       const SizedBox(height: 24),
                       if (step == 0) ...[
-                        note(
-                          Icons.bluetooth,
+                        permissionRow(
                           'Nearby devices',
                           state.bluetoothPermission
-                              ? 'Bluetooth permission is allowed.'
-                              : 'Android will ask to let Air Relay find and connect to nearby devices.',
-                          done: state.bluetoothPermission,
+                              ? 'Allowed'
+                              : 'Bluetooth access lets Air Relay reach your band.',
+                          state.bluetoothPermission,
                         ),
-                        note(
-                          Icons.watch_outlined,
-                          'Paired in Google Health',
+                        const Divider(height: 1),
+                        permissionRow(
+                          'Paired Air',
                           state.paired == true
-                              ? 'Your paired Air was found. This does not mean it is currently connected.'
-                              : 'Pair your Air in Google Health first, then check it here.',
-                          done: state.paired == true,
+                              ? 'Found in your paired devices'
+                              : state.paired == false
+                              ? 'Not found. Finish pairing in Google Health.'
+                              : 'We’ll check your paired devices.',
+                          state.paired == true,
                         ),
+                        if (!state.bluetoothPermission)
+                          TextButton(
+                            onPressed: blocked
+                                ? null
+                                : () => run(state.openAppSettings),
+                            child: const Text('Open app settings'),
+                          ),
                         if (connected)
                           TextButton(
                             onPressed: blocked
@@ -281,121 +307,60 @@ class _RelaySetupPageState extends State<RelaySetupPage> {
                                 : () => run(state.checkPaired),
                             child: const Text('Check again'),
                           ),
-                        if (!state.bluetoothPermission)
-                          TextButton(
-                            onPressed: blocked
-                                ? null
-                                : () => run(state.openAppSettings),
-                            child: const Text(
-                              'Permission blocked? Open app settings',
-                            ),
-                          ),
-                        if (state.paired == false)
-                          const Text(
-                            'No paired Air found. Open Google Health, finish pairing, then return and check again.',
-                          ),
                       ],
                       if (step == 1) ...[
-                        Card(
-                          color: colors.primaryContainer,
-                          child: Padding(
-                            padding: const EdgeInsets.all(20),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Icon(
-                                  Icons.shield_outlined,
-                                  color: colors.onPrimaryContainer,
-                                ),
-                                const SizedBox(height: 12),
-                                Text(
-                                  'Your notifications stay yours.',
-                                  style: Theme.of(context).textTheme.titleMedium
-                                      ?.copyWith(
-                                        color: colors.onPrimaryContainer,
-                                      ),
-                                ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  'Air Relay reads notifications on this phone, even in the background, to match your chosen apps and WhatsApp people. Android grants access to all notifications. We don’t upload them. Saved chat names stay on this phone.',
-                                  style: TextStyle(
-                                    color: colors.onPrimaryContainer,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
+                        permissionRow(
+                          'Read notifications',
+                          access
+                              ? 'Allowed'
+                              : state.access
+                              ? 'Waiting for Android to connect'
+                              : 'Find alerts from your chosen apps and WhatsApp people.',
+                          access,
+                        ),
+                        const Divider(height: 1),
+                        permissionRow(
+                          'Show Air Relay notifications',
+                          controls
+                              ? 'Allowed'
+                              : skipControls
+                              ? 'Skipped for now'
+                              : 'Keep pause and stop controls in your notification shade.',
+                          controls,
                         ),
                         const SizedBox(height: 16),
-                        note(
-                          Icons.notifications_outlined,
-                          notifications
-                              ? 'Notification access is ready'
-                              : state.access
-                              ? 'Waiting for Android'
-                              : 'Allow access in Android',
-                          notifications
-                              ? 'You’re in control of which apps can vibrate.'
-                              : state.access
-                              ? 'Access is enabled, but Android isn’t sending notifications to Air Relay yet. Check access if this continues.'
-                              : 'On the next screen, choose Air Relay and allow notification access.',
-                          done: notifications,
+                        Text(
+                          'Android notification access covers all apps, including in the background. Air Relay matches your rules on this phone. Notifications are not uploaded; saved chat names stay here.',
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: colors.onSurfaceVariant),
                         ),
-                        if (notifications)
-                          TextButton(
-                            key: const ValueKey('notification-access-settings'),
-                            onPressed: blocked
-                                ? null
-                                : () => run(state.openAccessSettings),
-                            child: const Text('Review notification access'),
-                          ),
-                        if (state.notificationControlsAllowed == false) ...[
-                          const SizedBox(height: 16),
-                          note(
-                            Icons.tune,
-                            'Keep pause and stop close by',
-                            'Allow Air Relay to show its ongoing notification so you can control it without opening the app. This is recommended, not required.',
-                          ),
-                          OutlinedButton(
-                            key: const ValueKey('setup-notification-controls'),
-                            onPressed: blocked
-                                ? null
-                                : () => run(state.allowNotificationControls),
-                            child: const Text('Allow relay controls'),
-                          ),
+                        if (access && controls)
                           TextButton(
                             onPressed: blocked
                                 ? null
                                 : () => run(
                                     state.openNotificationControlsSettings,
                                   ),
-                            child: const Text('Review in Android settings'),
+                            child: const Text('Review Android settings'),
                           ),
-                        ],
-                        const SizedBox(height: 12),
-                        const Text(
-                          'You can revoke this access in Android settings at any time. No account or cloud relay is needed.',
-                        ),
+                        if (state.access && !state.listenerConnected)
+                          TextButton(
+                            onPressed: blocked
+                                ? null
+                                : () => run(state.openAccessSettings),
+                            child: const Text('Review notification access'),
+                          ),
                       ],
                       if (step == 2) ...[
-                        Text(
-                          state.selectedAppsSummary,
-                          style: Theme.of(context).textTheme.titleSmall,
-                        ),
-                        const SizedBox(height: 12),
                         TextField(
                           key: const ValueKey('setup-app-search'),
                           decoration: const InputDecoration(
-                            labelText: 'Find an app',
+                            hintText: 'Search apps',
                             prefixIcon: Icon(Icons.search),
                           ),
                           onChanged: (value) => setState(() => query = value),
                         ),
                         const SizedBox(height: 12),
-                        if (apps.isEmpty)
-                          const Text(
-                            'No matching apps. Try another search or refresh the list.',
-                          ),
                         for (final app in apps)
                           SwitchListTile(
                             key: ValueKey('setup-app-${app['packageName']}'),
@@ -418,47 +383,25 @@ class _RelaySetupPageState extends State<RelaySetupPage> {
                                     ),
                                   ),
                           ),
+                        if (apps.isEmpty) const Text('No matching apps.'),
                         TextButton(
                           onPressed: blocked ? null : () => run(state.loadApps),
                           child: const Text('Refresh apps'),
                         ),
-                        if (state.relayRunning)
-                          const Text(
-                            'Your relay is on. App changes apply to new notifications.',
-                          ),
-                        const Text(
-                          'Choose specific WhatsApp people and custom vibrations later in Rules.',
-                        ),
                       ],
                       if (step == 3) ...[
-                        Card(
-                          child: Padding(
-                            padding: const EdgeInsets.all(20),
-                            child: Column(
-                              children: [
-                                Icon(
-                                  sent
-                                      ? Icons.vibration
-                                      : Icons.waving_hand_outlined,
-                                  size: 48,
-                                  color: colors.primary,
-                                ),
-                                const SizedBox(height: 12),
-                                Text(
-                                  sent
-                                      ? 'Did you feel it?'
-                                      : 'Put your Air on your wrist.',
-                                  style: Theme.of(context).textTheme.titleLarge,
-                                ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  sent
-                                      ? 'The command was verified. Only you can confirm the vibration.'
-                                      : 'We’ll send your default vibration once. This can take a few seconds.',
-                                  textAlign: TextAlign.center,
-                                ),
-                              ],
-                            ),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 24),
+                          child: Icon(
+                            Icons.vibration,
+                            size: 72,
+                            color: colors.primary,
+                          ),
+                        ),
+                        Center(
+                          child: Text(
+                            state.settings.defaultPreset.label,
+                            style: Theme.of(context).textTheme.titleMedium,
                           ),
                         ),
                         if (sent)
@@ -469,32 +412,38 @@ class _RelaySetupPageState extends State<RelaySetupPage> {
                                 : () => setState(() {
                                     sent = false;
                                     error =
-                                        'Keep your Air nearby and check that vibration is enabled in Google Health. Try once more when ready.';
+                                        'Check vibration is enabled in Google Health, then try again.';
                                   }),
                             child: const Text('I didn’t feel it'),
                           ),
                         if (state.relayRunning &&
                             state.settings.silenceReason != null)
                           const Text(
-                            'Notifications are paused or in quiet hours. Resume on Home before sending a test, or finish without testing.',
+                            'Resume notifications on Home to send a test.',
                           ),
                       ],
                       if (step == 4) ...[
-                        note(
-                          Icons.notifications_active_outlined,
-                          state.selectedAppsSummary,
-                          state.relayRunning
-                              ? 'Notifications are already on. Pause anytime from Home.'
-                              : 'Start notifications when you’re ready. Pause anytime from Home.',
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 24),
+                          child: Icon(
+                            Icons.check_circle_outline,
+                            size: 72,
+                            color: colors.primary,
+                          ),
                         ),
-                        note(
-                          Icons.tune,
-                          'Make it yours',
-                          'In Rules, choose people, vibrations and quiet hours.',
+                        Text(
+                          state.selectedAppsSummary,
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 24),
+                        const Text(
+                          'Start notifications from Home. Change apps, people and vibrations in Rules.',
                         ),
                         const SizedBox(height: 16),
-                        const Text(
-                          'Early access: Google Health sync is still being tested. If sync stalls, stop the relay and check Google Health.',
+                        Text(
+                          'Early access: if Google Health sync stalls, stop notifications.',
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: colors.onSurfaceVariant),
                         ),
                       ],
                       if (error != null)
@@ -512,21 +461,16 @@ class _RelaySetupPageState extends State<RelaySetupPage> {
                   ),
                 ),
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 8, 24, 16),
+                  padding: const EdgeInsets.fromLTRB(24, 12, 24, 16),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       FilledButton(
-                        key: ValueKey(
-                          step == 0 && !connected
-                              ? 'setup-check-air'
-                              : step == 1 && !notifications
-                              ? 'notification-access-settings'
-                              : 'setup-next',
-                        ),
+                        key: ValueKey(buttonKey),
                         onPressed:
                             blocked ||
-                                (step == 2 && state.selectedApps.isEmpty) ||
+                                (step == 2 &&
+                                    state.selectedInstalledAppCount == 0) ||
                                 (step == 3 &&
                                     !sent &&
                                     state.relayRunning &&
@@ -540,8 +484,18 @@ class _RelaySetupPageState extends State<RelaySetupPage> {
                                         ? state.openBluetoothSettings
                                         : state.checkPaired,
                                   );
-                                } else if (step == 1 && !notifications) {
+                                } else if (step == 1 && !access) {
                                   run(state.openAccessSettings);
+                                } else if (needsControls) {
+                                  run(() async {
+                                    if (controlsRequested) {
+                                      await state
+                                          .openNotificationControlsSettings();
+                                    } else {
+                                      setState(() => controlsRequested = true);
+                                      await state.allowNotificationControls();
+                                    }
+                                  });
                                 } else if (step < 3) {
                                   go(step + 1);
                                 } else if (step == 3 && !sent) {
@@ -558,51 +512,29 @@ class _RelaySetupPageState extends State<RelaySetupPage> {
                                 }
                               },
                         child: working
-                            ? Wrap(
-                                alignment: WrapAlignment.center,
-                                crossAxisAlignment: WrapCrossAlignment.center,
-                                spacing: 8,
-                                children: [
-                                  const SizedBox.square(
-                                    dimension: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  ),
-                                  Text(
-                                    step == 3 && !sent
-                                        ? 'Sending…'
-                                        : 'Please wait…',
-                                  ),
-                                ],
+                            ? const SizedBox.square(
+                                dimension: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
                               )
-                            : Text(
-                                step == 0 && !connected
-                                    ? !state.bluetoothPermission
-                                          ? 'Allow nearby devices'
-                                          : state.bluetoothEnabled == false
-                                          ? 'Turn on Bluetooth'
-                                          : 'Check my Air'
-                                    : step == 1 && !notifications
-                                    ? state.access
-                                          ? 'Check notification access'
-                                          : 'Allow notification access'
-                                    : step < 3
-                                    ? 'Continue'
-                                    : step == 3
-                                    ? sent
-                                          ? 'Yes, I felt it'
-                                          : 'Send test vibration'
-                                    : 'Go to Home',
-                              ),
+                            : Text(buttonLabel),
                       ),
+                      if (needsControls)
+                        TextButton(
+                          key: const ValueKey('setup-skip-controls'),
+                          onPressed: blocked
+                              ? null
+                              : () => setState(() => skipControls = true),
+                          child: const Text('Not now'),
+                        ),
                       if (step == 3)
                         TextButton(
                           key: const ValueKey('setup-skip-test'),
                           onPressed: blocked
                               ? null
                               : () => run(() => finish(feltVibration: false)),
-                          child: const Text('Finish without testing'),
+                          child: const Text('Skip test'),
                         ),
                       if (step > 0 && step < 4)
                         TextButton(

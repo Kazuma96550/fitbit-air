@@ -413,6 +413,7 @@ class CalendarRelayService : Service() {
 
         fun status(context: Context): Map<String, Any?> = mapOf(
             "notificationControlsAllowed" to context.getSystemService(android.app.NotificationManager::class.java).areNotificationsEnabled(),
+            "setupStep" to context.getSharedPreferences("relay_onboarding", MODE_PRIVATE).getInt("step", 0).coerceIn(0, 3),
             "setupCompleted" to context.getSharedPreferences("relay_onboarding", MODE_PRIVATE).getBoolean("completed", false),
             "access" to hasAccess(context),
             "connected" to CalendarNotificationListener.connected,

@@ -8,6 +8,12 @@
   `readSignalStrength()` for a rough proximity hint in dBm.
 - Add `FitbitAirDiagnostics.watchChannelActivity()`: passively reports whether
   Google Health is idle, polling or syncing on the Air's shared channel.
+- Open setup full screen on first launch and save its resume position.
+- Make reading notifications and showing relay controls explicit separate grants;
+  remove the unexpected notification permission prompt when starting the relay.
+- Simplify Home and Rules with flat settings rows and compact activity; move setup review to
+  Device and diagnostics into activity details.
+
 - Add a four-step guided setup with permission explanations, app selection,
   optional vibration confirmation, and persistent local completion state.
 - Show actionable relay readiness and distinguish historical delivery failures

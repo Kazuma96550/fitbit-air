@@ -14,21 +14,20 @@ class ConversationPicker extends StatelessWidget {
   final void Function(Future<void> Function()) perform;
 
   @override
-  Widget build(BuildContext context) => Card(
-    child: ListTile(
-      key: const ValueKey('conversation-picker'),
-      leading: const Icon(Icons.people_outline),
-      title: const Text('WhatsApp people'),
-      subtitle: Text(
-        controller.restrictedConversations
-            ? '${controller.allowedConversations.length} selected chats'
-            : 'All chats · Personalize people and groups',
-      ),
-      trailing: const Icon(Icons.chevron_right),
-      onTap: () => Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => _PeoplePage(controller: controller),
-        ),
+  Widget build(BuildContext context) => ListTile(
+    contentPadding: EdgeInsets.zero,
+    key: const ValueKey('conversation-picker'),
+    leading: const Icon(Icons.people_outline),
+    title: const Text('WhatsApp people'),
+    subtitle: Text(
+      controller.restrictedConversations
+          ? '${controller.allowedConversations.length} selected chats'
+          : 'All chats',
+    ),
+    trailing: const Icon(Icons.chevron_right),
+    onTap: () => Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => _PeoplePage(controller: controller),
       ),
     ),
   );

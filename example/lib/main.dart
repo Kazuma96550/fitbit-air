@@ -11,6 +11,7 @@ import 'demo/app_theme.dart';
 import 'demo/relay_panel.dart';
 import 'demo/rules_panel.dart';
 import 'demo/wrist_presence_card.dart';
+import 'demo/setup_page.dart';
 
 void main() => runApp(const DemoApp());
 
@@ -112,6 +113,8 @@ class DemoPage extends StatefulWidget {
 class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
   late final DemoController _controller;
   int _destination = 0;
+  bool _consideredSetup = false;
+  bool _launchingSetup = false;
   bool get _busy => _controller.busy;
 
   /// Inline Test vibration state on the Relay tab: null, 'sending' or 'sent'.
@@ -132,7 +135,23 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
   }
 
   void _redraw() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    if (_controller.initialized && !_consideredSetup) {
+      _consideredSetup = true;
+      if (!_controller.setupCompleted) {
+        _launchingSetup = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) async {
+          if (!mounted) return;
+          await showRelaySetup(
+            context,
+            _controller,
+            initialStep: _controller.setupStep,
+          );
+          if (mounted) setState(() => _launchingSetup = false);
+        });
+      }
+    }
+    setState(() {});
   }
 
   @override
@@ -828,9 +847,19 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
   );
 
   List<Widget> _deviceChildren() => [
-    Text('Device', style: Theme.of(context).textTheme.headlineSmall),
+    Text('Device', style: Theme.of(context).textTheme.headlineMedium),
+    const SizedBox(height: 12),
+    ListTile(
+      key: const ValueKey('review-setup'),
+      contentPadding: EdgeInsets.zero,
+      leading: const Icon(Icons.verified_user_outlined),
+      title: const Text('Permissions & setup'),
+      trailing: const Icon(Icons.chevron_right),
+      onTap: () => showRelaySetup(context, _controller),
+    ),
+    const Divider(),
     const Text(
-      'Device controls share the transport with the relay and Lab. Heart rate requires sharing enabled in Google Health.',
+      'Check your band and try vibrations. Heart rate tools need sharing enabled in Google Health.',
     ),
     const SizedBox(height: 16),
     Text(_status, key: const ValueKey('device-status')),
@@ -1054,171 +1083,183 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
   ];
 
   @override
-  Widget build(BuildContext context) => PopScope(
-    canPop: _destination != 2,
-    onPopInvokedWithResult: (didPop, result) {
-      if (!didPop && _destination == 2) setState(() => _destination = 1);
-    },
-    child: Scaffold(
-      appBar: AppBar(
-        leading: _destination == 2
-            ? BackButton(onPressed: () => setState(() => _destination = 1))
-            : null,
-        title: const Row(
-          children: [
-            AirRelayMark(size: 34),
-            SizedBox(width: 12),
-            Flexible(child: Text('Air Relay', overflow: TextOverflow.ellipsis)),
-          ],
-        ),
-        actions: [
-          IconButton(
-            key: const ValueKey('about-air-relay'),
-            tooltip: 'About Air Relay',
-            icon: const Icon(Icons.info_outline),
-            onPressed: () => showAboutDialog(
-              context: context,
-              applicationName: 'Air Relay',
-              applicationVersion:
-                  _controller.report()['demoVersion'] as String?,
-              applicationIcon: const AirRelayMark(size: 48),
-              children: const [
-                Text(
-                  'An independent notification companion for Fitbit Air. Not affiliated with Google or Fitbit.',
+  Widget build(BuildContext context) =>
+      !_controller.initialized || _launchingSetup
+      ? const Scaffold(body: Center(child: CircularProgressIndicator()))
+      : PopScope(
+          canPop: _destination != 2,
+          onPopInvokedWithResult: (didPop, result) {
+            if (!didPop && _destination == 2) setState(() => _destination = 1);
+          },
+          child: Scaffold(
+            appBar: AppBar(
+              leading: _destination == 2
+                  ? BackButton(
+                      onPressed: () => setState(() => _destination = 1),
+                    )
+                  : null,
+              title: const Row(
+                children: [
+                  AirRelayMark(size: 34),
+                  SizedBox(width: 12),
+                  Flexible(
+                    child: Text('Air Relay', overflow: TextOverflow.ellipsis),
+                  ),
+                ],
+              ),
+              actions: [
+                IconButton(
+                  key: const ValueKey('about-air-relay'),
+                  tooltip: 'About Air Relay',
+                  icon: const Icon(Icons.info_outline),
+                  onPressed: () => showAboutDialog(
+                    context: context,
+                    applicationName: 'Air Relay',
+                    applicationVersion:
+                        _controller.report()['demoVersion'] as String?,
+                    applicationIcon: const AirRelayMark(size: 48),
+                    children: const [
+                      Text(
+                        'An independent notification companion for Fitbit Air. Not affiliated with Google or Fitbit.',
+                      ),
+                      SizedBox(height: 12),
+                      Text(
+                        'Early access. Google Health sync compatibility is still being tested.',
+                      ),
+                    ],
+                  ),
                 ),
-                SizedBox(height: 12),
-                Text(
-                  'Early access. Google Health sync compatibility is still being tested.',
+              ],
+            ),
+            body: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 640),
+                child: Column(
+                  children: [
+                    // The Relay tab shows its own test progress inline; other work
+                    // started elsewhere still gets the owner banner.
+                    if (_destination == 2 || (_busy && _testFeedback == null))
+                      Semantics(
+                        liveRegion: true,
+                        child: ListTile(
+                          key: const ValueKey('operation-owner'),
+                          leading: Icon(
+                            _busy
+                                ? Icons.science
+                                : _controller.relayRunning
+                                ? Icons.notifications_active
+                                : Icons.check_circle_outline,
+                          ),
+                          title: Text(
+                            _busy
+                                ? 'In progress: ${_controller.operationId}'
+                                : _controller.relayRunning
+                                ? 'Relay running'
+                                : 'Ready',
+                          ),
+                          subtitle: _controller.relayStopping
+                              ? const Text(
+                                  'Finishing an active command before stopping.',
+                                )
+                              : null,
+                          trailing: _busy
+                              ? TextButton(
+                                  key: const ValueKey('cancel-operation'),
+                                  onPressed:
+                                      _controller.operationId?.startsWith(
+                                            'headless',
+                                          ) ==
+                                          true
+                                      ? null
+                                      : () => _ui(_cancelOperation),
+                                  child: const Text('Cancel operation'),
+                                )
+                              : null,
+                        ),
+                      ),
+                    Expanded(
+                      child: _destination == 0
+                          ? RelayPanel(
+                              controller: _controller,
+                              scrollController: _homeScrollController,
+                              perform: (action) => _ui(action),
+                              // Matches what the relay sends for the selected style.
+                              testVibration: _testVibration,
+                              testFeedback: _testFeedback,
+                              exportReport: _copyReport,
+                              openRules: () => setState(() => _destination = 3),
+                            )
+                          : _destination == 3
+                          ? RulesPanel(
+                              controller: _controller,
+                              scrollController: _rulesScrollController,
+                              perform: (action) => _ui(action),
+                            )
+                          : ListView(
+                              key: ValueKey(
+                                _destination == 1
+                                    ? 'device-scroll'
+                                    : 'lab-scroll',
+                              ),
+                              controller: _destination == 1
+                                  ? _deviceScrollController
+                                  : _scrollController,
+                              padding: const EdgeInsets.all(20),
+                              children: _destination == 1
+                                  ? [
+                                      ..._deviceChildren(),
+                                      const SizedBox(height: 24),
+                                      WristPresenceCard(
+                                        observation:
+                                            _controller.lastWristObservation,
+                                      ),
+                                      const SizedBox(height: 12),
+                                      OutlinedButton.icon(
+                                        key: const ValueKey('nav-lab'),
+                                        onPressed: () =>
+                                            setState(() => _destination = 2),
+                                        icon: const Icon(
+                                          Icons.science_outlined,
+                                        ),
+                                        label: const Text('Developer tools'),
+                                      ),
+                                    ]
+                                  : _labChildren(),
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            bottomNavigationBar: NavigationBar(
+              selectedIndex: _destination == 0
+                  ? 0
+                  : _destination == 3
+                  ? 1
+                  : 2,
+              onDestinationSelected: (index) =>
+                  setState(() => _destination = [0, 3, 1][index]),
+              destinations: const [
+                NavigationDestination(
+                  key: ValueKey('nav-relay'),
+                  icon: Icon(Icons.notifications_outlined),
+                  selectedIcon: Icon(Icons.notifications_active),
+                  label: 'Home',
+                ),
+                NavigationDestination(
+                  key: ValueKey('nav-rules'),
+                  icon: Icon(Icons.tune_outlined),
+                  selectedIcon: Icon(Icons.tune),
+                  label: 'Rules',
+                ),
+                NavigationDestination(
+                  key: ValueKey('nav-device'),
+                  icon: Icon(Icons.watch_outlined),
+                  selectedIcon: Icon(Icons.watch),
+                  label: 'Device',
                 ),
               ],
             ),
           ),
-        ],
-      ),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 640),
-          child: Column(
-            children: [
-              // The Relay tab shows its own test progress inline; other work
-              // started elsewhere still gets the owner banner.
-              if (_destination == 2 || (_busy && _testFeedback == null))
-                Semantics(
-                  liveRegion: true,
-                  child: ListTile(
-                    key: const ValueKey('operation-owner'),
-                    leading: Icon(
-                      _busy
-                          ? Icons.science
-                          : _controller.relayRunning
-                          ? Icons.notifications_active
-                          : Icons.check_circle_outline,
-                    ),
-                    title: Text(
-                      _busy
-                          ? 'In progress: ${_controller.operationId}'
-                          : _controller.relayRunning
-                          ? 'Relay running'
-                          : 'Ready',
-                    ),
-                    subtitle: _controller.relayStopping
-                        ? const Text(
-                            'Finishing an active command before stopping.',
-                          )
-                        : null,
-                    trailing: _busy
-                        ? TextButton(
-                            key: const ValueKey('cancel-operation'),
-                            onPressed:
-                                _controller.operationId?.startsWith(
-                                      'headless',
-                                    ) ==
-                                    true
-                                ? null
-                                : () => _ui(_cancelOperation),
-                            child: const Text('Cancel operation'),
-                          )
-                        : null,
-                  ),
-                ),
-              Expanded(
-                child: _destination == 0
-                    ? RelayPanel(
-                        controller: _controller,
-                        scrollController: _homeScrollController,
-                        perform: (action) => _ui(action),
-                        // Matches what the relay sends for the selected style.
-                        testVibration: _testVibration,
-                        testFeedback: _testFeedback,
-                        exportReport: _copyReport,
-                        openRules: () => setState(() => _destination = 3),
-                      )
-                    : _destination == 3
-                    ? RulesPanel(
-                        controller: _controller,
-                        scrollController: _rulesScrollController,
-                        perform: (action) => _ui(action),
-                      )
-                    : ListView(
-                        key: ValueKey(
-                          _destination == 1 ? 'device-scroll' : 'lab-scroll',
-                        ),
-                        controller: _destination == 1
-                            ? _deviceScrollController
-                            : _scrollController,
-                        padding: const EdgeInsets.all(20),
-                        children: _destination == 1
-                            ? [
-                                ..._deviceChildren(),
-                                const SizedBox(height: 24),
-                                WristPresenceCard(
-                                  observation: _controller.lastWristObservation,
-                                ),
-                                const SizedBox(height: 12),
-                                OutlinedButton.icon(
-                                  key: const ValueKey('nav-lab'),
-                                  onPressed: () =>
-                                      setState(() => _destination = 2),
-                                  icon: const Icon(Icons.science_outlined),
-                                  label: const Text('Developer tools'),
-                                ),
-                              ]
-                            : _labChildren(),
-                      ),
-              ),
-            ],
-          ),
-        ),
-      ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _destination == 0
-            ? 0
-            : _destination == 3
-            ? 1
-            : 2,
-        onDestinationSelected: (index) =>
-            setState(() => _destination = [0, 3, 1][index]),
-        destinations: const [
-          NavigationDestination(
-            key: ValueKey('nav-relay'),
-            icon: Icon(Icons.notifications_outlined),
-            selectedIcon: Icon(Icons.notifications_active),
-            label: 'Home',
-          ),
-          NavigationDestination(
-            key: ValueKey('nav-rules'),
-            icon: Icon(Icons.tune_outlined),
-            selectedIcon: Icon(Icons.tune),
-            label: 'Rules',
-          ),
-          NavigationDestination(
-            key: ValueKey('nav-device'),
-            icon: Icon(Icons.watch_outlined),
-            selectedIcon: Icon(Icons.watch),
-            label: 'Device',
-          ),
-        ],
-      ),
-    ),
-  );
+        );
 }

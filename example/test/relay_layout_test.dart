@@ -18,6 +18,7 @@ void main() {
       final controller = DemoController()
         ..initialized = true
         ..setupCompleted = true
+        ..notificationControlsAllowed = true
         ..access = true
         ..listenerConnected = true
         ..bluetoothEnabled = true
@@ -60,6 +61,7 @@ void main() {
         addTearDown(tester.view.resetDevicePixelRatio);
         final controller = DemoController()
           ..initialized = true
+          ..notificationControlsAllowed = true
           ..access = true
           ..listenerConnected = true
           ..bluetoothPermission = true
@@ -100,6 +102,44 @@ void main() {
       },
     );
   }
+
+  testWidgets(
+    'separate notification permission stays reachable with large text',
+    (tester) async {
+      tester.view.physicalSize = const Size(320, 720);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final controller = DemoController()
+        ..access = true
+        ..listenerConnected = true
+        ..notificationControlsAllowed = false;
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: airRelayTheme(Brightness.light),
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: TextScaler.linear(1.6)),
+            child: child!,
+          ),
+          home: RelaySetupPage(controller: controller, initialStep: 1),
+        ),
+      );
+      expect(
+        find.byKey(const ValueKey('setup-notification-controls')).hitTestable(),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('setup-skip-controls')).hitTestable(),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey('setup-next')), findsNothing);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
 
   testWidgets(
     'narrow phone with large text keeps setup and filters reachable',
