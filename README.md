@@ -30,14 +30,13 @@ Or add it to `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  fitbit_air: ^0.1.1
+  fitbit_air: ^0.1.3
 ```
 
-For unreleased development changes only, use the Git repository instead:
+Version **0.1.3** includes the 0.1.2 secure-event and wrist-presence
+diagnostics, `tap()`, and the Google Health channel handoff; see the changelog.
 
-The current development version is **0.1.2**. Secure-event and wrist-presence
-diagnostics described below require this version; they are not in the published
-0.1.1 release.
+For unreleased development changes only, use the Git repository instead:
 
 ```yaml
 dependencies:

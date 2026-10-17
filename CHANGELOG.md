@@ -1,4 +1,4 @@
-## Unreleased
+## 0.1.3
 
 - Add `FitbitAir.tap()`: exactly one pulse at the strength set in Google Health,
   which is kept. It sends the other strength and the original in one settings
