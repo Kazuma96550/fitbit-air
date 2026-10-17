@@ -24,11 +24,18 @@ class MainActivity : FlutterActivity() {
                         "allowNotificationControls" -> {
                             if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                                 requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 902)
+                            } else if (Build.VERSION.SDK_INT < 33) {
+                                startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:$packageName")))
                             }
                             result.success(null)
                         }
                         "notificationControlsSettings" -> {
-                            startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, packageName))
+                            val settingsIntent = if (Build.VERSION.SDK_INT >= 26) {
+                                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+                            } else {
+                                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:$packageName"))
+                            }
+                            startActivity(settingsIntent)
                             result.success(null)
                         }
                         "completeSetup" -> {
