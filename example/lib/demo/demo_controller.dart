@@ -31,6 +31,56 @@ class DemoController extends ChangeNotifier {
   Map<String, Object?> transportDiagnostics = {};
   RelaySettings settings = const RelaySettings();
   AirWristPresenceEvent? lastWristObservation;
+  AirBattery? battery;
+  DateTime? batteryReadAt;
+  bool batteryReading = false;
+  String? batteryError;
+  bool? airConnected;
+  StreamSubscription<AirConnectionEvent>? _connection;
+  bool _visible = false;
+  bool get canReadBattery =>
+      initialized &&
+      !busy &&
+      !previewing &&
+      !changingRelay &&
+      !relayRunning &&
+      !relayStopping &&
+      relayTransition == null &&
+      !batteryReading &&
+      bluetoothPermission &&
+      bluetoothEnabled != false &&
+      (batteryReadAt == null ||
+          DateTime.now().difference(batteryReadAt!) >=
+              const Duration(minutes: 1));
+
+  Future<void> refreshBattery() async {
+    if (!canReadBattery) return;
+    batteryReading = true;
+    batteryError = null;
+    _changed();
+    try {
+      final value = await FitbitAir.readBattery();
+      final at = DateTime.now();
+      battery = value;
+      batteryReadAt = at;
+      try {
+        await channel.invokeMethod<void>('saveBattery', {
+          'percent': value.percent,
+          'onCharger': value.onCharger,
+          'readAt': at.millisecondsSinceEpoch,
+        });
+      } catch (_) {
+        batteryError =
+            'Updated, but could not save this reading for next time.';
+      }
+    } catch (_) {
+      batteryError = 'Could not update. Your last reading is kept.';
+    } finally {
+      batteryReading = false;
+      _changed();
+    }
+  }
+
   bool previewing = false;
   bool initialized = false;
   bool setupCompleted = false;
@@ -94,7 +144,8 @@ class DemoController extends ChangeNotifier {
 
   bool get busy => _activeTrial != null;
   String? get operationId => _activeTrial?['operation'] as String?;
-  bool get controlsBlocked => busy || relayRunning || changingRelay;
+  bool get controlsBlocked =>
+      busy || relayRunning || changingRelay || batteryReading;
   List<Map<String, Object?>> get trials => List.unmodifiable(_trials);
   List<String> get actionIds => actions.keys.toList()..sort();
 
@@ -105,6 +156,27 @@ class DemoController extends ChangeNotifier {
   Future<void> initialize() async {
     await refresh();
     await loadApps();
+    try {
+      final cache = await channel.invokeMapMethod<String, Object?>(
+        'batteryCache',
+      );
+      final percent = cache?['percent'];
+      final readAt = cache?['readAt'];
+      if (percent is int &&
+          percent >= 0 &&
+          percent <= 100 &&
+          readAt is int &&
+          readAt > 0 &&
+          readAt <= DateTime.now().millisecondsSinceEpoch) {
+        battery = AirBattery(
+          percent: percent,
+          onCharger: cache?['onCharger'] as bool?,
+        );
+        batteryReadAt = DateTime.fromMillisecondsSinceEpoch(readAt);
+      }
+    } catch (_) {
+      // A missing or invalid cache never blocks setup.
+    }
     try {
       final settings = await channel.invokeMapMethod<String, Object?>(
         'labSettings',
@@ -126,6 +198,13 @@ class DemoController extends ChangeNotifier {
   void setVisible(bool visible) {
     _poll?.cancel();
     _poll = null;
+    _visible = visible;
+    if (!visible) {
+      unawaited(_connection?.cancel());
+      _connection = null;
+      airConnected = null;
+    }
+    _watchConnectionIfAllowed();
     if (visible) {
       unawaited(refresh());
       _poll = Timer.periodic(
@@ -133,6 +212,22 @@ class DemoController extends ChangeNotifier {
         (_) => unawaited(refresh()),
       );
     }
+  }
+
+  void _watchConnectionIfAllowed() {
+    if (!_visible || _disposed || !bluetoothPermission || _connection != null) {
+      return;
+    }
+    _connection = FitbitAir.watchConnection().listen(
+      (event) {
+        airConnected = event.connected;
+        _changed();
+      },
+      onError: (Object error) {
+        airConnected = null;
+        _changed();
+      },
+    );
   }
 
   Future<void> refresh({bool force = false}) async {
@@ -218,6 +313,7 @@ class DemoController extends ChangeNotifier {
     } on MissingPluginException {
       setupError = 'This demo requires an Android phone.';
     } finally {
+      _watchConnectionIfAllowed();
       _changed();
     }
   }
@@ -306,7 +402,7 @@ class DemoController extends ChangeNotifier {
     if (preset == VibrationPreset.mute) {
       throw ArgumentError('Silent rules cannot vibrate.');
     }
-    if (busy || changingRelay || previewing) {
+    if (busy || changingRelay || previewing || batteryReading) {
       throw StateError('Wait for the current operation.');
     }
     if (relayRunning) {
@@ -422,7 +518,10 @@ class DemoController extends ChangeNotifier {
   }
 
   Future<void> startRelay() async {
-    if (busy || changingRelay || _requestedRelayTransition != null) {
+    if (busy ||
+        changingRelay ||
+        batteryReading ||
+        _requestedRelayTransition != null) {
       throw StateError('Wait for the current operation.');
     }
     if (relayRunning) return;
@@ -521,7 +620,7 @@ class DemoController extends ChangeNotifier {
       await auxiliary.run();
       return;
     }
-    if (busy || changingRelay || previewing) {
+    if (busy || changingRelay || previewing || batteryReading) {
       throw StateError('An operation is already running.');
     }
     if (relayRunning) {
@@ -640,7 +739,7 @@ class DemoController extends ChangeNotifier {
 
   Map<String, Object?> report() => {
     'schemaVersion': 1,
-    'demoVersion': '0.1.4-dev.4',
+    'demoVersion': '0.1.4-dev.5',
     'exportedAt': DateTime.now().toUtc().toIso8601String(),
     'relay': {
       'running': relayRunning,
@@ -693,6 +792,7 @@ class DemoController extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _poll?.cancel();
+    unawaited(_connection?.cancel());
     super.dispose();
   }
 }

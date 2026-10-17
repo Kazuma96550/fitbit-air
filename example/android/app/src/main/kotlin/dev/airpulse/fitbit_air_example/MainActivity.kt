@@ -16,6 +16,24 @@ class MainActivity : FlutterActivity() {
             .setMethodCallHandler { call, result ->
                 try {
                     when (call.method) {
+                        "batteryCache" -> {
+                            val cache = getSharedPreferences("air_battery", MODE_PRIVATE)
+                            result.success(if (!cache.contains("percent")) null else mapOf(
+                                "percent" to cache.getInt("percent", 0),
+                                "readAt" to cache.getLong("readAt", 0),
+                                "onCharger" to if (cache.contains("onCharger")) cache.getBoolean("onCharger", false) else null))
+                        }
+                        "saveBattery" -> {
+                            val percent = requireNotNull(call.argument<Int>("percent"))
+                            val readAt = requireNotNull(call.argument<Number>("readAt")).toLong()
+                            require(percent in 0..100 && readAt > 0)
+                            val edit = getSharedPreferences("air_battery", MODE_PRIVATE).edit()
+                                .putInt("percent", percent).putLong("readAt", readAt)
+                            val charging = call.argument<Boolean>("onCharger")
+                            if (charging == null) edit.remove("onCharger") else edit.putBoolean("onCharger", charging)
+                            edit.apply()
+                            result.success(null)
+                        }
                         "status" -> result.success(CalendarRelayService.status(this))
                         "appSettings" -> {
                             startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:$packageName")))

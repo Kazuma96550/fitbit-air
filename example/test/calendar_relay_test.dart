@@ -35,6 +35,12 @@ void main() {
   late Map<String, Object?> rules;
 
   setUp(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('fitbit_air/connection'),
+          (call) async => null,
+        );
+
     access = false;
     running = false;
     readyOverride = null;

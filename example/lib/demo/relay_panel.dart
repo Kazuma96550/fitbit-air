@@ -4,6 +4,7 @@ import 'demo_controller.dart';
 import 'rules_panel.dart';
 import 'relay_status.dart';
 import 'relay_toggle_button.dart';
+import 'air_status_strip.dart';
 import 'setup_page.dart';
 
 class RelayPanel extends StatelessWidget {
@@ -53,6 +54,7 @@ class RelayPanel extends StatelessWidget {
         !state.busy &&
         !state.previewing &&
         !state.changingRelay &&
+        !state.batteryReading &&
         state.relayTransition == null &&
         !state.relayStopping &&
         (!state.relayRunning || state.settings.silenceReason == null) &&
@@ -148,6 +150,7 @@ class RelayPanel extends StatelessWidget {
     final enabled =
         state.initialized &&
         !state.changingRelay &&
+        !state.batteryReading &&
         !transitioning &&
         !state.relayStopping &&
         (state.relayRunning || !state.busy);
@@ -211,6 +214,7 @@ class RelayPanel extends StatelessWidget {
                 textAlign: TextAlign.center,
                 style: TextStyle(color: colors.onSurfaceVariant),
               ),
+              AirStatusStrip(controller: state),
               if (paused)
                 Padding(
                   padding: const EdgeInsets.only(top: 8),

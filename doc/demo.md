@@ -460,3 +460,23 @@ timezone changes, pause expiry, combined bursts and Google Health sync after
 both previews and real relay commands. Builds and physical trials belong in CI
 or on a development machine. Keep the connection agent's handoff and recovery
 implementation intact.
+
+### Home battery and connection
+
+Home shows the last battery percentage, a low-battery accent at 20% or below,
+and a saved indicator after six hours. Tap it to see when it was checked,
+whether it was on its charger then, and an Update battery action. Readings and
+their original timestamps survive app restarts in local preferences excluded
+from Android backup and device transfer. A failed refresh keeps the last value.
+
+Battery refresh is explicit, never scheduled. It opens a short secure session,
+so the action is unavailable while relaying, stopping, previewing or running a
+device operation. Starting the relay is blocked during the read. Successful
+readings are reused for at least a minute. Opening Home, returning to the app,
+and the ordinary status poll never request battery or interrupt the relay.
+
+The connection label uses PR #6's passive Android Bluetooth events only while
+the app is visible and permission is granted. It describes the phone's Bluetooth
+link, independently of whether notification relaying is enabled. It does not
+claim that a notification will be delivered or that Google Health is syncing.
+Signal strength and channel-traffic monitoring are not enabled by Home.
