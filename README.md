@@ -94,19 +94,19 @@ flutter run
 |---|---|
 | Detect an Android-bonded Fitbit Air | Implemented |
 | Trigger a short Air haptic | Physically verified from this package on Pixel 7 Pro (2026-10-14) |
-| Exactly one pulse | Implemented and protocol-verified; alternates the persistent strength |
+| Exactly one pulse | `tap()` keeps the wearer's strength; felt as one pulse in every trial on Pixel 7 Pro / firmware 67.20001.253.2. `pulse()` (alternating strength) remains |
 | Read/set low or high vibration strength | Implemented and verified |
 | Device model, firmware, manufacturer | GATT read verified on Pixel 7 Pro / Air firmware 67.20001.253.2 |
 | BLE services and connection status | Read-only discovery and link status decoder implemented |
 | Scan advertised heart-rate sensors | Experimental; requires Nearby devices scan permission |
 | Restore/verify prior vibration intensity | Physically verified |
 | Root/OAuth/private PSK required | No, for the bootstrap haptic path |
-| Detect taps on the Air | Not implemented |
-| Headless haptics | Release-mode background and one controlled screen-off command verified; long-term/idle reliability unresolved |
+| Detect taps on the Air | Not implemented; under investigation (earlier trials were confounded by the channel conflict fixed in 0.1.3) |
+| Headless haptics | Release-mode background and controlled screen-off commands verified; a user-reported overnight relay run worked. Deep-idle/reboot reliability not systematically measured |
 | Raw diagnostic events | Opt-in research stream; no confirmed tap decoder |
 | Battery resource | Bootstrap read access verified; selected raw fields available in diagnostics, units/scale unverified |
 | Heart rate | Standard BLE readings and continuous updates verified; requires an active Google Health sharing session |
-| Google Health coexistence | Plugin releases GATT; Google Health remains connected. Concurrent Goldengate sessions produced packet-sequence warnings, so uninterrupted sync is not yet proven |
+| Google Health coexistence | Each command ends with a channel handoff; Google Health resynchronizes immediately instead of after its ~60 s watchdog reconnect (measured). Syncs during a command (about 4–5 s) can still fail |
 | iOS | Not implemented |
 | Non-arm64 Android | Untested; requires a compatible library in the installed Google Health APK |
 
@@ -236,6 +236,9 @@ updates in this package.
   allows 30–90 seconds of observation plus 15 seconds for connection setup.
 - Google Health remains the pairing owner. This plugin opens a short-lived
   connection and does not unregister, factory-reset, or alter pairing keys.
+- The Air has one secure channel shared with Google Health. After each command
+  the plugin hands it back (`channelHandoff` in transport diagnostics); during a
+  command, and during 30–90 s research captures, Google Health cannot sync.
 - The plugin accepts the native implementation only from the expected signed
   Google Health package; a look-alike package is rejected.
 - Firmware or Google Health updates may change the private protocol.
