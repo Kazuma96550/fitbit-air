@@ -12,6 +12,9 @@ class FitbitAir {
   static const EventChannel _heartRateChannel = EventChannel(
     'fitbit_air/heart_rate',
   );
+  static const EventChannel _connectionChannel = EventChannel(
+    'fitbit_air/connection',
+  );
 
   /// Streams measurements while Google Health heart-rate sharing is active.
   /// Omit [deviceId] to use the paired Air, or select an advertised sensor.
@@ -32,6 +35,59 @@ class FitbitAir {
             }
             throw error;
           });
+
+  /// Whether the Air's Bluetooth link is currently up.
+  ///
+  /// Read from Android's connection state; opens no connection. Google Health
+  /// keeps the link while the Air is in range, so `false` usually means out of
+  /// range, Bluetooth off, or the Air powered down.
+  static Future<bool> isAirConnected() async {
+    try {
+      return await _channel.invokeMethod<bool>('isAirConnected') ?? false;
+    } on PlatformException catch (error) {
+      throw FitbitAirException(
+        error.code,
+        error.message ?? 'Could not check the connection.',
+      );
+    }
+  }
+
+  /// Emits the current link state, then every change.
+  ///
+  /// Passive: listens to Android's system connection events and opens no
+  /// connection, so it can run for as long as your app is alive (for example
+  /// to warn when the Air is left behind).
+  static Stream<AirConnectionEvent> watchConnection() => _connectionChannel
+      .receiveBroadcastStream()
+      .map(
+        (value) =>
+            AirConnectionEvent.fromMap(Map<String, Object?>.from(value as Map)),
+      )
+      .handleError(_streamError('Connection stream failed.'));
+
+  /// Reads the Bluetooth signal strength of the Air's link in dBm.
+  ///
+  /// Uses a brief connection without the secure channel, so it does not
+  /// compete with Google Health. Values typically range from about -40 (very
+  /// close) to -95 (edge of range); treat them as a rough proximity hint.
+  static Future<int> readSignalStrength() async =>
+      (await _invokeMap('readSignalStrength'))['rssi']! as int;
+
+  /// Reads the battery level the Air reports, which matches the percentage
+  /// shown in Google Health.
+  ///
+  /// Opens a short secure session (about 3 s), which waits while Google Health
+  /// is syncing and hands the channel back afterward. Avoid polling it often.
+  static Future<AirBattery> readBattery() async =>
+      AirBattery.fromMap(await _invokeMap('readBattery'));
+
+  static void Function(Object) _streamError(String fallback) =>
+      (Object error) {
+        if (error is PlatformException) {
+          throw FitbitAirException(error.code, error.message ?? fallback);
+        }
+        throw error;
+      };
 
   /// Cancels the active operation and closes its Bluetooth client.
   /// The pending read completes with a `CANCELLED` exception. Haptic write
@@ -378,6 +434,48 @@ class TapResult {
       verified: map['verified']! as bool,
     );
   }
+}
+
+/// A change in the Air's Bluetooth link state.
+class AirConnectionEvent {
+  const AirConnectionEvent({required this.connected, required this.receivedAt});
+
+  final bool connected;
+
+  /// When the phone observed the change, not when the link actually changed.
+  final DateTime receivedAt;
+
+  factory AirConnectionEvent.fromMap(Map<String, Object?> map) =>
+      AirConnectionEvent(
+        connected: map['connected']! as bool,
+        receivedAt: DateTime.fromMillisecondsSinceEpoch(
+          map['receivedAtMillis']! as int,
+        ),
+      );
+}
+
+/// Battery state reported by the Air.
+class AirBattery {
+  const AirBattery({
+    required this.percent,
+    this.onCharger,
+    this.voltageMillivolts,
+  });
+
+  /// Battery level, 0–100; matches the percentage shown in Google Health.
+  final int percent;
+
+  /// Whether the Air reports being on its charger, when it reports it.
+  final bool? onCharger;
+
+  /// Battery voltage in millivolts, when reported.
+  final int? voltageMillivolts;
+
+  factory AirBattery.fromMap(Map<String, Object?> map) => AirBattery(
+    percent: map['percent']! as int,
+    onCharger: map['onCharger'] as bool?,
+    voltageMillivolts: map['voltageMillivolts'] as int?,
+  );
 }
 
 /// Result of a direct haptic test.

@@ -241,4 +241,25 @@ void main() {
     expect(disconnected.status, 257);
     expect(disconnected.isNotification, isFalse);
   });
+
+  test('channel activity maps idle, polling and syncing', () async {
+    const stream = EventChannel('fitbit_air/channel_activity');
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockStreamHandler(
+          stream,
+          MockStreamHandler.inline(
+            onListen: (arguments, events) {
+              for (final state in ['idle', 'syncing', 'polling']) {
+                events.success({'state': state, 'receivedAtMillis': 0});
+              }
+              events.endOfStream();
+            },
+          ),
+        );
+    expect(await FitbitAirDiagnostics.watchChannelActivity().toList(), [
+      AirChannelActivity.idle,
+      AirChannelActivity.syncing,
+      AirChannelActivity.polling,
+    ]);
+  });
 }

@@ -503,9 +503,17 @@ decoded on hardware; battery level was close to Google Health's displayed
 percentage, but no across-firmware scale or voltage calibration was established.
 Its small protobuf decoder
 skips unrelated fields, rejects malformed/truncated data and preserves missing
-values as absent. Units and scale remain unverified, so no percent conversion
-or voltage units are claimed yet. Standard GATT device-info reads still do not
-open a Golden Gate session merely to populate batteryPercent.
+values as absent. Standard GATT device-info reads still do not open a Golden
+Gate session merely to populate batteryPercent.
+
+**Calibration (2026-10-17).** At 22:10 the Air reported level `55` while Google
+Health's Devices page showed "55 %"; a second read at 22:15 again returned
+`55`, with voltage `3951` and charger `0`. The level is therefore the
+percentage Google Health displays, and is exposed as `FitbitAir.readBattery()`.
+Voltage is consistent with millivolts for a lithium cell at that charge
+(3.95 V) and is reported as `voltageMillivolts`. Only charger `0` has been
+observed; `onCharger` is reported as raw nonzero-means-true until a reading on
+the charger confirms it.
 
 Other candidates—notifications, alarms, battery alerts, sync status, and the
 ping characteristic—must be traced and tested individually. They should not be

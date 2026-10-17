@@ -59,6 +59,10 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
     private var secureCaptureSeconds = 30
     private var diagnosticEvents: EventChannel.EventSink? = null
     private var eventMonitor: AirEventMonitor? = null
+    private lateinit var connectionChannel: EventChannel
+    private var connectionWatcher: AirConnectionWatcher? = null
+    private lateinit var channelActivityChannel: EventChannel
+    private var channelMonitor: AirChannelMonitor? = null
     private var heartRateEvents: EventChannel.EventSink? = null
     private var heartRateStreamGeneration = 0
     private var activity: Activity? = null
@@ -199,6 +203,50 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
                 }
             }
         })
+        connectionChannel = EventChannel(binding.binaryMessenger, "fitbit_air/connection")
+        connectionChannel.setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(arguments: Any?, events: EventChannel.EventSink) {
+                withBluetoothPermission(streamPermissionResult(events)) {
+                    val device = findBondedAir() ?: run {
+                        events.error("AIR_NOT_FOUND", "Pair your Air in Google Health first.", null)
+                        events.endOfStream()
+                        return@withBluetoothPermission
+                    }
+                    connectionWatcher?.close()
+                    connectionWatcher = AirConnectionWatcher(appContext, device) { events.success(it) }
+                        .also { it.start() }
+                }
+            }
+
+            override fun onCancel(arguments: Any?) {
+                connectionWatcher?.close()
+                connectionWatcher = null
+            }
+        })
+        channelActivityChannel = EventChannel(binding.binaryMessenger, "fitbit_air/channel_activity")
+        channelActivityChannel.setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(arguments: Any?, events: EventChannel.EventSink) {
+                withBluetoothPermission(streamPermissionResult(events)) {
+                    val device = findBondedAir() ?: run {
+                        events.error("AIR_NOT_FOUND", "Pair your Air in Google Health first.", null)
+                        events.endOfStream()
+                        return@withBluetoothPermission
+                    }
+                    channelMonitor?.close()
+                    val monitor = AirChannelMonitor(appContext, { events.success(it) }) { code, message ->
+                        events.error(code, message, null)
+                        events.endOfStream()
+                    }
+                    channelMonitor = monitor
+                    monitor.start(device)
+                }
+            }
+
+            override fun onCancel(arguments: Any?) {
+                channelMonitor?.close()
+                channelMonitor = null
+            }
+        })
         deviceEventChannel = EventChannel(binding.binaryMessenger, "fitbit_air/device_events")
         deviceEventChannel.setStreamHandler(object : EventChannel.StreamHandler {
             override fun onListen(arguments: Any?, events: EventChannel.EventSink) {
@@ -294,6 +342,16 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
             "getHapticIntensity" -> withBluetoothPermission(result) {
                 startOperation(result, Operation.ReadHapticIntensity)
             }
+            "readBattery" -> withBluetoothPermission(result) {
+                startOperation(result, Operation.ReadBattery)
+            }
+            "readSignalStrength" -> withBluetoothPermission(result) {
+                startOperation(result, Operation.ReadSignalStrength)
+            }
+            "isAirConnected" -> withBluetoothPermission(result) {
+                val device = findBondedAir()
+                result.success(device != null && AirConnectionWatcher.isConnected(appContext, device))
+            }
             "probeBatteryAccess" -> withBluetoothPermission(result) {
                 startOperation(result, Operation.ProbeBatteryAccess)
             }
@@ -323,6 +381,16 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
             }
             else -> result.notImplemented()
         }
+    }
+
+    /** Reports permission failures of a passive stream as stream errors. */
+    private fun streamPermissionResult(events: EventChannel.EventSink) = object : MethodChannel.Result {
+        override fun success(result: Any?) { }
+        override fun error(code: String, message: String?, details: Any?) {
+            events.error(code, message, details)
+            events.endOfStream()
+        }
+        override fun notImplemented() = error("INTERNAL", "Stream unavailable.", null)
     }
 
     private fun withBluetoothPermission(result: MethodChannel.Result, needsScan: Boolean = false, action: () -> Unit) {
@@ -431,6 +499,8 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
             Operation.PreviewHaptic -> "PreviewHaptic"
             Operation.ReadHapticIntensity -> "ReadHapticIntensity"
             Operation.ProbeBatteryAccess -> "ProbeBatteryAccess"
+            Operation.ReadBattery -> "ReadBattery"
+            Operation.ReadSignalStrength -> "ReadSignalStrength"
             Operation.ProbeReadOnlyResources -> "ProbeReadOnlyResources"
             Operation.CaptureSecureEvents -> "CaptureSecureEvents"
             is Operation.SetHapticIntensity -> "SetHapticIntensity"
@@ -454,6 +524,10 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
                 if (g !== gatt) return@dispatch
                 if (status != BluetoothGatt.GATT_SUCCESS) {
                     finishError("GATT_CONNECT", "Bluetooth connection failed (status $status).")
+                } else if (newState == android.bluetooth.BluetoothProfile.STATE_CONNECTED &&
+                    activeOperation == Operation.ReadSignalStrength) {
+                    // Signal strength needs only the link, not services or the tracker channel.
+                    if (!g.readRemoteRssi()) finishError("RSSI", "Android rejected the signal-strength read.")
                 } else if (newState == android.bluetooth.BluetoothProfile.STATE_CONNECTED) {
                     g.discoverServices()
                 } else if (newState == android.bluetooth.BluetoothProfile.STATE_DISCONNECTED) {
@@ -543,6 +617,12 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
                 } else {
                     writeNextPacket(g)
                 }
+            }
+
+            override fun onReadRemoteRssi(g: BluetoothGatt, rssi: Int, status: Int) = gattCallbacks.dispatch(g) {
+                if (g !== gatt || activeOperation != Operation.ReadSignalStrength) return@dispatch
+                if (status == BluetoothGatt.GATT_SUCCESS) finishSuccess(mapOf("rssi" to rssi))
+                else finishError("RSSI", "Signal-strength read failed (status $status).")
             }
 
             override fun onCharacteristicRead(g: BluetoothGatt, c: BluetoothGattCharacteristic, value: ByteArray, status: Int) = gattCallbacks.dispatch(g) {
@@ -858,6 +938,8 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
             Operation.PreviewHaptic -> runBoundedHaptic(coap)
             Operation.ReadHapticIntensity -> runReadHapticIntensity(coap)
             Operation.ProbeBatteryAccess -> runBatteryAccessProbe(coap)
+            Operation.ReadBattery -> runReadBattery(coap)
+            Operation.ReadSignalStrength -> finishSessionError(coap, "INTERNAL", "Signal strength does not use DTLS.")
             Operation.ProbeReadOnlyResources -> disposables.add(AirReadOnlyResources.probe(coap)
                 .subscribe({ finishSessionSuccess(coap, it) }, {
                     finishSessionError(coap, "RESOURCE_PROBE_FAILED", "Read-only resource probe failed.")
@@ -893,6 +975,29 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
             is Operation.Tap -> runTap(coap, operation.intensity)
             null -> finishSessionError(coap, "INTERNAL", "No Fitbit Air operation was selected.")
         }
+    }
+
+    /**
+     * Battery level from the device-information resource. The level matched
+     * Google Health's displayed percentage; voltage is in millivolts.
+     */
+    private fun runReadBattery(coap: CoapEndpoint) {
+        val request = OutgoingRequestBuilder("/md/606", Method.GET)
+            .expectSuccess(false).forceNonBlockwise(true).maxResendCount(0).build()
+        disposables.add(coap.responseFor(request).timeout(5, TimeUnit.SECONDS)
+            .flatMap { response -> response.body.asData().map { bytes ->
+                if (response.responseCode.responseClass.toInt() != 2) throw IllegalStateException("Air rejected the battery read.")
+                val fields = AirBatteryDecoder.decode(bytes)
+                val level = fields["rawBatteryLevel"]
+                require(level != null && level in 0..100) { "Air returned no valid battery level." }
+                buildMap<String, Any> {
+                    put("percent", level)
+                    fields["rawOnCharger"]?.let { put("onCharger", it != 0) }
+                    fields["rawVoltage"]?.let { put("voltageMillivolts", it) }
+                }
+            } }.subscribe({ finishSessionSuccess(coap, it) }, { error ->
+                finishSessionError(coap, "BATTERY_READ_FAILED", error.message ?: "Could not read the battery level.")
+            }))
     }
 
     /** Read-only research probe. Never exposes device identifiers or raw body. */
@@ -1287,6 +1392,12 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
         heartRateChannel.setStreamHandler(null)
         heartRateEvents = null
         deviceEventChannel.setStreamHandler(null)
+        connectionChannel.setStreamHandler(null)
+        connectionWatcher?.close()
+        connectionWatcher = null
+        channelActivityChannel.setStreamHandler(null)
+        channelMonitor?.close()
+        channelMonitor = null
         diagnosticEvents = null
         eventMonitor?.close()
         eventMonitor = null
@@ -1343,6 +1454,8 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
         data object PreviewHaptic : Operation
         data object ReadHapticIntensity : Operation
         data object ProbeBatteryAccess : Operation
+        data object ReadBattery : Operation
+        data object ReadSignalStrength : Operation
         data object ProbeReadOnlyResources : Operation
         data object CaptureSecureEvents : Operation
         data class SetHapticIntensity(val intensity: Int) : Operation
