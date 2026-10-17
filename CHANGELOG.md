@@ -1,5 +1,13 @@
 ## Unreleased
 
+- Add `FitbitAir.readBattery()`: the battery percentage Google Health shows
+  (verified equal), voltage in millivolts, and whether the Air is on its
+  charger (verified on and off the charger).
+- Add `FitbitAir.isAirConnected()` and `watchConnection()` from Android's
+  system connection events (no connection of their own), and
+  `readSignalStrength()` for a rough proximity hint in dBm.
+- Add `FitbitAirDiagnostics.watchChannelActivity()`: passively reports whether
+  Google Health is idle, polling or syncing on the Air's shared channel.
 - Sync-aware hold: before each secure command, passively observe the shared
   tracker channel and wait (up to 10 s) while Google Health is transferring
   data. Polling never blocks a command. Reported as `channelHold`. In 8

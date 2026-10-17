@@ -9,6 +9,32 @@ class FitbitAirDiagnostics {
   static const _channel = EventChannel('fitbit_air/device_events');
   static const _methods = MethodChannel('fitbit_air');
   static const _secureChannel = EventChannel('fitbit_air/secure_events');
+  static const _activityChannel = EventChannel('fitbit_air/channel_activity');
+
+  /// How Google Health is using the Air's shared secure channel, observed
+  /// passively: [AirChannelActivity.idle], [AirChannelActivity.polling]
+  /// (Google Health open in the foreground) or [AirChannelActivity.syncing]
+  /// (a data transfer). Emits the current state, then every change.
+  ///
+  /// Only timing and sizes of the Air's encrypted notifications are used; the
+  /// stream never writes to the channel. Commands from this package also
+  /// appear as activity while they run.
+  static Stream<AirChannelActivity> watchChannelActivity() => _activityChannel
+      .receiveBroadcastStream()
+      .map(
+        (value) => AirChannelActivity.values.byName(
+          (value as Map)['state']! as String,
+        ),
+      )
+      .handleError((Object error) {
+        if (error is PlatformException) {
+          throw FitbitAirException(
+            error.code,
+            error.message ?? 'Channel activity stream failed.',
+          );
+        }
+        throw error;
+      });
 
   /// Reads bounded command-cleanup history shared by engines in this process.
   /// Does not connect or require Bluetooth permission. `returned` means the
@@ -275,4 +301,16 @@ class AirDeviceEvent {
   final Uint8List payload;
 
   bool get isNotification => kind == 'notification';
+}
+
+/// Google Health's use of the Air's shared secure channel.
+enum AirChannelActivity {
+  /// No traffic: a command now will not interrupt Google Health.
+  idle,
+
+  /// Google Health is open and checking in about once a second.
+  polling,
+
+  /// A data transfer is in progress; commands wait for it to finish.
+  syncing,
 }

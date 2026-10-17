@@ -102,6 +102,26 @@ FitbitAir.watchHeartRate().listen((sample) {
 });
 ```
 
+### Battery, connection and proximity
+
+```dart
+final battery = await FitbitAir.readBattery();
+print('${battery.percent} %');
+
+// Passive: no connection of our own, safe to keep running.
+FitbitAir.watchConnection().listen((event) {
+  if (!event.connected) {
+    // Out of range, Bluetooth off, or the Air powered down.
+  }
+});
+
+final rssi = await FitbitAir.readSignalStrength(); // e.g. -67 dBm
+```
+
+`readBattery()` opens a short secure session (a few seconds) that waits while
+Google Health is syncing, so read it on demand rather than polling frequently.
+Connection events and signal strength do not touch the secure channel.
+
 ### Handle errors
 
 Every method throws a `FitbitAirException` with a stable `code`:
@@ -161,13 +181,15 @@ flutter run
 | Read/set low or high vibration strength | Implemented and verified |
 | Device model, firmware, manufacturer | GATT read verified on Pixel 7 Pro / Air firmware 67.20001.253.2 |
 | BLE services and connection status | Read-only discovery and link status decoder implemented |
+| Connection state and proximity | `isAirConnected()`, `watchConnection()` (system events, no connection) and `readSignalStrength()` (dBm) verified on Pixel 7 Pro |
+| Google Health activity | `FitbitAirDiagnostics.watchChannelActivity()` reports idle / polling / syncing passively; verified against opening Google Health and a manual sync |
 | Scan advertised heart-rate sensors | Experimental; requires Nearby devices scan permission |
 | Restore/verify prior vibration intensity | Physically verified |
 | Root/OAuth/private PSK required | No, for the bootstrap haptic path |
 | Detect taps on the Air | Not possible with the tested firmware: taps, including a recognized alarm dismissal, send nothing to the phone ([research](doc/research.md#passive-tap-observation-2026-10-17)) |
 | Headless haptics | Release-mode background and controlled screen-off commands verified; a user-reported overnight relay run worked. Deep-idle/reboot reliability not systematically measured |
 | Raw diagnostic events | Opt-in research stream; no confirmed tap decoder |
-| Battery resource | Bootstrap read access verified; selected raw fields available in diagnostics, units/scale unverified |
+| Battery | `readBattery()`: level matched Google Health's percentage exactly; voltage in mV; charger flag verified on and off the charger |
 | Heart rate | Standard BLE readings and continuous updates verified; requires an active Google Health sharing session |
 | Google Health coexistence | Commands wait while Google Health is transferring and end with a channel handoff, so it resynchronizes immediately instead of after a ~60 s watchdog reconnect. In 8 vibrations sent during Google Health syncs, all 8 syncs completed |
 | iOS | Not implemented |
