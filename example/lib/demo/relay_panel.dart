@@ -281,8 +281,8 @@ class RelayPanel extends StatelessWidget {
                   ),
                   label: Text(
                     state.relayRunning
-                        ? 'Stop notification relay'
-                        : 'Start notification relay',
+                        ? 'Stop notifications'
+                        : 'Start notifications',
                   ),
                 ),
                 if (state.relayRunning) ...[
@@ -413,7 +413,7 @@ class RelayPanel extends StatelessWidget {
         ],
         const SizedBox(height: 20),
         Text(
-          'Early access · Google Health sync is still being tested. If sync stalls after a vibration, pause the relay.',
+          'Early access · Google Health sync is still being tested. If sync stalls, stop notifications and check Google Health.',
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
             color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),

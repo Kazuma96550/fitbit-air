@@ -337,7 +337,7 @@ class _RelaySetupPageState extends State<RelaySetupPage> {
                           notifications
                               ? 'You’re in control of which apps can vibrate.'
                               : state.access
-                              ? 'Access is enabled but the listener is not connected yet. Check access if this continues.'
+                              ? 'Access is enabled, but Android isn’t sending notifications to Air Relay yet. Check access if this continues.'
                               : 'On the next screen, choose Air Relay and allow notification access.',
                           done: notifications,
                         ),

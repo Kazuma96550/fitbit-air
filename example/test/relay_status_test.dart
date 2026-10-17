@@ -81,4 +81,14 @@ void main() {
       expect(state.setupCompleted, isFalse);
     },
   );
+  test('an existing active relay stays ready before optional onboarding', () {
+    state
+      ..paired = null
+      ..setupCompleted = false
+      ..relayRunning = true
+      ..relayReady = true;
+    expect(RelayStatus.fromController(state).title, 'Ready for notifications');
+    state.relayRunning = false;
+    expect(RelayStatus.fromController(state).recovery, RelayRecovery.setup);
+  });
 }

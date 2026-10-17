@@ -56,7 +56,7 @@ class RelayStatus {
     if (!state.listenerConnected) {
       return const RelayStatus(
         'Notification access disconnected',
-        'Android has not connected the notification listener. Check access, then return here.',
+        'Android isn’t sending notifications to Air Relay yet. Check notification access, then return here.',
         recovery: RelayRecovery.notifications,
       );
     }
@@ -81,7 +81,7 @@ class RelayStatus {
         recovery: RelayRecovery.rules,
       );
     }
-    if (!state.setupCompleted && state.paired == null) {
+    if (!state.relayRunning && !state.setupCompleted && state.paired == null) {
       return const RelayStatus(
         'Finish setting up',
         'Check your paired Air before starting notifications.',
@@ -109,7 +109,7 @@ class RelayStatus {
     if (!state.relayReady) {
       return const RelayStatus(
         'Starting notifications',
-        'Preparing the background relay. Alerts are not ready yet.',
+        'Getting ready to listen for your alerts.',
       );
     }
     return const RelayStatus(
