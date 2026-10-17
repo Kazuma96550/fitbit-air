@@ -152,7 +152,7 @@ class RelayPanel extends StatelessWidget {
     final enabled =
         state.initialized &&
         !state.changingRelay &&
-        !state.batteryReading &&
+        (!state.batteryReading || state.relayRunning) &&
         !transitioning &&
         !state.relayStopping &&
         (state.relayRunning || !state.busy);

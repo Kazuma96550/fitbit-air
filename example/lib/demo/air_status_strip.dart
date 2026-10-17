@@ -70,7 +70,9 @@ class AirStatusStrip extends StatelessWidget {
               state.batteryReading
                   ? 'Checking battery…'
                   : battery == null
-                  ? 'Battery'
+                  ? state.batteryError != null
+                        ? 'Battery · Retry'
+                        : 'Battery'
                   : '${battery.percent}%${stale ? ' · Saved' : ''}',
             ),
             onPressed: () => showModalBottomSheet<void>(
@@ -101,15 +103,15 @@ class AirStatusStrip extends StatelessWidget {
                           const Text('On charger when checked'),
                         const SizedBox(height: 16),
                         Text(
-                          state.relayRunning || state.relayStopping
-                              ? 'Stop notifications to update the battery.'
+                          state.relayStopping
+                              ? 'Waiting for notifications to stop.'
                               : state.batteryReadAt != null &&
                                     DateTime.now().difference(
                                           state.batteryReadAt!,
                                         ) <
                                         const Duration(minutes: 1)
                               ? 'Up to date. You can check again in a minute.'
-                              : 'Updates automatically while this app is open and notifications are stopped. Saved readings stay available between visits.',
+                              : 'Updates automatically while this app is open. Battery checks share the notification queue.',
                         ),
                         if (state.batteryError != null) ...[
                           const SizedBox(height: 8),

@@ -11,6 +11,8 @@ void main() {
   const device = MethodChannel('fitbit_air');
   late DemoController controller;
   var reads = 0;
+  var relayReads = 0;
+  var relayBusy = false;
   Map<Object?, Object?>? saved;
   Completer<Map<String, Object?>>? pending;
   var fail = false;
@@ -21,6 +23,8 @@ void main() {
           (call) async => null,
         );
     reads = 0;
+    relayReads = 0;
+    relayBusy = false;
     saved = null;
     pending = null;
     fail = false;
@@ -40,6 +44,11 @@ void main() {
         });
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(DemoController.channel, (call) async {
+          if (call.method == 'readRelayBattery') {
+            relayReads++;
+            if (relayBusy) throw PlatformException(code: 'BUSY');
+            return {'percent': 66, 'onCharger': false};
+          }
           if (call.method == 'saveBattery') saved = call.arguments as Map;
           if (call.method == 'batteryCache') return saved;
           if (call.method == 'apps') return [];
@@ -51,10 +60,10 @@ void main() {
   });
 
   testWidgets(
-    'foreground automatically reads a missing battery once and reuses it on resume',
+    'foreground reads a missing battery without a passive connection report and reuses it on resume',
     (tester) async {
       controller.setupCompleted = true;
-      controller.airConnected = true;
+      controller.airConnected = null;
       controller.setVisible(true);
       await tester.pump(const Duration(seconds: 2));
       expect(reads, 0);
@@ -63,7 +72,7 @@ void main() {
       expect(reads, 1);
       expect(controller.battery!.percent, 55);
       controller.setVisible(false);
-      controller.airConnected = true;
+      controller.airConnected = null;
       controller.setVisible(true);
       await tester.pump(const Duration(seconds: 10));
       expect(reads, 1);
@@ -118,6 +127,42 @@ void main() {
       await tester.pump();
     },
   );
+
+  testWidgets(
+    'automatic battery uses the running relay worker without a UI engine read',
+    (tester) async {
+      controller.setupCompleted = true;
+      controller.relayRunning = true;
+      controller.relayReady = true;
+      controller.airConnected = false;
+      controller.setVisible(true);
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pump();
+      expect(relayReads, 1);
+      expect(reads, 0);
+      expect(controller.relayRunning, isTrue);
+      expect(controller.battery!.percent, 66);
+      controller.setVisible(false);
+      await tester.pump();
+    },
+  );
+
+  testWidgets('busy relay does not retry on every status poll', (tester) async {
+    relayBusy = true;
+    controller.setupCompleted = true;
+    controller.relayRunning = true;
+    controller.relayReady = true;
+    controller.setVisible(true);
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pump();
+    expect(relayReads, 1);
+    await tester.pump(const Duration(seconds: 10));
+    expect(relayReads, 1);
+    expect(reads, 0);
+    expect(controller.batteryReading, isFalse);
+    controller.setVisible(false);
+    await tester.pump();
+  });
 
   test(
     'passive connection subscription is shared across refreshes and released in background',
@@ -198,12 +243,16 @@ void main() {
       expect(controller.battery!.percent, 20);
       expect(controller.batteryReadAt, at);
       expect(controller.batteryError, isNotNull);
+      expect(
+        controller.report()['battery'],
+        containsPair('errorCode', 'TIMEOUT'),
+      );
       expect(reads, 1);
     },
   );
 
   testWidgets(
-    'saved low battery opens a readable sheet with refresh disabled during relay',
+    'saved low battery opens a readable sheet with refresh disabled during warmup',
     (tester) async {
       controller.battery = const AirBattery(percent: 15, onCharger: true);
       controller.batteryReadAt = DateTime.now().subtract(

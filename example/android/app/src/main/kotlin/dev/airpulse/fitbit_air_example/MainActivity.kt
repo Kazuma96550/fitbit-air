@@ -16,6 +16,11 @@ class MainActivity : FlutterActivity() {
             .setMethodCallHandler { call, result ->
                 try {
                     when (call.method) {
+                        "readRelayBattery" -> {
+                            val relay = CalendarRelayService.active
+                            if (relay == null) result.error("BUSY", "The relay is changing state.", null)
+                            else relay.readBattery(result)
+                        }
                         "batteryCache" -> {
                             val cache = getSharedPreferences("air_battery", MODE_PRIVATE)
                             result.success(if (!cache.contains("percent")) null else mapOf(

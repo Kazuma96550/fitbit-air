@@ -469,17 +469,25 @@ whether it was on its charger then, and an Update battery action. Readings and
 their original timestamps survive app restarts in local preferences excluded
 from Android backup and device transfer. A failed refresh keeps the last value.
 
-Battery updates automatically while the app is visible, setup is complete, the
-passive Bluetooth link is connected, and a reading is missing or six hours old.
-A three-second delay lets the screen settle and gives Start priority. Failed
-automatic attempts back off for 15 minutes. Pending updates are cancelled in
-the background and rechecked before running. Manual refresh remains available.
-A read opens a short secure session,
-so the action is unavailable while relaying, stopping, previewing or running a
-device operation. Starting the relay is blocked during the read. Successful
-readings are reused for at least a minute. The ordinary status poll only schedules
-an eligible stale update; it never
-reads the battery every two seconds or interrupts an active relay.
+Battery updates automatically while the app is visible, setup is complete,
+and a reading is missing or six hours old. The passive Bluetooth connection
+label is informational and never prevents a read: Android may report no
+existing link even though the paired Air can be contacted.
+
+A three-second delay lets the screen settle. When notifications are on,
+battery reads use the relay's existing worker only if its queue is idle.
+Notifications arriving during a read wait in the same serial queue, retaining
+their original expiry, instead of racing another engine for Bluetooth. Stop
+remains available and waits for the read's cleanup before destroying the worker.
+When the relay is off, the foreground engine performs the read instead.
+The relay is never stopped or restarted automatically to check battery.
+
+A busy worker defers automatic retry for 30 seconds; other read failures back
+off for 15 minutes. Pending updates are cancelled in the background. Manual
+refresh remains available, and successful readings are reused for at least a
+minute. The ordinary two-second status poll only schedules eligible updates.
+Battery read errors and timestamps are included in diagnostic exports without
+chat identities or device addresses.
 
 The connection label uses PR #6's passive Android Bluetooth events only while
 the app is visible and permission is granted. It describes the phone's Bluetooth

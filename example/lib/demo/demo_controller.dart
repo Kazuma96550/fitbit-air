@@ -35,6 +35,7 @@ class DemoController extends ChangeNotifier {
   DateTime? batteryReadAt;
   bool batteryReading = false;
   String? batteryError;
+  String? batteryErrorCode;
   bool? airConnected;
   StreamSubscription<AirConnectionEvent>? _connection;
   bool _visible = false;
@@ -46,7 +47,6 @@ class DemoController extends ChangeNotifier {
       !_disposed &&
       _visible &&
       setupCompleted &&
-      airConnected == true &&
       canReadBattery &&
       (batteryReadAt == null ||
           DateTime.now().difference(batteryReadAt!) >= batteryFreshness) &&
@@ -73,7 +73,7 @@ class DemoController extends ChangeNotifier {
       !busy &&
       !previewing &&
       !changingRelay &&
-      !relayRunning &&
+      (!relayRunning || relayReady) &&
       !relayStopping &&
       relayTransition == null &&
       !batteryReading &&
@@ -88,9 +88,22 @@ class DemoController extends ChangeNotifier {
     _lastBatteryAttempt = DateTime.now();
     batteryReading = true;
     batteryError = null;
+    batteryErrorCode = null;
     _changed();
     try {
-      final value = await FitbitAir.readBattery();
+      final value = relayRunning
+          ? AirBattery.fromMap(
+              Map<String, Object?>.from(
+                (await channel
+                        .invokeMapMethod<String, Object?>('readRelayBattery')
+                        .timeout(const Duration(seconds: 60))) ??
+                    (throw const FitbitAirException(
+                      'EMPTY_RESULT',
+                      'Battery read unavailable.',
+                    )),
+              ),
+            )
+          : await FitbitAir.readBattery();
       final at = DateTime.now();
       battery = value;
       batteryReadAt = at;
@@ -104,8 +117,23 @@ class DemoController extends ChangeNotifier {
         batteryError =
             'Updated, but could not save this reading for next time.';
       }
+    } on PlatformException catch (error) {
+      batteryErrorCode = error.code;
+      if (error.code == 'BUSY') {
+        _lastBatteryAttempt = DateTime.now().subtract(
+          const Duration(minutes: 14, seconds: 30),
+        );
+        batteryError =
+            'Waiting for notification delivery. Will try again shortly.';
+      } else {
+        batteryError = 'Could not update. Tap to try again.';
+      }
+    } on FitbitAirException catch (error) {
+      batteryErrorCode = error.code;
+      batteryError = 'Could not update. Tap to try again.';
     } catch (_) {
-      batteryError = 'Could not update. Your last reading is kept.';
+      batteryErrorCode = 'READ_FAILED';
+      batteryError = 'Could not update. Tap to try again.';
     } finally {
       batteryReading = false;
       _changed();
@@ -774,8 +802,15 @@ class DemoController extends ChangeNotifier {
 
   Map<String, Object?> report() => {
     'schemaVersion': 1,
-    'demoVersion': '0.1.4-dev.6',
+    'demoVersion': '0.1.4-dev.7',
     'exportedAt': DateTime.now().toUtc().toIso8601String(),
+    'battery': {
+      'hasReading': battery != null,
+      'readAt': batteryReadAt?.toUtc().toIso8601String(),
+      'refreshing': batteryReading,
+      'errorCode': batteryErrorCode,
+      'connectionHint': airConnected,
+    },
     'relay': {
       'running': relayRunning,
       'history': history,

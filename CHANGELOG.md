@@ -1,10 +1,14 @@
 ## Unreleased
 
+- Fix automatic battery reads being blocked by passive connection status and
+  an enabled relay. Serialize reads and notification commands in the relay's
+  existing worker, defer reads while it is busy, and expose read failures.
+
 - Give enabled notification Start/Stop taps subtle phone haptic feedback.
 
 - Show battery and passive Bluetooth link status on Home. Persist timestamped
   battery readings locally and label older values as saved. Automatically
-  update missing or six-hour-old readings while visible, connected and idle,
+  update missing or six-hour-old readings while visible and ready,
   with a short delay and failure backoff. Never stop a relay to update battery.
 
 - Add `FitbitAir.readBattery()`: the battery percentage Google Health shows

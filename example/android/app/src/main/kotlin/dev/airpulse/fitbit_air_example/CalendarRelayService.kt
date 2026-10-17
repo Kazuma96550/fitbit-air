@@ -264,6 +264,20 @@ class CalendarRelayService : Service() {
         end()
     }
 
+    internal fun readBattery(reply: MethodChannel.Result) {
+        val worker = channel
+        if (!ready || stopping || pending != 0 || worker == null) {
+            reply.error("BUSY", "The relay is delivering a notification. Try again shortly.", null)
+            return
+        }
+        begin()
+        worker.invokeMethod("readBattery", null, object : MethodChannel.Result {
+            override fun success(result: Any?) { end(); reply.success(result) }
+            override fun error(code: String, message: String?, details: Any?) { end(); reply.error(code, message, details) }
+            override fun notImplemented() { end(); reply.error("WORKER_UNAVAILABLE", "Battery read unavailable.", null) }
+        })
+    }
+
     private fun dispatch(id: String, sbnPackage: String?, postedAt: Long, expiresAt: Long, preset: RelayPreset) {
         begin()
         refreshDeadline()

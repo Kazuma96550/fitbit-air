@@ -12,6 +12,7 @@ import 'demo/relay_panel.dart';
 import 'demo/rules_panel.dart';
 import 'demo/wrist_presence_card.dart';
 import 'demo/setup_page.dart';
+import 'demo/relay_operation_queue.dart';
 
 void main() => runApp(const DemoApp());
 
@@ -64,23 +65,37 @@ Future<void> airCalendarRelay() async {
   WidgetsFlutterBinding.ensureInitialized();
   const channel = MethodChannel('fitbit_air_example/calendar_worker');
   final dispatcher = AirHapticDispatcher();
+  final operations = RelayOperationQueue();
   channel.setMethodCallHandler((call) async {
     if (call.method == 'close') {
       dispatcher.close();
       return null;
     }
+    if (call.method == 'readBattery') {
+      if (!operations.isIdle) throw PlatformException(code: 'BUSY');
+      try {
+        final value = await operations.run(FitbitAir.readBattery);
+        return {'percent': value.percent, 'onCharger': value.onCharger};
+      } on FitbitAirException catch (error) {
+        throw PlatformException(code: error.code, message: error.message);
+      }
+    }
     if (call.method != 'dispatch') throw MissingPluginException();
     final args = Map<String, Object?>.from(call.arguments as Map);
-    final result = await dispatcher.submit(
-      AirHapticCommand(
-        id: args['id']! as String,
-        expiresAt: DateTime.fromMillisecondsSinceEpoch(
-          args['expiresAt']! as int,
+    final result = await operations.run(
+      () => dispatcher.submit(
+        AirHapticCommand(
+          id: args['id']! as String,
+          expiresAt: DateTime.fromMillisecondsSinceEpoch(
+            args['expiresAt']! as int,
+          ),
+          kind: args['kind'] == 'tap'
+              ? AirHapticKind.tap
+              : AirHapticKind.preview,
+          intensity: args['intensity'] == null
+              ? null
+              : HapticIntensity.fromWireValue(args['intensity'] as int),
         ),
-        kind: args['kind'] == 'tap' ? AirHapticKind.tap : AirHapticKind.preview,
-        intensity: args['intensity'] == null
-            ? null
-            : HapticIntensity.fromWireValue(args['intensity'] as int),
       ),
     );
     return {'status': result.status.name, 'errorCode': result.error?.code};
