@@ -96,7 +96,7 @@ Future<AirHapticDispatchResult> handleTouch(
 ) => haptics.submit(AirHapticCommand(
   id: messageId,
   expiresAt: expiresAt,
-  kind: AirHapticKind.singlePulse, // Retains the alternate persistent strength.
+  kind: AirHapticKind.tap, // One pulse; the wearer's strength is kept.
 ));
 ```
 

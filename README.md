@@ -20,8 +20,6 @@ same Android phone in the installed Google Health app.
 
 ## Install
 
-Install the published package:
-
 ```bash
 flutter pub add fitbit_air
 ```
@@ -33,10 +31,7 @@ dependencies:
   fitbit_air: ^0.1.3
 ```
 
-Version **0.1.3** includes the 0.1.2 secure-event and wrist-presence
-diagnostics, `tap()`, and the Google Health channel handoff; see the changelog.
-
-For unreleased development changes only, use the Git repository instead:
+To try unreleased changes, depend on the Git repository instead:
 
 ```yaml
 dependencies:
@@ -45,39 +40,107 @@ dependencies:
       url: https://github.com/ThoreKoritzius/fitbit-air.git
 ```
 
-The plugin contributes the Android Bluetooth permissions. Android 12+ asks the
-user for Nearby devices access on first use.
+**Requirements:** an Android phone (arm64 tested) with the Fitbit Air paired in
+the Google Health app. The plugin declares the Bluetooth permissions; on
+Android 12+ the user is asked for Nearby devices access on first use.
 
 ## Use
 
 ```dart
 import 'package:fitbit_air/fitbit_air.dart';
+```
 
-if (await FitbitAir.isAirPaired()) {
-  // Exactly one pulse at the strength set in Google Health, which is kept.
-  final result = await FitbitAir.tap();
-  print('Tapped at ${result.intensity.name}');
+### Check for a paired Air
+
+```dart
+if (!await FitbitAir.isAirPaired()) {
+  // Ask the user to pair the Air in Google Health first.
 }
 ```
 
-The public haptic operations have deliberately different semantics:
+### Send a single tap
 
-- `tap()` produces one pulse at the strength set in Google Health and keeps it.
-  It sends the other strength and the original in one settings message; the
-  Air supersedes the first pulse. `tap(intensity: HapticIntensity.low)` pulses
-  at an explicit strength; if that differs from the current one, the Air keeps
-  the new strength (`changed: true`), because it only pulses on changes.
-- `pulse()` produces one pulse by alternating low/high strength and leaves the
-  new strength active from the plugin's perspective. Google Health may later
-  reconcile its own stored setting after the plugin disconnects.
-- `setHapticIntensity()` persistently selects low or high and produces one pulse
-  only when the value changes.
-- `getHapticIntensity()` is read-only.
-- `vibrate()` is the restore-safe preview: it changes the strength, waits, then
-  restores it. That necessarily produces two pulses.
+```dart
+final result = await FitbitAir.tap();
+print('Tapped at ${result.intensity.name} strength');
+```
 
-Every write is read back and verified. The restore-safe operation also makes a
-best-effort restoration if its main sequence fails.
+`tap()` produces exactly one pulse at the vibration strength chosen in Google
+Health, and leaves that setting unchanged. To use a specific strength:
+
+```dart
+final result = await FitbitAir.tap(intensity: HapticIntensity.low);
+if (result.changed) {
+  // The Air now keeps the low strength: it only vibrates when its strength
+  // changes, so it cannot pulse at one strength and return to another silently.
+}
+```
+
+### Haptic operations at a glance
+
+| Method | Pulses | Vibration strength afterward |
+|---|---|---|
+| `tap()` | 1 | Unchanged |
+| `tap(intensity: …)` | 1 | The requested strength |
+| `vibrate()` | 2 | Unchanged (changed, then restored) |
+| `pulse()` | 1 | Switched between low and high on every call |
+| `setHapticIntensity(…)` | 1 if the value changes, else 0 | The requested strength |
+| `getHapticIntensity()` | 0 | Unchanged (read only) |
+
+Every write is read back from the Air and verified. Each command takes a few
+seconds, and only one runs at a time.
+
+### Read device information and heart rate
+
+```dart
+final info = await FitbitAir.readDeviceInfo();
+print('${info.model} running firmware ${info.firmware}');
+
+// Requires "Share heart rate" to be active in Google Health.
+FitbitAir.watchHeartRate().listen((sample) {
+  print('${sample.beatsPerMinute} bpm');
+});
+```
+
+### Handle errors
+
+Every method throws a `FitbitAirException` with a stable `code`:
+
+```dart
+try {
+  await FitbitAir.tap();
+} on FitbitAirException catch (error) {
+  switch (error.code) {
+    case 'AIR_NOT_FOUND': // No Air paired in Google Health.
+    case 'BLUETOOTH_PERMISSION': // Nearby devices permission denied.
+    case 'BUSY': // Another command is still running.
+    case 'HANDSHAKE_TIMEOUT': // Google Health held the Air; try again shortly.
+    default:
+      print(error.message);
+  }
+}
+```
+
+### Vibrate on notifications
+
+For alerts from push messages or other apps, queue commands through
+`AirHapticDispatcher` from `package:fitbit_air/fitbit_air_commands.dart`. It
+serializes commands, drops duplicates and expired ones, and never retries a
+command blindly:
+
+```dart
+final haptics = AirHapticDispatcher();
+
+await haptics.submit(AirHapticCommand(
+  id: messageId,
+  expiresAt: DateTime.now().add(const Duration(seconds: 30)),
+  kind: AirHapticKind.tap,
+));
+```
+
+Receiving notifications and keeping your app alive in the background are up
+to your app; see [background integration](doc/background.md). The example app
+implements a complete notification relay.
 
 ## Run the example
 
