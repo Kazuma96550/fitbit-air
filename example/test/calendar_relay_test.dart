@@ -133,6 +133,9 @@ void main() {
           if (call.method == 'vibrate') {
             return {'originalIntensity': 2, 'restored': true, 'verified': true};
           }
+          if (call.method == 'tap') {
+            return {'intensity': 3, 'verified': true};
+          }
           throw MissingPluginException();
         });
   });
@@ -210,9 +213,7 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('pulse style is saved and locked while relaying', (
-    tester,
-  ) async {
+  testWidgets('pulse style is saved and locked while relaying', (tester) async {
     access = true;
     await mount(tester);
     expect(controller.pulseStyle, 'single');
@@ -346,6 +347,23 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     },
   );
+
+  testWidgets('test vibration follows the selected style when relay is off', (
+    tester,
+  ) async {
+    access = true;
+    await mount(tester);
+    await tap(tester, 'test-vibration');
+    expect(calls, contains('tap'));
+    expect(calls, isNot(contains('vibrate')));
+    await controller.setPulseStyle('double');
+    await tester.pumpAndSettle();
+    calls.clear();
+    await tap(tester, 'test-vibration');
+    expect(calls, contains('vibrate'));
+    expect(calls, isNot(contains('tap')));
+    await tester.pumpWidget(const SizedBox());
+  });
 
   testWidgets(
     'device controls use the same named actions as the test harness',

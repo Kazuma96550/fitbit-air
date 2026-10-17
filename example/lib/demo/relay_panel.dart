@@ -161,22 +161,21 @@ class RelayPanel extends StatelessWidget {
                   icon: const Icon(Icons.vibration),
                   label: const Text('Test vibration'),
                 ),
+                // Only failures need explaining; a felt pulse speaks for itself.
                 if (state.trials.isNotEmpty &&
-                    state.trials.first['operation'] == 'preview')
+                    const {
+                      'preview',
+                      'tap',
+                    }.contains(state.trials.first['operation']) &&
+                    state.trials.first['outcome'] != 'completed' &&
+                    state.trials.first['outcome'] != 'running')
                   Text(
-                    'Test vibration: ${state.trials.first['outcome'] == 'completed'
-                        ? 'command verified; mark below if you felt it'
-                        : state.trials.first['errorCode'] == null
-                        ? state.trials.first['outcome']
-                        : DemoController.recoveryHint(state.trials.first['errorCode']! as String)}',
-                    key: const ValueKey('test-vibration-result'),
-                  ),
-                if (state.trials.isNotEmpty || state.history.isNotEmpty)
-                  TextButton.icon(
-                    key: const ValueKey('marker-felt-vibration'),
-                    onPressed: () => state.mark('felt_vibration'),
-                    icon: const Icon(Icons.touch_app),
-                    label: const Text('Mark: I felt vibration'),
+                    state.trials.first['errorCode'] == null
+                        ? 'Test vibration: ${state.trials.first['outcome']}'
+                        : DemoController.recoveryHint(
+                            state.trials.first['errorCode']! as String,
+                          ),
+                    key: const ValueKey('test-vibration-error'),
                   ),
                 const SizedBox(height: 12),
                 SegmentedButton<String>(

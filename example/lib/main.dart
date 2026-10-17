@@ -1061,9 +1061,14 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
                   ? RelayPanel(
                       controller: _controller,
                       perform: (action) => _ui(action),
+                      // Match what the relay sends for the selected style.
                       testVibration: () => _controller.relayRunning
                           ? _ui(_controller.testRelay)
-                          : _performAction('preview'),
+                          : _performAction(
+                              _controller.pulseStyle == 'single'
+                                  ? 'tap'
+                                  : 'preview',
+                            ),
                       exportReport: _copyReport,
                     )
                   : ListView(

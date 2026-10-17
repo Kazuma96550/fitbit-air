@@ -6,7 +6,10 @@
   explicit strength (a different strength is kept and reported as `changed`).
   `AirHapticKind.tap` dispatches it. Verified in 14 felt trials on one Air.
 - Relay demo: **One pulse** (`tap()`, now the default) or **Two pulses**
-  (`vibrate()`). Device tab adds **Single tap (keeps strength)**.
+  (`vibrate()`). Test vibration follows the selected style whether or not the
+  relay is running. The relay screen drops the "I felt vibration" marker and
+  the success hint, and shows a line only when a test fails; the Lab keeps its
+  marker. Device tab adds **Single tap (keeps strength)**.
 - Research: the Air pulses only when its strength becomes different from the
   last non-off strength; native notification and heart-rate sharing resources
   return `4.01` on the accessible session.
