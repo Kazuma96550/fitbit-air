@@ -55,6 +55,12 @@ alone. The method-channel result is returned after the handoff (10 s maximum).
 An operation error after the read triggers another best-effort restore. The API
 returns success only after a follow-up read matches the original value.
 
+`tap()` replaces steps 3–5 with one `POST /settings` carrying two entries,
+`[alternate, original]`. The Air supersedes the alternate's pulse, so the wearer
+feels one pulse at the original strength, which is then read back and verified
+(and restored if needed). With an explicit, different strength it writes that
+strength once instead.
+
 `pulse()` omits steps 4–5: it reads the current strength, writes the opposite
 strength once, verifies it, and intentionally leaves it active. This is the
 one-pulse primitive. `setHapticIntensity()` follows the same write/verify path

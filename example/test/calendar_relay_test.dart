@@ -13,6 +13,7 @@ void main() {
   var paired = true;
   var deferStop = false;
   var nameCandidate = false;
+  var pulseStyle = 'single';
   Map<Object?, Object?>? lastSelection;
   late List<Map<String, Object?>> history;
   late List<String> calls;
@@ -26,6 +27,7 @@ void main() {
     paired = true;
     deferStop = false;
     nameCandidate = false;
+    pulseStyle = 'single';
     lastSelection = null;
     conversations = {
       'restricted': false,
@@ -50,6 +52,7 @@ void main() {
                 'ready': running,
                 'stopping': false,
                 'selectedApps': selected,
+                'pulseStyle': pulseStyle,
                 'bluetoothEnabled': true,
                 'bluetoothPermission': true,
                 'history': history,
@@ -89,6 +92,9 @@ void main() {
                   'label': 'Signal',
                 },
               ];
+            case 'setPulseStyle':
+              pulseStyle = (call.arguments as Map)['style'] as String;
+              return null;
             case 'selectApps':
               selected = List<String>.from(
                 (call.arguments as Map)['packages'] as List,
@@ -127,6 +133,9 @@ void main() {
           if (call.method == 'vibrate') {
             return {'originalIntensity': 2, 'restored': true, 'verified': true};
           }
+          if (call.method == 'tap') {
+            return {'intensity': 3, 'verified': true};
+          }
           throw MissingPluginException();
         });
   });
@@ -159,6 +168,29 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  testWidgets('app header fits narrow screens with large system text', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 720);
+    tester.view.devicePixelRatio = 1;
+    tester.platformDispatcher.textScaleFactorTestValue = 1.6;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    await mount(tester);
+    expect(
+      find.byKey(const ValueKey('about-air-relay')).hitTestable(),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+    await tap(tester, 'about-air-relay');
+    expect(
+      find.textContaining('independent notification companion'),
+      findsOneWidget,
+    );
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('requires notification access and keeps setup actionable', (
     tester,
   ) async {
@@ -178,6 +210,33 @@ void main() {
     await tester.pumpAndSettle();
     expect(calls, contains('settings'));
     expect(calls, isNot(contains('start')));
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('pulse style is saved and locked while relaying', (tester) async {
+    access = true;
+    await mount(tester);
+    expect(controller.pulseStyle, 'single');
+    expect(find.textContaining('One pulse per alert'), findsOneWidget);
+    final double = find.descendant(
+      of: find.byKey(const ValueKey('pulse-style')),
+      matching: find.text('Two pulses'),
+    );
+    await tester.scrollUntilVisible(
+      double,
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(double);
+    await tester.pumpAndSettle();
+    expect(pulseStyle, 'double');
+    expect(controller.pulseStyle, 'double');
+    expect(find.textContaining('Two pulses per alert'), findsOneWidget);
+    running = true;
+    await controller.refresh(force: true);
+    await tester.pumpAndSettle();
+    await expectLater(controller.setPulseStyle('single'), throwsStateError);
+    expect(pulseStyle, 'double');
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -201,6 +260,11 @@ void main() {
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pumpAndSettle();
     expect(controller.relayRunning, isFalse);
+    await tester.scrollUntilVisible(
+      find.text('Notification access: not enabled'),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(find.text('Notification access: not enabled'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
   });
@@ -283,6 +347,27 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     },
   );
+
+  testWidgets('test vibration follows the selected style when relay is off', (
+    tester,
+  ) async {
+    access = true;
+    await mount(tester);
+    await tap(tester, 'test-vibration');
+    expect(calls, contains('tap'));
+    expect(calls, isNot(contains('vibrate')));
+    expect(find.text('Sent'), findsOneWidget);
+    expect(find.byKey(const ValueKey('operation-owner')), findsNothing);
+    await tester.pump(const Duration(seconds: 3));
+    expect(find.text('Try it'), findsOneWidget);
+    await controller.setPulseStyle('double');
+    await tester.pumpAndSettle();
+    calls.clear();
+    await tap(tester, 'test-vibration');
+    expect(calls, contains('vibrate'));
+    expect(calls, isNot(contains('tap')));
+    await tester.pumpWidget(const SizedBox());
+  });
 
   testWidgets(
     'device controls use the same named actions as the test harness',

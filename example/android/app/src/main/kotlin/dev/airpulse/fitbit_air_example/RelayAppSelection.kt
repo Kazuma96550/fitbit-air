@@ -23,6 +23,19 @@ internal object RelayAppSelection {
             .edit().putStringSet("selected_apps", packages).apply()
     }
 
+    /** "double": two pulses; "single": one tap. Both keep the wearer's strength. */
+    fun pulseStyle(context: Context): String = context
+        .getSharedPreferences("calendar_relay", Context.MODE_PRIVATE)
+        .getString("pulse_style", "single").takeIf { it in PULSE_STYLES } ?: "single"
+
+    fun savePulseStyle(context: Context, style: String) {
+        require(style in PULSE_STYLES) { "Unknown pulse style." }
+        context.getSharedPreferences("calendar_relay", Context.MODE_PRIVATE)
+            .edit().putString("pulse_style", style).apply()
+    }
+
+    private val PULSE_STYLES = setOf("double", "single")
+
     @Suppress("DEPRECATION")
     fun available(context: Context): List<Map<String, String>> {
         val manager = context.packageManager

@@ -262,7 +262,8 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
                     AirTransportLease.release(transportOwner)
                 }
                 if (activeOperation == Operation.PreviewHaptic ||
-                    activeOperation == Operation.SinglePulse || activeOperation is Operation.SetHapticIntensity) {
+                    activeOperation == Operation.SinglePulse || activeOperation is Operation.Tap ||
+                    activeOperation is Operation.SetHapticIntensity) {
                     result.error("CANNOT_CANCEL_WRITE", "Wait for the haptic write and verification to finish.", null)
                     return
                 }
@@ -306,6 +307,14 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
             }
             "pulse" -> withBluetoothPermission(result) {
                 startOperation(result, Operation.SinglePulse)
+            }
+            "tap" -> {
+                val intensity = call.argument<Int>("intensity")
+                if (intensity != null && intensity !in setOf(2, 3)) {
+                    result.error("INVALID_INTENSITY", "Haptic intensity must be 2 (low) or 3 (high).", null)
+                } else {
+                    withBluetoothPermission(result) { startOperation(result, Operation.Tap(intensity)) }
+                }
             }
             else -> result.notImplemented()
         }
@@ -421,6 +430,7 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
             Operation.CaptureSecureEvents -> "CaptureSecureEvents"
             is Operation.SetHapticIntensity -> "SetHapticIntensity"
             Operation.SinglePulse -> "SinglePulse"
+            is Operation.Tap -> "Tap"
         }
         sessionStarted = false
         handshakeAttempts = 0
@@ -825,6 +835,7 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
             }
             is Operation.SetHapticIntensity -> runSetHapticIntensity(coap, operation.intensity)
             Operation.SinglePulse -> runSinglePulse(coap)
+            is Operation.Tap -> runTap(coap, operation.intensity)
             null -> finishSessionError(coap, "INTERNAL", "No Fitbit Air operation was selected.")
         }
     }
@@ -923,6 +934,50 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
         }))
     }
 
+    /**
+     * One pulse. At the wearer's strength (or a requested equal one), sends
+     * [alternate, original] in one message so the alternate's pulse is
+     * superseded and the original is retained. A different requested strength
+     * is a single change: the Air cannot pulse at one strength and keep another.
+     */
+    private fun runTap(coap: CoapEndpoint, requested: Int?) {
+        disposables.add(readIntensity(coap).flatMap { original ->
+            val target = requested ?: original
+            val body = if (target == original) AirHapticSettings.tap(original) else AirHapticSettings.write(target)
+            postSettings(coap, body)
+                .flatMap { readIntensity(coap) }
+                .onErrorResumeNext { error: Throwable ->
+                    // The message may have been applied even without a reply.
+                    readIntensity(coap).onErrorResumeNext { Single.error(error) }
+                }
+                .flatMap { verified ->
+                    if (verified == target) Single.just(original to target)
+                    else writeIntensity(coap, original).retry(2).flatMap {
+                        Single.error<Pair<Int, Int>>(IllegalStateException("Tap was not verified; the original strength was restored."))
+                    }
+                }
+        }.subscribe({ (original, target) ->
+            finishSessionSuccess(coap, mapOf(
+                "intensity" to target,
+                "previousIntensity" to original,
+                "changed" to (target != original),
+                "verified" to true,
+            ))
+        }, { error ->
+            finishSessionError(coap, "HAPTIC_TAP_FAILED", error.message ?: "Could not send a haptic tap; check vibration strength in Google Health.")
+        }))
+    }
+
+    private fun postSettings(coap: CoapEndpoint, body: ByteArray): Single<Boolean> {
+        val request = OutgoingRequestBuilder("/settings", Method.POST)
+            .expectSuccess(false).forceNonBlockwise(true).maxResendCount(0)
+            .body(body).build()
+        return coap.responseFor(request).timeout(3, TimeUnit.SECONDS).map { response ->
+            if (response.responseCode.responseClass.toInt() != 2) throw IllegalStateException("Air rejected haptic setting change.")
+            true
+        }
+    }
+
     private fun runBoundedHaptic(coap: CoapEndpoint) {
         disposables.add(readIntensity(coap).flatMap { original ->
                 val alternate = if (original == 2) 3 else 2
@@ -954,15 +1009,8 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
         }, { error -> finishSessionError(coap, "HAPTIC_FAILED", error.message ?: "Haptic command failed; check Google Health settings." ) }))
     }
 
-    private fun writeIntensity(coap: CoapEndpoint, intensity: Int): Single<Boolean> {
-        val request = OutgoingRequestBuilder("/settings", Method.POST)
-            .expectSuccess(false).forceNonBlockwise(true).maxResendCount(0)
-            .body(byteArrayOf(10, 4, 10, 2, 8, intensity.toByte())).build()
-        return coap.responseFor(request).timeout(3, TimeUnit.SECONDS).map { response ->
-            if (response.responseCode.responseClass.toInt() != 2) throw IllegalStateException("Air rejected haptic setting change.")
-            true
-        }
-    }
+    private fun writeIntensity(coap: CoapEndpoint, intensity: Int): Single<Boolean> =
+        postSettings(coap, AirHapticSettings.write(intensity))
 
     @SuppressLint("MissingPermission")
     private fun writeNextPacket(activeGatt: BluetoothGatt?) {
@@ -1234,5 +1282,6 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
         data object CaptureSecureEvents : Operation
         data class SetHapticIntensity(val intensity: Int) : Operation
         data object SinglePulse : Operation
+        data class Tap(val intensity: Int?) : Operation
     }
 }

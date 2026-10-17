@@ -12,6 +12,9 @@ enum AirHapticKind {
 
   /// One setting change; intentionally retains the alternate intensity.
   singlePulse,
+
+  /// One pulse at the wearer's strength, which is retained; see [FitbitAir.tap].
+  tap,
 }
 
 /// A host-authenticated command with an application-assigned unique ID.
@@ -159,7 +162,15 @@ class AirHapticDispatcher {
             );
           } else {
             try {
-              if (pending.command.kind == AirHapticKind.singlePulse) {
+              if (pending.command.kind == AirHapticKind.tap) {
+                final tap = await FitbitAir.tap();
+                if (!tap.verified) {
+                  throw const FitbitAirException(
+                    'UNVERIFIED',
+                    'Tap was not verified.',
+                  );
+                }
+              } else if (pending.command.kind == AirHapticKind.singlePulse) {
                 final change = await FitbitAir.pulse();
                 if (!change.verified) {
                   throw const FitbitAirException(

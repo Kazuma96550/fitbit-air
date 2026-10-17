@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'demo/demo_controller.dart';
+import 'demo/app_theme.dart';
 import 'demo/relay_panel.dart';
 
 void main() => runApp(const DemoApp());
@@ -73,6 +74,7 @@ Future<void> airCalendarRelay() async {
         expiresAt: DateTime.fromMillisecondsSinceEpoch(
           args['expiresAt']! as int,
         ),
+        kind: args['kind'] == 'tap' ? AirHapticKind.tap : AirHapticKind.preview,
       ),
     );
     return {'status': result.status.name, 'errorCode': result.error?.code};
@@ -86,11 +88,9 @@ class DemoApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => MaterialApp(
-    title: 'Fitbit Air demo',
-    theme: ThemeData(
-      colorSchemeSeed: const Color(0xff405e91),
-      useMaterial3: true,
-    ),
+    title: 'Air Relay',
+    theme: airRelayTheme(Brightness.light),
+    darkTheme: airRelayTheme(Brightness.dark),
     home: DemoPage(controller: controller),
   );
 }
@@ -107,6 +107,10 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
   late final DemoController _controller;
   int _destination = 0;
   bool get _busy => _controller.busy;
+
+  /// Inline Test vibration state on the Relay tab: null, 'sending' or 'sent'.
+  String? _testFeedback;
+  Timer? _testFeedbackTimer;
   bool get _deviceControlsBlocked =>
       _controller.busy || _controller.changingRelay;
 
@@ -136,6 +140,7 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
       'checkPaired': DemoAction(_check),
       'preview': DemoAction(_vibrate),
       'pulse': DemoAction(_pulse),
+      'tap': DemoAction(_tap),
       'setLow': DemoAction(() => _setIntensity(HapticIntensity.low)),
       'setHigh': DemoAction(() => _setIntensity(HapticIntensity.high)),
       'readDeviceInfo': DemoAction(_readDeviceInfo),
@@ -174,6 +179,54 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
     _controller.cancelCurrent = _cancelOperation;
   }
 
+  /// Relay-tab test: progress stays in the button; failures use a snackbar.
+  Future<void> _testVibration() async {
+    _testFeedbackTimer?.cancel();
+    setState(() => _testFeedback = 'sending');
+    bool sent;
+    if (_controller.relayRunning) {
+      sent = await _ui(_controller.testRelay, retry: _testVibration);
+    } else {
+      final id = _controller.pulseStyle == 'single' ? 'tap' : 'preview';
+      await _ui(() => _controller.runAction(id), retry: _testVibration);
+      final trial = _controller.trials.isEmpty
+          ? null
+          : _controller.trials.first;
+      sent = trial?['operation'] == id && trial?['outcome'] == 'completed';
+      if (!sent && trial?['operation'] == id && mounted) {
+        final code = trial?['errorCode'] as String?;
+        _showError(
+          code == null
+              ? "Couldn't reach your Air."
+              : DemoController.recoveryHint(code),
+          retry: _testVibration,
+        );
+      }
+    }
+    if (!mounted) return;
+    setState(() => _testFeedback = sent ? 'sent' : null);
+    if (sent) {
+      _testFeedbackTimer = Timer(const Duration(seconds: 2), () {
+        if (mounted) setState(() => _testFeedback = null);
+      });
+    }
+  }
+
+  void _showError(String message, {VoidCallback? retry}) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          key: const ValueKey('error-bar'),
+          behavior: SnackBarBehavior.floating,
+          content: Text(message),
+          action: retry == null
+              ? null
+              : SnackBarAction(label: 'Retry', onPressed: retry),
+        ),
+      );
+  }
+
   Future<void> _performAction(String id) async {
     if (_controller.relayRunning) {
       final stop = await showDialog<bool>(
@@ -210,20 +263,24 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
       ? DemoController.recoveryHint(error.code)
       : error.toString();
 
-  Future<void> _ui(Future<void> Function() action) async {
+  /// Runs [action], showing failures in a floating bar. Returns success.
+  Future<bool> _ui(
+    Future<void> Function() action, {
+    VoidCallback? retry,
+  }) async {
     try {
       await action();
+      return true;
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted) return false;
       final message = error is FitbitAirException
           ? DemoController.recoveryHint(error.code)
           : error is PlatformException
           ? DemoController.recoveryHint(error.code)
           : _describeError(error);
       setState(() => _status = message);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(message)));
+      _showError(message, retry: retry);
+      return false;
     }
   }
 
@@ -518,6 +575,7 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
     _controller.setVisible(false);
     if (widget.controller == null) _controller.dispose();
     _stopCaptureClock();
+    _testFeedbackTimer?.cancel();
     _scrollController.dispose();
     _deviceScrollController.dispose();
     _heartRateSubscription?.cancel();
@@ -649,6 +707,16 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
     });
   }
 
+  Future<void> _tap() async {
+    await _run('Sending one haptic tap…', () async {
+      final result = await FitbitAir.tap();
+      if (!result.verified) {
+        throw const FitbitAirException('UNVERIFIED', 'Tap was not verified.');
+      }
+      return 'One tap sent at ${result.intensity.name} strength; strength kept.';
+    });
+  }
+
   Future<void> _pulse() async {
     await _run('Sending one haptic pulse…', () async {
       final result = await FitbitAir.pulse();
@@ -754,7 +822,8 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
     const SizedBox(height: 16),
     _action('checkPaired', 'Check paired Air', Icons.bluetooth_searching),
     _action('preview', 'Two-pulse preview + restore', Icons.vibration),
-    _action('pulse', 'Single pulse (alternates strength)', Icons.touch_app),
+    _action('tap', 'Single tap (keeps strength)', Icons.touch_app),
+    _action('pulse', 'Single pulse (alternates strength)', Icons.swap_vert),
     Row(
       children: [
         Expanded(child: _action('setLow', 'Set low', Icons.volume_down)),
@@ -971,54 +1040,89 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Fitbit Air · dev.7')),
+    appBar: AppBar(
+      title: const Row(
+        children: [
+          AirRelayMark(size: 34),
+          SizedBox(width: 12),
+          Flexible(child: Text('Air Relay', overflow: TextOverflow.ellipsis)),
+        ],
+      ),
+      actions: [
+        IconButton(
+          key: const ValueKey('about-air-relay'),
+          tooltip: 'About Air Relay',
+          icon: const Icon(Icons.info_outline),
+          onPressed: () => showAboutDialog(
+            context: context,
+            applicationName: 'Air Relay',
+            applicationVersion: _controller.report()['demoVersion'] as String?,
+            applicationIcon: const AirRelayMark(size: 48),
+            children: const [
+              Text(
+                'An independent notification companion for Fitbit Air. Not affiliated with Google or Fitbit.',
+              ),
+              SizedBox(height: 12),
+              Text(
+                'Early access. Google Health sync compatibility is still being tested.',
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
     body: Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 640),
         child: Column(
           children: [
-            Semantics(
-              liveRegion: true,
-              child: ListTile(
-                key: const ValueKey('operation-owner'),
-                leading: Icon(
-                  _busy
-                      ? Icons.science
-                      : _controller.relayRunning
-                      ? Icons.notifications_active
-                      : Icons.check_circle_outline,
+            // The Relay tab shows its own test progress inline; other work
+            // started elsewhere still gets the owner banner.
+            if (_destination != 0 || (_busy && _testFeedback == null))
+              Semantics(
+                liveRegion: true,
+                child: ListTile(
+                  key: const ValueKey('operation-owner'),
+                  leading: Icon(
+                    _busy
+                        ? Icons.science
+                        : _controller.relayRunning
+                        ? Icons.notifications_active
+                        : Icons.check_circle_outline,
+                  ),
+                  title: Text(
+                    _busy
+                        ? 'In progress: ${_controller.operationId}'
+                        : _controller.relayRunning
+                        ? 'Relay running'
+                        : 'Ready',
+                  ),
+                  subtitle: _controller.relayStopping
+                      ? const Text(
+                          'Finishing an active command before stopping.',
+                        )
+                      : null,
+                  trailing: _busy
+                      ? TextButton(
+                          key: const ValueKey('cancel-operation'),
+                          onPressed:
+                              _controller.operationId?.startsWith('headless') ==
+                                  true
+                              ? null
+                              : () => _ui(_cancelOperation),
+                          child: const Text('Cancel operation'),
+                        )
+                      : null,
                 ),
-                title: Text(
-                  _busy
-                      ? 'In progress: ${_controller.operationId}'
-                      : _controller.relayRunning
-                      ? 'Relay running'
-                      : 'Ready',
-                ),
-                subtitle: _controller.relayStopping
-                    ? const Text('Finishing an active command before stopping.')
-                    : null,
-                trailing: _busy
-                    ? TextButton(
-                        key: const ValueKey('cancel-operation'),
-                        onPressed:
-                            _controller.operationId?.startsWith('headless') ==
-                                true
-                            ? null
-                            : () => _ui(_cancelOperation),
-                        child: const Text('Cancel operation'),
-                      )
-                    : null,
               ),
-            ),
             Expanded(
               child: _destination == 0
                   ? RelayPanel(
                       controller: _controller,
                       perform: (action) => _ui(action),
-                      testVibration: () => _controller.relayRunning
-                          ? _ui(_controller.testRelay)
-                          : _performAction('preview'),
+                      // Matches what the relay sends for the selected style.
+                      testVibration: _testVibration,
+                      testFeedback: _testFeedback,
                       exportReport: _copyReport,
                     )
                   : ListView(

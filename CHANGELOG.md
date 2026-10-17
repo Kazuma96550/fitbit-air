@@ -1,4 +1,21 @@
-## Unreleased
+## 0.1.3
+
+- Add `FitbitAir.tap()`: exactly one pulse at the strength set in Google Health,
+  which is kept. It sends the other strength and the original in one settings
+  message; the Air supersedes the first pulse. `tap(intensity: …)` pulses at an
+  explicit strength (a different strength is kept and reported as `changed`).
+  `AirHapticKind.tap` dispatches it. Verified in 14 felt trials on one Air.
+- Relay demo: **One pulse** (`tap()`, now the default) or **Two pulses**
+  (`vibrate()`). Test vibration follows the selected style whether or not the
+  relay is running. The relay screen is simplified: Start is the single primary
+  action; a "Vibration" section holds the style selector and a compact
+  **Try it** button that shows progress and "Sent" in place, without the
+  layout-shifting "In progress" banner. Failures appear in a floating bar with
+  Retry. The "I felt vibration" marker moved to the Lab only. Device tab adds
+  **Single tap (keeps strength)**.
+- Research: the Air pulses only when its strength becomes different from the
+  last non-off strength; native notification and heart-rate sharing resources
+  return `4.01` on the accessible session.
 
 - Speed up commands by about 40%: request high connection priority for the
   command's session only and return the link to low power afterwards. The idle

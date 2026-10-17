@@ -1,4 +1,8 @@
-# Fitbit Air example
+# Air Relay · Fitbit Air example
+
+Air Relay is an independent companion example for Fitbit Air, with light and
+dark themes, an adaptive Android launcher icon and a status-first home screen.
+Original icon artwork is in [`assets/brand`](assets/brand).
 
 The app has **Relay**, **Device**, and **Lab** screens. Device and research
 operations use the same named action controller as the integration-test harness.

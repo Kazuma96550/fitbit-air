@@ -30,14 +30,13 @@ Or add it to `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  fitbit_air: ^0.1.1
+  fitbit_air: ^0.1.3
 ```
 
-For unreleased development changes only, use the Git repository instead:
+Version **0.1.3** includes the 0.1.2 secure-event and wrist-presence
+diagnostics, `tap()`, and the Google Health channel handoff; see the changelog.
 
-The current development version is **0.1.2**. Secure-event and wrist-presence
-diagnostics described below require this version; they are not in the published
-0.1.1 release.
+For unreleased development changes only, use the Git repository instead:
 
 ```yaml
 dependencies:
@@ -55,14 +54,19 @@ user for Nearby devices access on first use.
 import 'package:fitbit_air/fitbit_air.dart';
 
 if (await FitbitAir.isAirPaired()) {
-  // Exactly one pulse. This alternates and retains low/high strength.
-  final result = await FitbitAir.pulse();
-  print('${result.previousIntensity} → ${result.currentIntensity}');
+  // Exactly one pulse at the strength set in Google Health, which is kept.
+  final result = await FitbitAir.tap();
+  print('Tapped at ${result.intensity.name}');
 }
 ```
 
 The public haptic operations have deliberately different semantics:
 
+- `tap()` produces one pulse at the strength set in Google Health and keeps it.
+  It sends the other strength and the original in one settings message; the
+  Air supersedes the first pulse. `tap(intensity: HapticIntensity.low)` pulses
+  at an explicit strength; if that differs from the current one, the Air keeps
+  the new strength (`changed: true`), because it only pulses on changes.
 - `pulse()` produces one pulse by alternating low/high strength and leaves the
   new strength active from the plugin's perspective. Google Health may later
   reconcile its own stored setting after the plugin disconnects.

@@ -31,7 +31,7 @@ a negative gesture result.
 the buttons. A device integration test can pass a `DemoController` to `DemoApp`,
 wait for `initialized`, inspect `actionIds`, and invoke `runAction(id)`.
 
-Core IDs: `checkPaired`, `preview`, `pulse`, `setLow`, `setHigh`, `readDeviceInfo`,
+Core IDs: `checkPaired`, `preview`, `tap`, `pulse`, `setLow`, `setHigh`, `readDeviceInfo`,
 `scanHeartRate`, `watchHeartRate`, `watchDeviceEvents`, `watchSecureEvents`,
 `wristPresenceTrial`, `alarmTrial`, `probeBattery`, `probeResources`,
 `headlessHaptic`, `headlessRead`. Heart-rate discovery additionally registers
@@ -52,12 +52,12 @@ Stable Flutter keys are part of the demo's test interface:
 |---|---|
 | Navigation | `nav-relay`, `nav-device`, `nav-lab` |
 | Ownership and cancellation | `operation-owner`, `cancel-operation` |
-| Relay controls | `relay-toggle`, `relay-status`, `test-vibration` |
+| Relay controls | `relay-toggle`, `relay-status`, `test-vibration`, `pulse-style`, `pulse-style-hint`, `error-bar` |
 | App selection | `app-picker`, `app-search`, `app-<packageName>` |
 | Device/research action | `action-<actionId>` |
 | Saved observation duration | `secure-duration` |
 | Confirm/decline relay stop | `stop-relay-for-operation`, `keep-relay` |
-| Physical user observation | `marker-felt-vibration`, `lab-marker-felt-vibration` |
+| Physical user observation (Lab) | `lab-marker-felt-vibration` |
 | Report export | `export-report`, `lab-export` |
 
 Buttons also have descriptive labels and status updates use accessibility live
@@ -351,3 +351,18 @@ dev.7 this produced no vibration and left Google Health stuck until the 45 s
 timeout. A handshake missing after 6 s now gets one fresh attempt before
 failing with `HANDSHAKE_TIMEOUT`. A test build that abandoned every first
 attempt recovered in 4 of 4 runs without Google Health ack timeouts.
+
+### Pulse style (dev.8)
+
+The relay panel offers **One pulse** (default; `tap()`, one pulse at the
+wearer's strength, which is kept) or **Two pulses** (`vibrate()`, original
+strength restored and verified). See
+[research](research.md#single-tap-investigation-2026-10-17) for how a single
+pulse keeps the strength. The choice is stored in app-private preferences and
+can only be changed while the relay is stopped; an explicit earlier choice of
+Two pulses is kept on upgrade. One-pulse commands are also shorter (about 1.3 s
+from session to handoff instead of about 2.5 s). The Device tab has **Single
+tap (keeps strength)** alongside the older alternating **Single pulse**. Four
+production taps (two from the Device tab, two through the relay worker) were
+felt as single pulses at the wearer's strength, each with
+`channelHandoff: reset_observed`.

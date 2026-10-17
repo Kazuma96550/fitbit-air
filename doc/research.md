@@ -58,6 +58,75 @@ The Google Health source uses `aspen/request/adv_on`,
 `aspen/request/session/accept`, and `aspen/info` for its sharing flow. These
 resources have not been probed or exposed through this package.
 
+## Single-tap investigation (2026-10-17)
+
+Goal: one haptic pulse at the user's own strength, with no setting left changed,
+as Google Health produces for heart-rate sharing requests. **Result: achieved
+through `/settings` alone; packaged as `FitbitAir.tap()`.**
+
+**The haptic rule.** On the tested Air, writes to the `/settings` haptics field
+(OFF `1`, LOW `2`, HIGH `3`; all accepted with `2.04`) produced a pulse only
+when the strength became different from the last non-off strength. The wearer
+reported:
+
+| Write | Pulse |
+|---|---|
+| HIGH → HIGH (same value) | none |
+| HIGH → OFF | none |
+| OFF → HIGH | none |
+| HIGH → OFF → LOW | one, at LOW |
+| LOW → HIGH | one, at HIGH |
+
+These trials spaced writes 2.5 s apart, so every change's pulse played in
+full and a restore always cost a second pulse.
+
+**Superseded pulses.** When the second change arrives before the first pulse
+plays, only the second pulse is felt. The wearer counted, after a calibration
+of the known two-pulse pattern (alternate, 800 ms, original → 2 pulses):
+
+| Trial | Pulses felt |
+|---|---|
+| alternate then original, sent back to back | 1, at the original strength |
+| both writes pipelined without awaiting a reply | 1, at the original strength |
+| one message with two entries `[alternate, original]` | 1, at the original strength |
+| the one-message form, 5× at HIGH | 1 HIGH pulse each |
+| the one-message form, 3× at LOW | 1 LOW pulse each |
+
+The strength read back unchanged after every trial. `tap()` uses the
+one-message form (one request, no window where the alternate strength persists),
+then reads back and restores if needed. A pulse at a strength other than the
+current one cannot keep the current strength, because returning to it is
+another change; `tap(intensity: …)` with a different strength therefore keeps
+the requested strength and reports `changed`. This relies on firmware timing
+observed on one Air (firmware `67.20001.253.2`); validate on other firmware.
+
+**Native single-pulse paths need the paired-device key.** Google Health source
+inspection shows two other mechanisms that produce single, configurable haptics:
+notification records posted to `sb/records` (a switchboard record whose common
+notification part carries a haptic-pattern field) and the heart-rate sharing
+flow (`aspen/request/adv_on`, `aspen/request/session/accept`, `aspen/info`;
+states IDLE → READY_FOR_CONNECTION → CONNECTING → SESSION_REQUESTED →
+SESSION_ACCEPTED → SHARING_HR). Over the bootstrap session, `POST sb/records`
+with an empty body, `GET aspen/info` and `GET aspen/summary` all returned
+`4.01 Unauthorized`, like `liveactivity`, `/alarms` and `/sync/status`. Only
+`/settings` and `/md/606` were accessible. The normal key is fetched by Google
+Health from the user's account and stored privately; this project does not
+obtain it.
+
+Google Health also hosts a phone-side GATT notification service
+(`16BCFD00-253F-C348-E831-0DB3E334D580`, ANCS-like source/control/data
+characteristics) to which the Air connects. It belongs to Google Health's GATT
+server registration; another app cannot notify through it, and registering a
+duplicate service would risk Google Health's own link. Google Health's
+all-app notification listener was not enabled on the test phone.
+
+**No standard alert service.** The Air's GATT database contains GAP, GATT,
+Device Information, `ABBAFD00` (link status), `ABBAFF00` (tracker channel),
+`AC2F0045` (Golden Gate GATT-cache confirmation), `180D` (heart rate) and
+`4EEE1C00` (not referenced by Google Health). There is no Immediate Alert
+(`1802`) or Alert Notification (`1811`). Writable characteristics of unknown
+services were not written.
+
 ## Live activity and heart rate
 
 Google Health reads `GET liveactivity` once per second in its normal direct

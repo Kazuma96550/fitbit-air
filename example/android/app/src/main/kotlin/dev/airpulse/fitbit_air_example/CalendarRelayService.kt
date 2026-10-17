@@ -35,6 +35,7 @@ class CalendarRelayService : Service() {
     private var sequence = 0
     private val inFlight = mutableMapOf<String, Pair<String?, Long>>()
     private var selectedPackages = emptySet<String>()
+    private var pulseStyle = "single"
     private var restrictedConversations = false
     private var allowedConversations = emptySet<String>()
     private val handler = Handler(Looper.getMainLooper())
@@ -63,6 +64,7 @@ class CalendarRelayService : Service() {
         restrictedConversations = RelayConversations.restricted(this)
         allowedConversations = RelayConversations.allowed(this)
         selectedPackages = RelayAppSelection.selected(this)
+        pulseStyle = RelayAppSelection.pulseStyle(this)
         if (selectedPackages.isEmpty()) {
             saveOutcome("Select at least one notification app before starting.")
             stopSelf()
@@ -87,7 +89,8 @@ class CalendarRelayService : Service() {
                 else @Suppress("DEPRECATION") Notification.Builder(this)
             val notification = builder.setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
                 .setContentTitle("Notifications → Fitbit Air")
-                .setContentText("Selected app alerts trigger two pulses. Tap Stop to disable.")
+                .setContentText(if (pulseStyle == "single") "Selected app alerts trigger one pulse. Tap Stop to disable."
+                    else "Selected app alerts trigger two pulses. Tap Stop to disable.")
                 .setContentIntent(open).setOngoing(true)
                 .addAction(Notification.Action.Builder(null, "Stop", stop).build()).build()
             if (Build.VERSION.SDK_INT >= 29)
@@ -188,7 +191,8 @@ class CalendarRelayService : Service() {
             end()
         }
         channel?.invokeMethod("dispatch", mapOf(
-            "id" to id, "expiresAt" to expiresAt
+            "id" to id, "expiresAt" to expiresAt,
+            "kind" to if (pulseStyle == "single") "tap" else "preview"
         ), object : MethodChannel.Result {
             override fun success(result: Any?) { finished(RelayWorkerResult.decode(result)) }
             override fun error(code: String, message: String?, details: Any?) {
@@ -320,6 +324,7 @@ class CalendarRelayService : Service() {
             "ready" to (active?.ready == true),
             "stopping" to (active?.stopping == true),
             "selectedApps" to RelayAppSelection.selected(context).sorted(),
+            "pulseStyle" to RelayAppSelection.pulseStyle(context),
             "conversations" to RelayConversations.status(context),
             "history" to RelayHistory.read(context).asReversed().map { it.toMap() },
             "bluetoothPermission" to bluetoothPermission(context),

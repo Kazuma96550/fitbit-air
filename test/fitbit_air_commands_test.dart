@@ -195,6 +195,37 @@ void main() {
     });
   });
 
+  test('tap commands use tap and require verification', () {
+    fakeAsync((time) {
+      var verified = true;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        calls.add(call.method);
+        return {'intensity': 2, 'verified': verified};
+      });
+      final dispatcher = AirHapticDispatcher(
+        minimumInterval: Duration.zero,
+      );
+      final results = <AirHapticDispatchResult>[];
+      AirHapticCommand tap(String id) => AirHapticCommand(
+        id: id,
+        expiresAt: clock.now().add(const Duration(minutes: 1)),
+        kind: AirHapticKind.tap,
+      );
+      dispatcher.submit(tap('a')).then(results.add);
+      time.flushMicrotasks();
+      verified = false;
+      dispatcher.submit(tap('b')).then(results.add);
+      time.flushMicrotasks();
+      expect(calls, ['tap', 'tap']);
+      expect(results.map((r) => r.status), [
+        AirHapticDispatchStatus.completed,
+        AirHapticDispatchStatus.failed,
+      ]);
+      expect(results.last.error?.code, 'UNVERIFIED');
+      dispatcher.close();
+    });
+  });
+
   test('deduplication is time bounded and rejects work after close', () {
     fakeAsync((time) {
       final dispatcher = AirHapticDispatcher(

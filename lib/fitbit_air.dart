@@ -103,12 +103,33 @@ class FitbitAir {
     await _invokeMap('setHapticIntensity', {'intensity': intensity.wireValue}),
   );
 
+  /// One pulse.
+  ///
+  /// Without [intensity] (or with the strength already set), the pulse uses
+  /// the wearer's strength from Google Health, which is retained: the other
+  /// strength and then the original are sent in a single settings message, and
+  /// the Air supersedes the first change's pulse.
+  ///
+  /// With a different [intensity], the pulse uses that strength and the Air
+  /// keeps it ([TapResult.changed] is true). The Air only pulses on strength
+  /// changes, so it cannot pulse at one strength while keeping another.
+  ///
+  /// The setting is read back afterward and restored if verification fails,
+  /// which throws [FitbitAirException] with `HAPTIC_TAP_FAILED`. Observed on
+  /// one Air firmware; see the research notes.
+  static Future<TapResult> tap({HapticIntensity? intensity}) async =>
+      TapResult.fromMap(
+        await _invokeMap('tap', {
+          if (intensity != null) 'intensity': intensity.wireValue,
+        }),
+      );
+
   /// Produces one pulse by switching to the other vibration strength.
   ///
   /// The new strength intentionally remains active, so successive calls
   /// normally alternate between low and high. Google Health may independently
-  /// reconcile its stored setting later. Use [vibrate] when plugin-controlled
-  /// restoration is more important than producing exactly one pulse.
+  /// reconcile its stored setting later. Prefer [tap] for one pulse that keeps
+  /// the wearer's strength.
   static Future<HapticChangeResult> pulse() async =>
       HapticChangeResult.fromMap(await _invokeMap('pulse'));
 
@@ -325,6 +346,38 @@ class HapticChangeResult {
         changed: map['changed']! as bool,
         verified: map['verified']! as bool,
       );
+}
+
+/// Result of [FitbitAir.tap]: one verified pulse.
+class TapResult {
+  const TapResult({
+    required this.intensity,
+    required this.previousIntensity,
+    required this.changed,
+    required this.verified,
+  });
+
+  /// The strength the pulse used, which is now active on the Air.
+  final HapticIntensity intensity;
+
+  /// The strength before the tap.
+  final HapticIntensity previousIntensity;
+
+  /// True when a different strength was requested and is now kept.
+  final bool changed;
+  final bool verified;
+
+  factory TapResult.fromMap(Map<String, Object?> map) {
+    final intensity = HapticIntensity.fromWireValue(map['intensity']! as int);
+    return TapResult(
+      intensity: intensity,
+      previousIntensity: map['previousIntensity'] == null
+          ? intensity
+          : HapticIntensity.fromWireValue(map['previousIntensity']! as int),
+      changed: map['changed'] as bool? ?? false,
+      verified: map['verified']! as bool,
+    );
+  }
 }
 
 /// Result of a direct haptic test.
