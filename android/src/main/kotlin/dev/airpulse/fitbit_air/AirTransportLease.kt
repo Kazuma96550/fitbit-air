@@ -14,6 +14,9 @@ internal object AirTransportLease {
     }
 
     @Synchronized
+    fun isHeld(): Boolean = owner != null
+
+    @Synchronized
     fun release(candidate: Any) {
         if (owner === candidate) owner = null
     }

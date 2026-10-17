@@ -1,3 +1,53 @@
+## Unreleased
+
+- Speed up commands by about 40%: request high connection priority for the
+  command's session only and return the link to low power afterwards. The idle
+  link (~150 ms interval with peripheral latency) made every round trip wait
+  several radio events. Measured end to end: 8.7 s before, 4.0–4.8 s after.
+- Retry a stalled handshake once. After the Air resets its link, Google Health
+  and the SDK can both answer its handshake and neither wins; previously the
+  command then hung until the 45 s timeout while Google Health was also stuck.
+  A handshake missing after 6 s now gets one fresh attempt (no device command
+  has been sent at that point), then fails with `HANDSHAKE_TIMEOUT`.
+- Relay demo: cooldown reduced from 20 s to 15 s, based on measured Google
+  Health sync times after a handoff.
+
+- Relay demo: merge notification bursts. The first alert still vibrates
+  immediately; alerts during a command or its 20 s cooldown join one follow-up
+  vibration sent when the cooldown ends. A burst costs at most two tracker
+  sessions instead of one per message, leaving Google Health quiet windows.
+  History shows merged alerts as `merged`.
+
+- Fix Google Health sync stalling for about a minute after every DTLS command.
+  The Air has one Gattlink/DTLS channel shared by all clients on the link; our
+  session left Google Health's channel out of sync until its ~60 s watchdog
+  reconnected. Commands now end with a handoff: a short session that refuses
+  the Air's key, which makes the Air reset the link for every client, after
+  which the SDK goes silent so Google Health re-handshakes alone. Results are
+  returned after the handoff (typically 1–3 s). Verified in five vibrations on
+  a Pixel 7 Pro, including the relay worker and Google Health in foreground.
+
+- Serialize command Bluetooth callbacks with teardown, discard stale native
+  callbacks/completions, and track partially initialized resources for cleanup.
+  These fix lifecycle races; Health sync coexistence still needs phone validation.
+
+- Expose bounded, process-wide command cleanup diagnostics in demo reports,
+  including teardown failures and app-local transport ownership. This aids
+  Health sync investigation; it does not establish or fix the underlying cause.
+
+- Fix empty WhatsApp capture by inspecting unread notifications immediately,
+  retaining results after listening stops, and exposing safe diagnostic counts.
+- Add explicitly confirmed exact-chat-name rules when message notifications lack
+  a conversation ID; show duplicate-name/rename limitations before saving.
+- Simplify relay setup with a visible Choose people card, collapsed completed
+  device setup, clearer capture states and a nearby sanitized debug report.
+
+- Add example-only WhatsApp/WhatsApp Business conversation allowlists with
+  explicit 60-second local capture, app-scoped conversation matching,
+  fail-closed handling of missing IDs and controls locked while relaying.
+- Keep conversation labels/IDs out of diagnostic reports and Android backups;
+  direct-chat selection supports people, while selected groups allow all senders.
+
 ## 0.1.2
 
 - Organize the example into Relay, Device and Lab screens with a shared named

@@ -37,13 +37,15 @@ const val GATT_HEADER_SIZE = 3
  * @param transportSourcePtr Bottom of stack (data will be received from this source reference)
  * @param stackConfig configuration in which this stack should be created (Default is [DtlsSocketNetifGattlink])
  * @param isNode if stack should be configured as Node or Hub (default is false)
+ * @param tlsKeyResolver resolver chain for DTLS PSK identities (default is the shared registry)
  */
 class Stack constructor(
         private val nodeKey: NodeKey<*>,
         private val transportSinkPtr: Long,
         private val transportSourcePtr: Long,
         private val stackConfig: StackConfig = DtlsSocketNetifGattlink(),
-        private val isNode: Boolean = false
+        private val isNode: Boolean = false,
+        private val tlsKeyResolver: TlsKeyResolver = TlsKeyResolverRegistry.resolvers
 ) : NativeReference, DataSinkDataSource, Closeable {
 
     private val stackStarted = AtomicBoolean(false)
@@ -72,7 +74,7 @@ class Stack constructor(
             stackConfig.localPort,
             stackConfig.remoteAddress,
             stackConfig.remotePort,
-            TlsKeyResolverRegistry.resolvers,
+            tlsKeyResolver,
             stackConfig.gattlinkRxWindowSize ?: 0,
             stackConfig.gattlinkTxWindowSize ?: 0,
             stackConfig.gattlinkBufferThresholdHysteresis ?: 0.0,

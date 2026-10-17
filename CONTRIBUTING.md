@@ -9,10 +9,6 @@ On a development machine or GitHub-hosted CI, before opening a pull request, run
 ./tool/check.sh
 ```
 
-Do not run that full script on the shared VPS: [AGENTS.md](AGENTS.md) prohibits
-local APK builds and requires sequential checks in capped containers. Use CI or
-your Mac for builds and physical-device trials.
-
 This runs Dart analysis/tests, an Android debug build, native JVM tests, and a
 publication dry-run. Android builds/tests require a JDK; the script can use
 Android Studio's bundled JDK at its standard macOS location. Publication

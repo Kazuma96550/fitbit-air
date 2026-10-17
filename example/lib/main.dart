@@ -971,7 +971,7 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Fitbit Air · 0.1.2')),
+    appBar: AppBar(title: const Text('Fitbit Air · dev.7')),
     body: Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 640),

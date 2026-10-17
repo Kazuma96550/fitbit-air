@@ -12,12 +12,14 @@ class CalendarNotificationListener : NotificationListenerService() {
     }
 
     override fun onListenerDisconnected() {
+        RelayConversations.stopCapture()
         instance = null
         connected = false
         CalendarRelayService.active?.requestStop("Notification access disconnected. Start the relay again when access is available.")
     }
 
     override fun onDestroy() {
+        RelayConversations.stopCapture()
         instance = null
         connected = false
         CalendarRelayService.active?.requestStop("Notification listener stopped. Start the relay again when access is available.")
@@ -25,12 +27,15 @@ class CalendarNotificationListener : NotificationListenerService() {
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
+        runCatching { RelayConversations.observe(sbn.packageName, sbn.notification, sbn.isOngoing) }
+            .onFailure { RelayConversations.captureError() }
         val relay = CalendarRelayService.active ?: return
         if (!relay.acceptsPackage(sbn.packageName)) return
         relay.onAlert(
             sbn.packageName, sbn.key, sbn.postTime, sbn.isOngoing,
             sbn.notification.flags and Notification.FLAG_GROUP_SUMMARY != 0,
-            latestMessageTimestamp(sbn.notification)
+            latestMessageTimestamp(sbn.notification),
+            RelayConversations.identities(sbn.packageName, sbn.notification)
         )
     }
 
@@ -47,6 +52,16 @@ class CalendarNotificationListener : NotificationListenerService() {
                     notification.extras.getParcelableArray(Notification.EXTRA_MESSAGES)
                 ).maxOfOrNull { it.timestamp }?.takeIf { it > 0 }
             }.getOrNull()
+        }
+
+        fun captureExisting() {
+            runCatching {
+                instance?.activeNotifications?.filter { it.packageName in RelayConversationPolicy.packages }
+                    ?.take(128)?.forEach { sbn ->
+                        runCatching { RelayConversations.observe(sbn.packageName, sbn.notification, sbn.isOngoing, existing = true) }
+                            .onFailure { RelayConversations.captureError() }
+                    }
+            }.onFailure { RelayConversations.captureError() }
         }
 
         fun existingKeys(selectedPackages: Set<String>): Map<String, Long?> = instance?.activeNotifications

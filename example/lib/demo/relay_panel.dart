@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 
 import 'demo_controller.dart';
+import 'conversation_picker.dart';
 
 class RelayPanel extends StatelessWidget {
   const RelayPanel({
@@ -22,6 +23,7 @@ class RelayPanel extends StatelessWidget {
     bool? complete, {
     VoidCallback? action,
     String? actionLabel,
+    String? actionKey,
   }) => ListTile(
     dense: true,
     contentPadding: EdgeInsets.zero,
@@ -36,7 +38,11 @@ class RelayPanel extends StatelessWidget {
     title: Text(label),
     trailing: action == null
         ? null
-        : TextButton(onPressed: action, child: Text(actionLabel ?? 'Set up')),
+        : TextButton(
+            key: actionKey == null ? null : ValueKey(actionKey),
+            onPressed: action,
+            child: Text(actionLabel ?? 'Set up'),
+          ),
   );
 
   @override
@@ -56,48 +62,74 @@ class RelayPanel extends StatelessWidget {
         ),
         const SizedBox(height: 16),
         Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text('Setup', style: Theme.of(context).textTheme.titleMedium),
-                _check(
-                  'Notification access: ${state.access ? (state.listenerConnected ? "connected" : "connecting") : "not enabled"}',
-                  state.access && state.listenerConnected,
-                  action: () => perform(state.openAccessSettings),
-                  actionLabel: 'Settings',
-                ),
-                _check(
-                  'Nearby devices permission',
-                  state.bluetoothPermission,
-                  action: state.controlsBlocked
-                      ? null
-                      : () => perform(state.checkPaired),
-                  actionLabel: 'Check',
-                ),
-                _check(
-                  'Bluetooth ${state.bluetoothEnabled == true
-                      ? "on"
-                      : state.bluetoothEnabled == false
-                      ? "off"
-                      : "not checked"}',
-                  state.bluetoothEnabled,
-                  action: () => perform(state.openBluetoothSettings),
-                  actionLabel: 'Settings',
-                ),
-                _check(
-                  state.paired == true
-                      ? 'Air paired in Google Health'
-                      : 'Air pairing ${state.paired == false ? "not found" : "not checked"}',
-                  state.paired,
-                  action: state.controlsBlocked
-                      ? null
-                      : () => perform(state.checkPaired),
-                  actionLabel: 'Check',
-                ),
-              ],
+          child: ExpansionTile(
+            key: ValueKey(
+              'relay-setup-${!state.access || !state.listenerConnected || state.bluetoothEnabled == false}',
             ),
+            initiallyExpanded:
+                !state.access ||
+                !state.listenerConnected ||
+                state.bluetoothEnabled == false,
+            leading: Icon(
+              state.access &&
+                      state.listenerConnected &&
+                      state.bluetoothEnabled == true
+                  ? Icons.check_circle_outline
+                  : Icons.settings_outlined,
+            ),
+            title: const Text('Device & permissions'),
+            subtitle: Text(
+              state.access &&
+                      state.listenerConnected &&
+                      state.bluetoothEnabled == true
+                  ? 'Notification access connected · Bluetooth on'
+                  : 'Complete setup to relay notifications',
+            ),
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _check(
+                      'Notification access: ${state.access ? (state.listenerConnected ? "connected" : "connecting") : "not enabled"}',
+                      state.access && state.listenerConnected,
+                      action: () => perform(state.openAccessSettings),
+                      actionKey: 'notification-access-settings',
+                      actionLabel: 'Settings',
+                    ),
+                    _check(
+                      'Nearby devices permission',
+                      state.bluetoothPermission,
+                      action: state.controlsBlocked
+                          ? null
+                          : () => perform(state.checkPaired),
+                      actionLabel: 'Check',
+                    ),
+                    _check(
+                      'Bluetooth ${state.bluetoothEnabled == true
+                          ? "on"
+                          : state.bluetoothEnabled == false
+                          ? "off"
+                          : "not checked"}',
+                      state.bluetoothEnabled,
+                      action: () => perform(state.openBluetoothSettings),
+                      actionLabel: 'Settings',
+                    ),
+                    _check(
+                      state.paired == true
+                          ? 'Air paired in Google Health'
+                          : 'Air pairing ${state.paired == false ? "not found" : "not checked"}',
+                      state.paired,
+                      action: state.controlsBlocked
+                          ? null
+                          : () => perform(state.checkPaired),
+                      actionLabel: 'Check',
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
         const SizedBox(height: 12),
@@ -187,6 +219,8 @@ class RelayPanel extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 12),
+        ConversationPicker(controller: state, perform: perform),
+        const SizedBox(height: 12),
         Card(
           child: ExpansionTile(
             key: const ValueKey('app-picker'),
@@ -255,6 +289,7 @@ class RelayPanel extends StatelessWidget {
             ],
           ),
         ),
+        const SizedBox(height: 12),
         const SizedBox(height: 16),
         Text('Recent activity', style: Theme.of(context).textTheme.titleLarge),
         const Text(
@@ -294,6 +329,7 @@ class RelayPanel extends StatelessWidget {
     final stage = entry['stage'] as String? ?? 'unknown';
     final title = switch (stage) {
       'detected' => 'Notification detected',
+      'merged' => 'Merged into next vibration',
       'queued' => 'Queued',
       'verified' => 'Command verified',
       'expired' => 'Expired before execution',

@@ -11,10 +11,12 @@ to expose through the package yet.
   `3` (high).
 - A changed setting produces one physical pulse. Restoring it produces another.
 - The plugin closes its GATT client after every operation and does not alter
-  pairing. Google Health remains registered and connected, but its logs show
-  Gattlink sequence warnings during overlapping Goldengate sessions. A connected
-  client is not proof that syncing is uninterrupted; coexistence needs further
-  validation before production use.
+  pairing. The Air has one Gattlink/DTLS channel shared by all link clients, so
+  an SDK session desynchronizes Google Health's session. Without intervention,
+  Google Health recovers only through a ~60 s watchdog reconnect. A refused
+  handshake makes the Air reset the link for all clients and switch identity;
+  the plugin's post-operation handoff uses this so Google Health resynchronizes
+  immediately. See [demo guide](demo.md#root-cause-and-fix-dev5).
 
 ## GATT information and standard heart rate
 

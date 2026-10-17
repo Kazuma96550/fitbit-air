@@ -104,3 +104,11 @@ waits for an active command to finish restoration. Browsing those screens leaves
 the relay running; it must be restarted explicitly after the operation. Explicitly start it again after reboot, process death, access
 revocation, or force stop. Repeated deep-idle delivery and Google Health
 coexistence still require physical validation.
+
+After 0.1.2, **Choose people** on the Relay screen can filter WhatsApp and
+WhatsApp Business chats. Stop the relay, enable selected-chat mode and tap
+**Find chats** with an unread notification. Capture also listens for new messages;
+results stay selectable for five minutes afterward. When no conversation ID is
+available, exact-name rules require explicit confirmation because duplicate names
+can match another chat. A direct chat selects a person; a selected group allows
+everyone. See [setup, privacy and troubleshooting](../doc/demo.md#selected-whatsapp-conversations-after-012).

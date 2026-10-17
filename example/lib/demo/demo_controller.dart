@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:fitbit_air/fitbit_air.dart';
+import 'package:fitbit_air/fitbit_air_diagnostics.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
@@ -12,11 +13,12 @@ class DemoAction {
   final Map<String, Object?> Function()? parameters;
 }
 
-/// Shared by the UI and integration tests; contains no notification contents.
+/// Shared by UI and tests. Conversation labels stay local and out of reports.
 class DemoController extends ChangeNotifier {
   static const channel = MethodChannel('fitbit_air_example/calendar');
   final actions = <String, DemoAction>{};
   Future<void> Function()? cancelCurrent;
+  Map<String, Object?> transportDiagnostics = {};
   bool initialized = false;
   bool relayRunning = false;
   bool relayReady = false;
@@ -33,6 +35,12 @@ class DemoController extends ChangeNotifier {
   Set<String> selectedApps = {'com.google.android.calendar'};
   List<Map<String, Object?>> apps = [];
   List<Map<String, Object?>> history = [];
+  bool restrictedConversations = false;
+  int captureRemainingMillis = 0;
+  int unsupportedConversations = 0;
+  Map<String, int> captureDiagnostics = {};
+  List<Map<String, Object?>> allowedConversations = [];
+  List<Map<String, Object?>> conversationCandidates = [];
   int secureDurationSeconds = 30;
   Timer? _poll;
   bool _disposed = false;
@@ -104,6 +112,14 @@ class DemoController extends ChangeNotifier {
 
   Future<void> _readStatus() async {
     try {
+      transportDiagnostics =
+          await FitbitAirDiagnostics.readTransportDiagnostics();
+    } on PlatformException {
+      transportDiagnostics = {'available': false};
+    } on MissingPluginException {
+      transportDiagnostics = {'available': false};
+    }
+    try {
       final state = await channel.invokeMapMethod<String, Object?>('status');
       if (state == null || _disposed) return;
       relayRunning = state['running'] == true;
@@ -116,6 +132,35 @@ class DemoController extends ChangeNotifier {
       relayOutcome = state['outcome'] as String? ?? 'Relay is off.';
       final selected = state['selectedApps'] as List?;
       if (selected != null) selectedApps = selected.cast<String>().toSet();
+      final conversations = Map<String, Object?>.from(
+        state['conversations'] as Map? ?? const {},
+      );
+      restrictedConversations = conversations['restricted'] == true;
+      captureRemainingMillis =
+          conversations['captureRemainingMillis'] as int? ?? 0;
+      unsupportedConversations = conversations['unsupported'] as int? ?? 0;
+      const diagnosticKeys = {
+        'seen',
+        'existing',
+        'ongoing',
+        'summary',
+        'missingId',
+        'unusable',
+        'nameOnly',
+        'identified',
+        'errors',
+      };
+      captureDiagnostics =
+          Map<String, Object?>.from(
+              conversations['diagnostics'] as Map? ?? const {},
+            ).map((key, value) => MapEntry(key, value is int ? value : 0))
+            ..removeWhere((key, value) => !diagnosticKeys.contains(key));
+      allowedConversations = (conversations['allowed'] as List? ?? [])
+          .map((item) => Map<String, Object?>.from(item as Map))
+          .toList();
+      conversationCandidates = (conversations['candidates'] as List? ?? [])
+          .map((item) => Map<String, Object?>.from(item as Map))
+          .toList();
       history = (state['history'] as List? ?? [])
           .map((entry) => Map<String, Object?>.from(entry as Map))
           .toList();
@@ -182,6 +227,21 @@ class DemoController extends ChangeNotifier {
     final packages = {...selectedApps};
     selected ? packages.add(packageName) : packages.remove(packageName);
     await _relayCall('selectApps', {'packages': packages.toList()});
+  }
+
+  Future<void> configureConversations(String method, [Object? arguments]) {
+    if (!const {
+      'captureConversations',
+      'restrictConversations',
+      'selectConversation',
+      'clearConversations',
+    }.contains(method)) {
+      throw ArgumentError.value(method);
+    }
+    if (relayRunning || changingRelay) {
+      throw StateError('Stop the relay before changing conversation rules.');
+    }
+    return _relayCall(method, arguments);
   }
 
   Future<void> _relayCall(String method, [Object? arguments]) async {
@@ -391,9 +451,16 @@ class DemoController extends ChangeNotifier {
 
   Map<String, Object?> report() => {
     'schemaVersion': 1,
-    'demoVersion': '0.1.2',
+    'demoVersion': '0.1.3-dev.7',
     'exportedAt': DateTime.now().toUtc().toIso8601String(),
-    'relay': {'running': relayRunning, 'history': history},
+    'relay': {
+      'running': relayRunning,
+      'history': history,
+      'restrictedConversations': restrictedConversations,
+      'allowedConversationCount': allowedConversations.length,
+      'captureDiagnostics': captureDiagnostics,
+    },
+    'transport': transportDiagnostics,
     'trials': _trials,
     'manualObservations': _observations,
   };
@@ -410,6 +477,8 @@ class DemoController extends ChangeNotifier {
     'BLUETOOTH_OFF' => 'Turn on Bluetooth, then try again.',
     'AIR_NOT_FOUND' ||
     'PAIRING_REQUIRED' => 'Pair the Air in Google Health, then check again.',
+    'HANDSHAKE_TIMEOUT' =>
+      'The Air did not accept a secure session, probably because Google Health was using it. No vibration was sent; try again shortly.',
     'CANNOT_CANCEL_WRITE' =>
       'This haptic must finish verification and restoration. Wait for completion.',
     'GATT_CONNECT' || 'GATT_DISCONNECTED' =>
