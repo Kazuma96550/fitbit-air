@@ -412,6 +412,8 @@ class CalendarRelayService : Service() {
             context.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
 
         fun status(context: Context): Map<String, Any?> = mapOf(
+            "notificationControlsAllowed" to context.getSystemService(android.app.NotificationManager::class.java).areNotificationsEnabled(),
+            "setupCompleted" to context.getSharedPreferences("relay_onboarding", MODE_PRIVATE).getBoolean("completed", false),
             "access" to hasAccess(context),
             "connected" to CalendarNotificationListener.connected,
             "running" to isRunning,

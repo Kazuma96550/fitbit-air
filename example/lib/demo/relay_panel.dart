@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 
 import 'demo_controller.dart';
 import 'rules_panel.dart';
+import 'relay_status.dart';
+import 'setup_page.dart';
+import 'app_theme.dart';
 
 class RelayPanel extends StatelessWidget {
   const RelayPanel({
@@ -24,38 +27,19 @@ class RelayPanel extends StatelessWidget {
   /// Inline Test state: null (idle), 'sending' or 'sent'.
   final String? testFeedback;
 
-  /// Routine outcomes the title already conveys; errors still show.
-  static bool _routine(String outcome) =>
-      outcome == 'Relay stopped.' ||
-      outcome == 'Relay is off.' ||
-      outcome.startsWith('Haptic ');
-
-  Widget _check(
-    String label,
-    bool? complete, {
-    VoidCallback? action,
-    String? actionLabel,
-    String? actionKey,
-  }) => ListTile(
-    dense: true,
-    contentPadding: EdgeInsets.zero,
-    leading: Icon(
-      complete == true
-          ? Icons.check_circle
-          : complete == false
-          ? Icons.error_outline
-          : Icons.help_outline,
-      color: complete == true ? Colors.green : null,
-    ),
-    title: Text(label),
-    trailing: action == null
-        ? null
-        : TextButton(
-            key: actionKey == null ? null : ValueKey(actionKey),
-            onPressed: action,
-            child: Text(actionLabel ?? 'Set up'),
-          ),
-  );
+  Future<void> _setup(
+    BuildContext context,
+    DemoController state, {
+    int initialStep = 0,
+  }) async {
+    final completedBefore = state.setupCompleted;
+    await showRelaySetup(context, state, initialStep: initialStep);
+    if (!completedBefore &&
+        state.setupCompleted &&
+        scrollController?.hasClients == true) {
+      scrollController!.jumpTo(0);
+    }
+  }
 
   /// Fixed-size so progress and confirmation never move the layout.
   Widget _testButton(BuildContext context, DemoController state) {
@@ -63,6 +47,9 @@ class RelayPanel extends StatelessWidget {
     final sent = testFeedback == 'sent';
     final enabled =
         testFeedback == null &&
+        state.bluetoothPermission &&
+        state.bluetoothEnabled == true &&
+        state.paired != false &&
         !state.busy &&
         !state.previewing &&
         !state.changingRelay &&
@@ -109,6 +96,17 @@ class RelayPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = controller;
+    final status = RelayStatus.fromController(state);
+    final colors = Theme.of(context).colorScheme;
+    final latestResult = state.history
+        .where(
+          (entry) => const {
+            'verified',
+            'failed',
+            'interrupted',
+          }.contains(entry['stage']),
+        )
+        .firstOrNull;
 
     return ListView(
       key: const ValueKey('relay-scroll'),
@@ -130,6 +128,46 @@ class RelayPanel extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 24),
+        if (state.initialized &&
+            !state.setupCompleted &&
+            !state.relayRunning) ...[
+          Card(
+            color: colors.primaryContainer,
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Align(
+                    alignment: Alignment.centerLeft,
+                    child: AirRelayMark(size: 48),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'A few steps. A quieter phone.',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      color: colors.onPrimaryContainer,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Connect your Air, choose your alerts, and feel your first nudge.',
+                    style: TextStyle(color: colors.onPrimaryContainer),
+                  ),
+                  const SizedBox(height: 16),
+                  FilledButton.icon(
+                    key: const ValueKey('guided-setup'),
+                    onPressed: () => _setup(context, state),
+                    icon: const Icon(Icons.arrow_forward),
+                    label: const Text('Set up my Air'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+        ],
         Card(
           child: Padding(
             padding: const EdgeInsets.all(16),
@@ -145,7 +183,12 @@ class RelayPanel extends StatelessWidget {
                         borderRadius: BorderRadius.circular(16),
                       ),
                       child: Icon(
-                        state.relayRunning
+                        status.recovery != RelayRecovery.none
+                            ? Icons.error_outline
+                            : state.relayStopping
+                            ? Icons.hourglass_bottom
+                            : state.relayRunning &&
+                                  state.settings.silenceReason == null
                             ? Icons.notifications_active_outlined
                             : Icons.notifications_paused_outlined,
                         color: Theme.of(context).colorScheme.onPrimaryContainer,
@@ -154,15 +197,7 @@ class RelayPanel extends StatelessWidget {
                     const SizedBox(width: 12),
                     Expanded(
                       child: Text(
-                        state.relayStopping
-                            ? 'Finishing up'
-                            : !state.relayRunning
-                            ? 'Relay is off'
-                            : state.settings.silenceReason == 'paused'
-                            ? 'Taking a break'
-                            : state.settings.silenceReason == 'quiet_hours'
-                            ? 'Quiet hours'
-                            : 'Listening for your notifications',
+                        status.title,
                         key: const ValueKey('relay-status'),
                         style: Theme.of(context).textTheme.titleLarge?.copyWith(
                           fontWeight: FontWeight.w600,
@@ -171,15 +206,46 @@ class RelayPanel extends StatelessWidget {
                     ),
                   ],
                 ),
-                if (state.relayRunning || !_routine(state.relayOutcome))
+                Padding(
+                  padding: const EdgeInsets.only(top: 12),
+                  child: Text(
+                    status.detail,
+                    key: const ValueKey('relay-status-detail'),
+                  ),
+                ),
+                if (status.recovery != RelayRecovery.none)
                   Padding(
                     padding: const EdgeInsets.only(top: 12),
-                    child: Semantics(
-                      liveRegion: true,
-                      child: Text(
-                        state.relayOutcome,
-                        key: const ValueKey('relay-outcome'),
+                    child: OutlinedButton.icon(
+                      key: ValueKey(
+                        status.recovery == RelayRecovery.notifications
+                            ? 'notification-access-settings'
+                            : 'relay-recovery',
                       ),
+                      onPressed: state.changingRelay
+                          ? null
+                          : () {
+                              switch (status.recovery) {
+                                case RelayRecovery.bluetooth:
+                                  perform(state.openBluetoothSettings);
+                                case RelayRecovery.notifications:
+                                  _setup(context, state, initialStep: 1);
+                                case RelayRecovery.rules:
+                                  openRules?.call();
+                                case RelayRecovery.setup:
+                                  _setup(context, state);
+                                case RelayRecovery.none:
+                                  break;
+                              }
+                            },
+                      icon: const Icon(Icons.arrow_forward),
+                      label: Text(switch (status.recovery) {
+                        RelayRecovery.bluetooth => 'Turn on Bluetooth',
+                        RelayRecovery.notifications =>
+                          'Review notification access',
+                        RelayRecovery.rules => 'Choose apps',
+                        _ => 'Check setup',
+                      }),
                     ),
                   ),
                 if (state.setupError != null)
@@ -194,11 +260,13 @@ class RelayPanel extends StatelessWidget {
                 FilledButton.icon(
                   key: const ValueKey('relay-toggle'),
                   onPressed:
-                      state.changingRelay ||
+                      !state.initialized ||
+                          state.changingRelay ||
                           state.relayStopping ||
                           (!state.relayRunning &&
                               (state.busy ||
                                   state.selectedApps.isEmpty ||
+                                  !state.bluetoothPermission ||
                                   !state.access ||
                                   !state.listenerConnected ||
                                   state.bluetoothEnabled == false))
@@ -290,74 +358,17 @@ class RelayPanel extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         Card(
-          child: ExpansionTile(
-            key: ValueKey(
-              'relay-setup-${!state.access || !state.listenerConnected || state.bluetoothEnabled == false}',
-            ),
-            initiallyExpanded:
-                !state.access ||
-                !state.listenerConnected ||
-                state.bluetoothEnabled == false,
-            leading: Icon(
-              state.access &&
-                      state.listenerConnected &&
-                      state.bluetoothEnabled == true
-                  ? Icons.check_circle_outline
-                  : Icons.settings_outlined,
-            ),
-            title: const Text('Device & permissions'),
+          child: ListTile(
+            key: const ValueKey('review-setup'),
+            leading: const Icon(Icons.settings_outlined),
+            title: const Text('Setup & permissions'),
             subtitle: Text(
-              state.access &&
-                      state.listenerConnected &&
-                      state.bluetoothEnabled == true
-                  ? 'Notification access connected · Bluetooth on'
-                  : 'Complete setup to relay notifications',
+              state.setupCompleted
+                  ? 'Review your Air and notification access'
+                  : 'Connect, choose apps and try a vibration',
             ),
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _check(
-                      'Notification access: ${state.access ? (state.listenerConnected ? "connected" : "connecting") : "not enabled"}',
-                      state.access && state.listenerConnected,
-                      action: () => perform(state.openAccessSettings),
-                      actionKey: 'notification-access-settings',
-                      actionLabel: 'Settings',
-                    ),
-                    _check(
-                      'Nearby devices permission',
-                      state.bluetoothPermission,
-                      action: state.controlsBlocked
-                          ? null
-                          : () => perform(state.checkPaired),
-                      actionLabel: 'Check',
-                    ),
-                    _check(
-                      'Bluetooth ${state.bluetoothEnabled == true
-                          ? "on"
-                          : state.bluetoothEnabled == false
-                          ? "off"
-                          : "not checked"}',
-                      state.bluetoothEnabled,
-                      action: () => perform(state.openBluetoothSettings),
-                      actionLabel: 'Settings',
-                    ),
-                    _check(
-                      state.paired == true
-                          ? 'Air paired in Google Health'
-                          : 'Air pairing ${state.paired == false ? "not found" : "not checked"}',
-                      state.paired,
-                      action: state.controlsBlocked
-                          ? null
-                          : () => perform(state.checkPaired),
-                      actionLabel: 'Check',
-                    ),
-                  ],
-                ),
-              ),
-            ],
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => _setup(context, state),
           ),
         ),
         const SizedBox(height: 12),
@@ -367,12 +378,39 @@ class RelayPanel extends StatelessWidget {
             leading: const Icon(Icons.tune),
             title: const Text('Your notification rules'),
             subtitle: Text(
-              '${state.selectedApps.length} apps selected · Custom vibrations and quiet hours',
+              '${state.selectedAppsSummary} · Custom vibrations and quiet hours',
             ),
             trailing: const Icon(Icons.chevron_right),
             onTap: openRules,
           ),
         ),
+        if (latestResult != null && latestResult['stage'] != 'verified') ...[
+          const SizedBox(height: 12),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Last vibration needs a check',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    DemoController.recoveryHint(
+                      latestResult['errorCode'] as String? ?? 'TIMEOUT',
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'This describes the last attempt, not your current connection. No automatic retry was sent.',
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
         const SizedBox(height: 20),
         Text(
           'Early access · Google Health sync is still being tested. If sync stalls after a vibration, pause the relay.',

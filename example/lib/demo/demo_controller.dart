@@ -31,6 +31,7 @@ class DemoController extends ChangeNotifier {
   AirWristPresenceEvent? lastWristObservation;
   bool previewing = false;
   bool initialized = false;
+  bool setupCompleted = false;
   bool relayRunning = false;
   bool relayReady = false;
   bool relayStopping = false;
@@ -39,6 +40,7 @@ class DemoController extends ChangeNotifier {
   bool listenerConnected = false;
   bool? bluetoothEnabled;
   bool bluetoothPermission = false;
+  bool? notificationControlsAllowed;
   bool? paired;
   String relayOutcome = 'Relay is off.';
   String? setupError;
@@ -65,6 +67,9 @@ class DemoController extends ChangeNotifier {
   final List<Map<String, Object?>> _trials = [];
   Map<String, Object?>? _activeTrial;
   final List<Map<String, Object?>> _observations = [];
+
+  String get selectedAppsSummary =>
+      '${selectedApps.length} ${selectedApps.length == 1 ? 'app' : 'apps'} selected';
 
   bool get busy => _activeTrial != null;
   String? get operationId => _activeTrial?['operation'] as String?;
@@ -137,6 +142,7 @@ class DemoController extends ChangeNotifier {
     try {
       final state = await channel.invokeMapMethod<String, Object?>('status');
       if (state == null || _disposed) return;
+      setupCompleted = state['setupCompleted'] == true;
       relayRunning = state['running'] == true;
       relayReady = state['ready'] == true;
       relayStopping = state['stopping'] == true;
@@ -144,6 +150,8 @@ class DemoController extends ChangeNotifier {
       listenerConnected = state['connected'] == true;
       bluetoothEnabled = state['bluetoothEnabled'] as bool?;
       bluetoothPermission = state['bluetoothPermission'] == true;
+      notificationControlsAllowed =
+          state['notificationControlsAllowed'] as bool?;
       relayOutcome = state['outcome'] as String? ?? 'Relay is off.';
       final selected = state['selectedApps'] as List?;
       if (selected != null) selectedApps = selected.cast<String>().toSet();
@@ -355,6 +363,25 @@ class DemoController extends ChangeNotifier {
     }
   }
 
+  bool get setupRequirementsMet =>
+      bluetoothPermission &&
+      bluetoothEnabled == true &&
+      paired == true &&
+      access &&
+      listenerConnected &&
+      selectedApps.isNotEmpty;
+
+  Future<void> completeSetup() async {
+    if (!setupRequirementsMet) {
+      throw StateError(
+        'Finish the connection, notification and app steps first.',
+      );
+    }
+    await channel.invokeMethod<void>('completeSetup');
+    setupCompleted = true;
+    _changed();
+  }
+
   Future<void> checkPaired() async {
     paired = await FitbitAir.isAirPaired();
     await refresh();
@@ -409,6 +436,16 @@ class DemoController extends ChangeNotifier {
     }
     return _relayCall('testPulse');
   }
+
+  Future<void> allowNotificationControls() async {
+    await channel.invokeMethod<void>('allowNotificationControls');
+    await refresh(force: true);
+  }
+
+  Future<void> openAppSettings() => channel.invokeMethod<void>('appSettings');
+
+  Future<void> openNotificationControlsSettings() =>
+      channel.invokeMethod<void>('notificationControlsSettings');
 
   Future<void> openAccessSettings() => channel.invokeMethod<void>('settings');
   Future<void> openBluetoothSettings() =>
@@ -551,7 +588,7 @@ class DemoController extends ChangeNotifier {
 
   Map<String, Object?> report() => {
     'schemaVersion': 1,
-    'demoVersion': '0.1.4-dev.1',
+    'demoVersion': '0.1.4-dev.2',
     'exportedAt': DateTime.now().toUtc().toIso8601String(),
     'relay': {
       'running': relayRunning,

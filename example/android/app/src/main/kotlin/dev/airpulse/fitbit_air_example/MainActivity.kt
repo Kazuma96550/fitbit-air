@@ -17,6 +17,25 @@ class MainActivity : FlutterActivity() {
                 try {
                     when (call.method) {
                         "status" -> result.success(CalendarRelayService.status(this))
+                        "appSettings" -> {
+                            startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:$packageName")))
+                            result.success(null)
+                        }
+                        "allowNotificationControls" -> {
+                            if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                                requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 902)
+                            }
+                            result.success(null)
+                        }
+                        "notificationControlsSettings" -> {
+                            startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, packageName))
+                            result.success(null)
+                        }
+                        "completeSetup" -> {
+                            getSharedPreferences("relay_onboarding", MODE_PRIVATE).edit()
+                                .putBoolean("completed", true).apply()
+                            result.success(null)
+                        }
                         "saveAppRule" -> {
                             val pkg = requireNotNull(call.argument<String>("packageName"))
                             val enabled = requireNotNull(call.argument<Boolean>("enabled"))

@@ -11,6 +11,7 @@ void main() {
   const device = MethodChannel('fitbit_air');
   var access = false;
   var running = false;
+  var setupCompleted = true;
   var paired = true;
   var deferStop = false;
   var nameCandidate = false;
@@ -27,6 +28,7 @@ void main() {
   setUp(() {
     access = false;
     running = false;
+    setupCompleted = true;
     paired = true;
     deferStop = false;
     nameCandidate = false;
@@ -59,6 +61,7 @@ void main() {
           switch (call.method) {
             case 'status':
               return {
+                'setupCompleted': setupCompleted,
                 'access': access,
                 'connected': access,
                 'running': running,
@@ -72,6 +75,9 @@ void main() {
                 'history': history,
                 'conversations': conversations,
               };
+            case 'completeSetup':
+              setupCompleted = true;
+              return null;
             case 'restrictConversations':
               conversations['restricted'] = (call.arguments as Map)['enabled'];
               return null;
@@ -290,7 +296,83 @@ void main() {
     );
     await tap(tester, 'notification-access-settings');
     await tester.pumpAndSettle();
+    expect(find.text('Your notifications stay yours.'), findsOneWidget);
+    expect(calls, isNot(contains('settings')));
+    await tap(tester, 'notification-access-settings');
     expect(calls, contains('settings'));
+    expect(calls, isNot(contains('start')));
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets(
+    'guided setup checks pairing, explains access and confirms a felt test',
+    (tester) async {
+      setupCompleted = false;
+      await mount(tester);
+      await tap(tester, 'guided-setup');
+      expect(find.text('Meet your Air.'), findsOneWidget);
+      expect(find.byKey(const ValueKey('setup-next')), findsNothing);
+      await tap(tester, 'setup-check-air');
+      expect(calls, contains('isAirPaired'));
+      await tap(tester, 'setup-next');
+      expect(find.text('Your notifications stay yours.'), findsOneWidget);
+      expect(calls, isNot(contains('settings')));
+      expect(find.byKey(const ValueKey('setup-next')), findsNothing);
+      await tap(tester, 'notification-access-settings');
+      access = true;
+      await controller.refresh();
+      await tester.pumpAndSettle();
+      await tap(tester, 'setup-next');
+      expect(find.byKey(const ValueKey('setup-app-search')), findsOneWidget);
+      await tap(tester, 'setup-app-com.whatsapp');
+      expect(selected, contains('com.whatsapp'));
+      await tap(tester, 'setup-next');
+      await tap(tester, 'setup-next');
+      expect(find.text('Did you feel it?'), findsOneWidget);
+      expect(calls, isNot(contains('completeSetup')));
+      expect(calls.where((call) => call == 'tap'), hasLength(1));
+      await tap(tester, 'setup-next');
+      expect(find.text('You’re ready.'), findsOneWidget);
+      expect(setupCompleted, isTrue);
+      expect(calls, isNot(contains('start')));
+      await tap(tester, 'setup-next');
+      expect(find.byKey(const ValueKey('guided-setup')), findsNothing);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets('setup can finish without a test and never claims one was felt', (
+    tester,
+  ) async {
+    access = true;
+    setupCompleted = false;
+    await mount(tester);
+    await tap(tester, 'guided-setup');
+    await tap(tester, 'setup-check-air');
+    await tap(tester, 'setup-next');
+    await tap(tester, 'setup-next');
+    await tap(tester, 'setup-next');
+    await tap(tester, 'setup-skip-test');
+    expect(find.text('You’re ready.'), findsOneWidget);
+    expect(
+      find.textContaining('You can try a vibration from Home'),
+      findsOneWidget,
+    );
+    expect(calls, isNot(contains('tap')));
+    expect(calls, isNot(contains('start')));
+    expect(setupCompleted, isTrue);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('closing setup never marks it complete or starts notifications', (
+    tester,
+  ) async {
+    setupCompleted = false;
+    await mount(tester);
+    await tap(tester, 'guided-setup');
+    await tap(tester, 'close-setup');
+    expect(setupCompleted, isFalse);
+    expect(calls, isNot(contains('completeSetup')));
     expect(calls, isNot(contains('start')));
     await tester.pumpWidget(const SizedBox());
   });
@@ -332,11 +414,11 @@ void main() {
     await tester.pumpAndSettle();
     expect(controller.relayRunning, isFalse);
     await tester.scrollUntilVisible(
-      find.text('Notification access: not enabled'),
+      find.text('Allow notification access'),
       200,
       scrollable: find.byType(Scrollable).first,
     );
-    expect(find.text('Notification access: not enabled'), findsOneWidget);
+    expect(find.text('Allow notification access'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
   });
 

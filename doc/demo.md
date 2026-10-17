@@ -366,6 +366,27 @@ production taps (two from the Device tab, two through the relay worker) were
 felt as single pulses at the wearer's strength, each with
 `channelHandoff: reset_observed`.
 
+## Guided setup and readiness (0.1.4-dev.2)
+
+Home offers **Set up my Air**, with four steps: check the paired Air and nearby
+permission, review notification access, choose apps, then send an optional test.
+The needed Android permission action stays in the bottom button; it becomes
+Continue after access is ready. Notifications stay off until started on Home.
+A verified command is distinct from the wearer confirming they felt a vibration.
+Finishing without testing makes no claim that a vibration was felt.
+
+Setup completion is saved locally and excluded from backup and device transfer.
+Permissions are checked again when the app resumes, regardless of completion.
+**Setup & permissions** on Home reopens the guide at any time. Notification
+access is explained before opening Android settings; ongoing relay controls
+have a separate, recommended notification permission.
+
+Home distinguishes starting, ready, paused, quiet hours, stopping, Bluetooth off,
+revoked permissions and a disconnected notification listener. The readiness label
+means the relay can listen for notifications, not that the Air has a permanent
+Bluetooth connection. Historical delivery failures appear separately. Live Google
+Health transfer detection is not exposed as a Home status.
+
 ## Custom notification rules (0.1.4 development)
 
 Everyday navigation is **Home**, **Rules**, **Device**. Home owns Start/Stop,

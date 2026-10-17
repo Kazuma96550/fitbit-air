@@ -8,6 +8,11 @@
   `readSignalStrength()` for a rough proximity hint in dBm.
 - Add `FitbitAirDiagnostics.watchChannelActivity()`: passively reports whether
   Google Health is idle, polling or syncing on the Air's shared channel.
+- Add a four-step guided setup with permission explanations, app selection,
+  optional vibration confirmation, and persistent local completion state.
+- Show actionable relay readiness and distinguish historical delivery failures
+  from current permission, Bluetooth, pause and startup states.
+
 - Keep app rows stable while toggling notification rules. Regroup selected apps
   explicitly or when reopening Rules. Reuse app icon images across status
   refreshes to prevent flicker.
