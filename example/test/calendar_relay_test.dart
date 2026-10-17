@@ -397,6 +397,40 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
+  testWidgets(
+    'app toggles keep rows stable until regrouping or reopening Rules',
+    (tester) async {
+      tester.view.physicalSize = const Size(900, 1800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await mount(tester);
+      await tap(tester, 'nav-rules');
+      final whatsapp = find.byKey(const ValueKey('app-com.whatsapp'));
+      final signal = find.byKey(
+        const ValueKey('app-org.thoughtcrime.securesms'),
+      );
+      double y(Finder row) => tester.getTopLeft(row).dy;
+      expect(y(whatsapp), greaterThan(y(signal)));
+      final before = y(whatsapp);
+      await tap(tester, 'app-enabled-com.whatsapp');
+      expect(selected, contains('com.whatsapp'));
+      expect(y(whatsapp), before);
+      await tap(tester, 'app-enabled-com.whatsapp');
+      expect(selected, isNot(contains('com.whatsapp')));
+      expect(y(whatsapp), before);
+      await tap(tester, 'app-enabled-com.whatsapp');
+      await tap(tester, 'sort-selected-apps');
+      expect(y(whatsapp), lessThan(y(signal)));
+      await tap(tester, 'app-enabled-com.whatsapp');
+      expect(y(whatsapp), lessThan(y(signal)));
+      await tap(tester, 'nav-relay');
+      await tap(tester, 'nav-rules');
+      expect(y(whatsapp), greaterThan(y(signal)));
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
   testWidgets('requires a nonempty allowlist before starting', (tester) async {
     access = true;
     selected = [];

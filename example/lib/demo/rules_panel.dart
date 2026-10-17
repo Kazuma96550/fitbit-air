@@ -1,10 +1,10 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'demo_controller.dart';
+import 'app_icon.dart';
 import 'conversation_picker.dart';
 import 'vibration_editor.dart';
 
-class RulesPanel extends StatelessWidget {
+class RulesPanel extends StatefulWidget {
   const RulesPanel({
     super.key,
     required this.controller,
@@ -15,11 +15,46 @@ class RulesPanel extends StatelessWidget {
   final ScrollController? scrollController;
   final void Function(Future<void> Function()) perform;
   @override
+  State<RulesPanel> createState() => _RulesPanelState();
+}
+
+class _RulesPanelState extends State<RulesPanel> {
+  Set<String>? _selectedAtSort;
+
+  @override
+  void didUpdateWidget(covariant RulesPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      _selectedAtSort = null;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final state = controller;
+    final state = widget.controller;
+    // Keep rows under the user's finger until they explicitly regroup or leave.
+    if (state.apps.isNotEmpty) {
+      _selectedAtSort ??= Set.of(state.selectedApps);
+    }
+    final selectedAtSort = _selectedAtSort ?? <String>{};
+    final apps = state.filteredApps.toList()
+      ..sort((a, b) {
+        final selected =
+            (selectedAtSort.contains(b['packageName']) ? 1 : 0) -
+            (selectedAtSort.contains(a['packageName']) ? 1 : 0);
+        if (selected != 0) return selected;
+        final label = (a['label'] as String).toLowerCase().compareTo(
+          (b['label'] as String).toLowerCase(),
+        );
+        return label != 0
+            ? label
+            : (a['packageName'] as String).compareTo(
+                b['packageName'] as String,
+              );
+      });
     return ListView(
       key: const ValueKey('rules-scroll'),
-      controller: scrollController,
+      controller: widget.scrollController,
       padding: const EdgeInsets.all(20),
       children: [
         Text(
@@ -33,7 +68,7 @@ class RulesPanel extends StatelessWidget {
           'Choose which apps reach your wrist and how they feel. Changes apply to new notifications.',
         ),
         const SizedBox(height: 20),
-        ConversationPicker(controller: state, perform: perform),
+        ConversationPicker(controller: state, perform: widget.perform),
         const SizedBox(height: 12),
         Card(
           child: ListTile(
@@ -68,7 +103,20 @@ class RulesPanel extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 24),
-        Text('Your apps', style: Theme.of(context).textTheme.titleLarge),
+        Wrap(
+          spacing: 12,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            Text('Your apps', style: Theme.of(context).textTheme.titleLarge),
+            TextButton.icon(
+              key: const ValueKey('sort-selected-apps'),
+              onPressed: () =>
+                  setState(() => _selectedAtSort = Set.of(state.selectedApps)),
+              icon: const Icon(Icons.vertical_align_top, size: 18),
+              label: const Text('Selected first'),
+            ),
+          ],
+        ),
         const SizedBox(height: 12),
         TextFormField(
           key: const ValueKey('app-search'),
@@ -87,7 +135,7 @@ class RulesPanel extends StatelessWidget {
               'No matching apps. Try another search or refresh the list.',
             ),
           ),
-        for (final app in state.filteredApps)
+        for (final app in apps)
           Builder(
             builder: (context) {
               final pkg = app['packageName']! as String;
@@ -97,9 +145,7 @@ class RulesPanel extends StatelessWidget {
               final icon = app['icon'] as String?;
               return ListTile(
                 key: ValueKey('app-$pkg'),
-                leading: icon == null
-                    ? const Icon(Icons.apps)
-                    : Image.memory(base64Decode(icon), width: 32, height: 32),
+                leading: AppIcon(encoded: icon),
                 title: Text(app['label']! as String),
                 subtitle: Text(
                   '${enabled ? "On" : "Off"} · ${preset?.label ?? "Default: ${state.settings.defaultPreset.label}"}',
@@ -109,7 +155,7 @@ class RulesPanel extends StatelessWidget {
                   value: enabled,
                   onChanged: state.changingRelay
                       ? null
-                      : (value) => perform(
+                      : (value) => widget.perform(
                           () => state.saveAppRule(pkg, value, preset),
                         ),
                 ),
@@ -125,7 +171,7 @@ class RulesPanel extends StatelessWidget {
           ),
         TextButton(
           key: const ValueKey('refresh-apps'),
-          onPressed: () => perform(state.loadApps),
+          onPressed: () => widget.perform(state.loadApps),
           child: const Text('Refresh app list'),
         ),
         const SizedBox(height: 16),

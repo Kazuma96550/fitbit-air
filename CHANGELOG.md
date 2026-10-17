@@ -8,6 +8,10 @@
   `readSignalStrength()` for a rough proximity hint in dBm.
 - Add `FitbitAirDiagnostics.watchChannelActivity()`: passively reports whether
   Google Health is idle, polling or syncing on the Air's shared channel.
+- Keep app rows stable while toggling notification rules. Regroup selected apps
+  explicitly or when reopening Rules. Reuse app icon images across status
+  refreshes to prevent flicker.
+
 - Give WhatsApp people a dedicated screen above the app list, with chat search,
   integrated vibration editing and a separate guided discovery flow.
 - Shorten the Home subtitle and remove em dashes from app text.

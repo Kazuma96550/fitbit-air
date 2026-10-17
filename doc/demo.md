@@ -375,6 +375,9 @@ retains device controls and opens **Developer tools** (Lab). Lab has a normal
 back action to Device; entering it never stops the relay. Device experiments
 still require the existing explicit relay-stop handoff.
 
+App rows keep their positions while you toggle notifications. Tap **Selected first**
+to regroup them, or reopen Rules. Status refreshes reuse the existing app icons.
+
 The four presets are `single` (current strength), `low`, `high`, and `double`
 (two-pulse preview with restoration). Explicit low/high persists that strength
 on the band. Chat overrides additionally support `mute`. Removing an override
