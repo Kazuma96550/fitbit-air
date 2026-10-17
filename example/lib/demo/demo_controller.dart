@@ -34,9 +34,9 @@ class DemoController extends ChangeNotifier {
   String appSearch = '';
   Set<String> selectedApps = {'com.google.android.calendar'};
 
-  /// `double` (two pulses, strength restored) or `single` (one pulse,
-  /// strength alternates). Applies to the relay; persisted natively.
-  String pulseStyle = 'double';
+  /// `double` (two pulses) or `single` (one tap); both keep the wearer's
+  /// strength. Applies to the relay; persisted natively.
+  String pulseStyle = 'single';
   List<Map<String, Object?>> apps = [];
   List<Map<String, Object?>> history = [];
   bool restrictedConversations = false;
@@ -136,7 +136,7 @@ class DemoController extends ChangeNotifier {
       relayOutcome = state['outcome'] as String? ?? 'Relay is off.';
       final selected = state['selectedApps'] as List?;
       if (selected != null) selectedApps = selected.cast<String>().toSet();
-      pulseStyle = state['pulseStyle'] == 'single' ? 'single' : 'double';
+      pulseStyle = state['pulseStyle'] == 'double' ? 'double' : 'single';
       final conversations = Map<String, Object?>.from(
         state['conversations'] as Map? ?? const {},
       );
@@ -466,7 +466,7 @@ class DemoController extends ChangeNotifier {
 
   Map<String, Object?> report() => {
     'schemaVersion': 1,
-    'demoVersion': '0.1.3-dev.8',
+    'demoVersion': '0.1.3-dev.9',
     'exportedAt': DateTime.now().toUtc().toIso8601String(),
     'relay': {
       'running': relayRunning,

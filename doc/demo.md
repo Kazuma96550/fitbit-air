@@ -31,7 +31,7 @@ a negative gesture result.
 the buttons. A device integration test can pass a `DemoController` to `DemoApp`,
 wait for `initialized`, inspect `actionIds`, and invoke `runAction(id)`.
 
-Core IDs: `checkPaired`, `preview`, `pulse`, `setLow`, `setHigh`, `readDeviceInfo`,
+Core IDs: `checkPaired`, `preview`, `tap`, `pulse`, `setLow`, `setHigh`, `readDeviceInfo`,
 `scanHeartRate`, `watchHeartRate`, `watchDeviceEvents`, `watchSecureEvents`,
 `wristPresenceTrial`, `alarmTrial`, `probeBattery`, `probeResources`,
 `headlessHaptic`, `headlessRead`. Heart-rate discovery additionally registers
@@ -354,13 +354,15 @@ attempt recovered in 4 of 4 runs without Google Health ack timeouts.
 
 ### Pulse style (dev.8)
 
-The relay panel offers **Two pulses** (default; `vibrate()`, original strength
-restored and verified) or **One pulse** (`pulse()`, one setting change). The Air
-only pulses when its strength changes, so in One pulse mode consecutive alerts
-alternate between low and high and the strength stays at whichever value the
-last alert set. A true single pulse at a fixed strength is not available without
-Google Health's paired-device key; see [research](research.md#single-tap-investigation-2026-10-17).
-The choice is stored in app-private preferences and can only be changed while
-the relay is stopped. One-pulse commands are also shorter (about 1.3 s from
-session to handoff instead of about 2.5 s), and were verified through the relay
-worker with `channelHandoff: reset_observed`.
+The relay panel offers **One pulse** (default; `tap()`, one pulse at the
+wearer's strength, which is kept) or **Two pulses** (`vibrate()`, original
+strength restored and verified). See
+[research](research.md#single-tap-investigation-2026-10-17) for how a single
+pulse keeps the strength. The choice is stored in app-private preferences and
+can only be changed while the relay is stopped; an explicit earlier choice of
+Two pulses is kept on upgrade. One-pulse commands are also shorter (about 1.3 s
+from session to handoff instead of about 2.5 s). The Device tab has **Single
+tap (keeps strength)** alongside the older alternating **Single pulse**. Four
+production taps (two from the Device tab, two through the relay worker) were
+felt as single pulses at the wearer's strength, each with
+`channelHandoff: reset_observed`.

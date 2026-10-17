@@ -23,10 +23,10 @@ internal object RelayAppSelection {
             .edit().putStringSet("selected_apps", packages).apply()
     }
 
-    /** "double" restores the original strength; "single" alternates it. */
+    /** "double": two pulses; "single": one tap. Both keep the wearer's strength. */
     fun pulseStyle(context: Context): String = context
         .getSharedPreferences("calendar_relay", Context.MODE_PRIVATE)
-        .getString("pulse_style", "double").takeIf { it in PULSE_STYLES } ?: "double"
+        .getString("pulse_style", "single").takeIf { it in PULSE_STYLES } ?: "single"
 
     fun savePulseStyle(context: Context, style: String) {
         require(style in PULSE_STYLES) { "Unknown pulse style." }

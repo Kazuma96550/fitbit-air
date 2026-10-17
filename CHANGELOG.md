@@ -1,10 +1,15 @@
 ## Unreleased
 
-- Relay demo: choose **Two pulses** (strength restored) or **One pulse** (one
-  buzz; strength alternates between low and high). Documented why a single
-  pulse at a fixed strength is not possible without Google Health's
-  paired-device key: the Air pulses only on strength changes, and native
-  notification/sharing resources return `4.01` on the accessible session.
+- Add `FitbitAir.tap()`: exactly one pulse at the strength set in Google Health,
+  which is kept. It sends the other strength and the original in one settings
+  message; the Air supersedes the first pulse. `tap(intensity: …)` pulses at an
+  explicit strength (a different strength is kept and reported as `changed`).
+  `AirHapticKind.tap` dispatches it. Verified in 14 felt trials on one Air.
+- Relay demo: **One pulse** (`tap()`, now the default) or **Two pulses**
+  (`vibrate()`). Device tab adds **Single tap (keeps strength)**.
+- Research: the Air pulses only when its strength becomes different from the
+  last non-off strength; native notification and heart-rate sharing resources
+  return `4.01` on the accessible session.
 
 - Speed up commands by about 40%: request high connection priority for the
   command's session only and return the link to low power afterwards. The idle

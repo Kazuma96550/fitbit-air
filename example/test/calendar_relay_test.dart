@@ -13,7 +13,7 @@ void main() {
   var paired = true;
   var deferStop = false;
   var nameCandidate = false;
-  var pulseStyle = 'double';
+  var pulseStyle = 'single';
   Map<Object?, Object?>? lastSelection;
   late List<Map<String, Object?>> history;
   late List<String> calls;
@@ -27,7 +27,7 @@ void main() {
     paired = true;
     deferStop = false;
     nameCandidate = false;
-    pulseStyle = 'double';
+    pulseStyle = 'single';
     lastSelection = null;
     conversations = {
       'restricted': false,
@@ -215,25 +215,27 @@ void main() {
   ) async {
     access = true;
     await mount(tester);
-    final single = find.descendant(
+    expect(controller.pulseStyle, 'single');
+    expect(find.textContaining('One pulse per alert'), findsOneWidget);
+    final double = find.descendant(
       of: find.byKey(const ValueKey('pulse-style')),
-      matching: find.text('One pulse'),
+      matching: find.text('Two pulses'),
     );
     await tester.scrollUntilVisible(
-      single,
+      double,
       200,
       scrollable: find.byType(Scrollable).first,
     );
-    await tester.tap(single);
+    await tester.tap(double);
     await tester.pumpAndSettle();
-    expect(pulseStyle, 'single');
-    expect(controller.pulseStyle, 'single');
-    expect(find.textContaining('switches between low and high'), findsOneWidget);
+    expect(pulseStyle, 'double');
+    expect(controller.pulseStyle, 'double');
+    expect(find.textContaining('Two pulses per alert'), findsOneWidget);
     running = true;
     await controller.refresh(force: true);
     await tester.pumpAndSettle();
-    await expectLater(controller.setPulseStyle('double'), throwsStateError);
-    expect(pulseStyle, 'single');
+    await expectLater(controller.setPulseStyle('single'), throwsStateError);
+    expect(pulseStyle, 'double');
     await tester.pumpWidget(const SizedBox());
   });
 

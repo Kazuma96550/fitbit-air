@@ -51,6 +51,38 @@ void main() {
     expect(result.verified, isTrue);
   });
 
+  test('returns a verified tap at the retained strength', () async {
+    String? method;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          method = call.method;
+          return {'intensity': 3, 'verified': true};
+        });
+    final result = await FitbitAir.tap();
+    expect(method, 'tap');
+    expect(result.intensity, HapticIntensity.high);
+    expect(result.verified, isTrue);
+  });
+
+  test('tap passes an explicit strength and reports the change', () async {
+    Object? arguments;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          arguments = call.arguments;
+          return {
+            'intensity': 2,
+            'previousIntensity': 3,
+            'changed': true,
+            'verified': true,
+          };
+        });
+    final result = await FitbitAir.tap(intensity: HapticIntensity.low);
+    expect(arguments, {'intensity': 2});
+    expect(result.intensity, HapticIntensity.low);
+    expect(result.previousIntensity, HapticIntensity.high);
+    expect(result.changed, isTrue);
+  });
+
   test('maps native errors to a typed exception', () async {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(

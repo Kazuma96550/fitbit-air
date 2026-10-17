@@ -74,9 +74,7 @@ Future<void> airCalendarRelay() async {
         expiresAt: DateTime.fromMillisecondsSinceEpoch(
           args['expiresAt']! as int,
         ),
-        kind: args['kind'] == 'singlePulse'
-            ? AirHapticKind.singlePulse
-            : AirHapticKind.preview,
+        kind: args['kind'] == 'tap' ? AirHapticKind.tap : AirHapticKind.preview,
       ),
     );
     return {'status': result.status.name, 'errorCode': result.error?.code};
@@ -138,6 +136,7 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
       'checkPaired': DemoAction(_check),
       'preview': DemoAction(_vibrate),
       'pulse': DemoAction(_pulse),
+      'tap': DemoAction(_tap),
       'setLow': DemoAction(() => _setIntensity(HapticIntensity.low)),
       'setHigh': DemoAction(() => _setIntensity(HapticIntensity.high)),
       'readDeviceInfo': DemoAction(_readDeviceInfo),
@@ -651,6 +650,16 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
     });
   }
 
+  Future<void> _tap() async {
+    await _run('Sending one haptic tap…', () async {
+      final result = await FitbitAir.tap();
+      if (!result.verified) {
+        throw const FitbitAirException('UNVERIFIED', 'Tap was not verified.');
+      }
+      return 'One tap sent at ${result.intensity.name} strength; strength kept.';
+    });
+  }
+
   Future<void> _pulse() async {
     await _run('Sending one haptic pulse…', () async {
       final result = await FitbitAir.pulse();
@@ -756,7 +765,8 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
     const SizedBox(height: 16),
     _action('checkPaired', 'Check paired Air', Icons.bluetooth_searching),
     _action('preview', 'Two-pulse preview + restore', Icons.vibration),
-    _action('pulse', 'Single pulse (alternates strength)', Icons.touch_app),
+    _action('tap', 'Single tap (keeps strength)', Icons.touch_app),
+    _action('pulse', 'Single pulse (alternates strength)', Icons.swap_vert),
     Row(
       children: [
         Expanded(child: _action('setLow', 'Set low', Icons.volume_down)),

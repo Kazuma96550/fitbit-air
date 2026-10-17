@@ -35,7 +35,7 @@ class CalendarRelayService : Service() {
     private var sequence = 0
     private val inFlight = mutableMapOf<String, Pair<String?, Long>>()
     private var selectedPackages = emptySet<String>()
-    private var pulseStyle = "double"
+    private var pulseStyle = "single"
     private var restrictedConversations = false
     private var allowedConversations = emptySet<String>()
     private val handler = Handler(Looper.getMainLooper())
@@ -192,7 +192,7 @@ class CalendarRelayService : Service() {
         }
         channel?.invokeMethod("dispatch", mapOf(
             "id" to id, "expiresAt" to expiresAt,
-            "kind" to if (pulseStyle == "single") "singlePulse" else "preview"
+            "kind" to if (pulseStyle == "single") "tap" else "preview"
         ), object : MethodChannel.Result {
             override fun success(result: Any?) { finished(RelayWorkerResult.decode(result)) }
             override fun error(code: String, message: String?, details: Any?) {
