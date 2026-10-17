@@ -153,14 +153,43 @@ on the device only. **Real-time tap detection is not possible** through the
 Bluetooth paths available to this package; a dismissal might appear in a later
 Google Health sync, which is encrypted with the paired-device key.
 
-**Follow-up: defer haptics while Google Health is active.** The same passive
-listener distinguishes an idle channel from Google Health syncing or polling
-(bursts of 244-byte packets, or a steady 1 Hz exchange). A command started
-during a Google Health sync competes for the channel and can fail that sync.
-The relay could listen passively and delay a command for a few seconds until
-the channel is quiet, closing the last remaining conflict window. Not yet
-implemented; it needs a bounded wait so alerts are not delayed indefinitely
-while Google Health is in the foreground.
+### Sync-aware hold (implemented after 0.1.3)
+
+The same passive view now gates every secure command. After subscribing to the
+tracker channel and before opening its own session, the plugin observes the
+Air's notifications for 0.7 s. Google Health's foreground polling is about
+107 bytes/s; a sync transfer is a burst of large packets. If at least 400 bytes
+arrived within the last 1.2 s, the command waits until the channel has been
+quiet that long, for at most 10 s. The outcome is reported per command as
+`channelHold` (`none`, `waited`, `max`).
+
+Two interactions surfaced while testing:
+
+- **Link boost timing.** The hold delays the handshake by 0.7 s, long enough
+  for an early high-priority request to take effect. On a fast link Google
+  Health tends to answer the Air's handshake first, and both stall (`DTLS`
+  error `-1`). The boost is therefore requested only after our session exists.
+- **Lost-race recovery.** That error is now treated as a lost race: the
+  handshake is retried after 1.5 s instead of waiting for the 6 s stall
+  deadline.
+
+Measured on a Pixel 7 Pro by pressing Google Health's sync, then sending a test
+vibration about 1.1 s later (8 trials, spaced 70 s apart):
+
+| Outcome | Count |
+|---|---|
+| Google Health sync completed ("synced just now"), no ack timeouts | 8 of 8 |
+| Vibration delivered with handoff `reset_observed` | 8 of 8 |
+| Hold waited (Google Health was transferring: 967–1,384 bytes observed) | 3 |
+| Air not yet transferring at observation time (0 packets) | 5 |
+| Handshake race lost and recovered (2 with the 6 s deadline, 2 with the 1.5 s retry) | 4 |
+
+A sync starts with Google Health contacting its servers; the Air's transfer
+begins a few seconds later. The hold cannot see that coming, because only the
+Air's notifications are visible to other clients, not Google Health's requests.
+In those cases the race recovery applies, and Google Health still completed
+its sync every time. Eight additional idle-channel commands needed no retry;
+one of them waited 2.4 s for Google Health's post-handoff traffic.
 
 ## Live activity and heart rate
 

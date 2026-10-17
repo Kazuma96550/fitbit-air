@@ -19,10 +19,12 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.os.ParcelUuid
 import com.fitbit.goldengate.bindings.coap.CoapEndpoint
 import com.fitbit.goldengate.bindings.coap.data.Method
 import com.fitbit.goldengate.bindings.coap.data.OutgoingRequestBuilder
+import com.fitbit.goldengate.bindings.dtls.DtlsProtocolStatus.TlsProtocolState.TLS_STATE_ERROR
 import com.fitbit.goldengate.bindings.dtls.DtlsProtocolStatus.TlsProtocolState.TLS_STATE_SESSION
 import com.fitbit.goldengate.bindings.dtls.TlsKeyResolver
 import com.fitbit.goldengate.bindings.io.RxSource
@@ -100,6 +102,9 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
     private var linkBoosted = false
     private var handshakeAttempts = 0
     private var handshakeDeadline: Runnable? = null
+    private var channelActivity: AirChannelActivity? = null
+    private var holdTick: Runnable? = null
+    private var channelHoldOutcome: String? = null
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         appContext = binding.applicationContext
@@ -497,11 +502,7 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
                     heartRateSubscribed = true
                     // The next standard Heart Rate Measurement completes this read.
                 } else {
-                    // The idle link runs at ~150 ms with peripheral latency, so each
-                    // round trip waits several radio events. Boost for our session only;
-                    // closeTransport() returns the link to low power.
-                    linkBoosted = g.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
-                    startGoldengate(g, device)
+                    holdWhileChannelBusy(g, device)
                 }
             }
 
@@ -512,7 +513,10 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
                     handleHeartRate(value)
                     return@dispatch
                 }
-                if (c.uuid == TRACKER_RX) rxSource?.receiveData(value)?.subscribe({}, { finishError("RX", it.message ?: "Receive failed.") })
+                if (c.uuid == TRACKER_RX) {
+                    channelActivity?.record(SystemClock.elapsedRealtime(), value.size)
+                    rxSource?.receiveData(value)?.subscribe({}, { finishError("RX", it.message ?: "Receive failed.") })
+                }
             }
 
             @Suppress("DEPRECATION")
@@ -525,6 +529,7 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
                         return@dispatch
                     }
                     if (Build.VERSION.SDK_INT < 33 && c.uuid == TRACKER_RX) {
+                        channelActivity?.record(SystemClock.elapsedRealtime(), value.size)
                         rxSource?.receiveData(value)?.subscribe({}, { finishError("RX", it.message ?: "Receive failed.") })
                     }
                 }
@@ -707,6 +712,36 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
         nextInfoRead(g)
     }
 
+    /**
+     * Waits while Google Health is syncing over the shared tracker channel,
+     * observed passively from the notifications we already receive. Starting
+     * our session mid-sync would make that sync fail. Bounded; see
+     * [AirChannelActivity].
+     */
+    private fun holdWhileChannelBusy(activeGatt: BluetoothGatt, device: BluetoothDevice) {
+        val activity = AirChannelActivity()
+        activity.begin(SystemClock.elapsedRealtime())
+        channelActivity = activity
+        val tick = object : Runnable {
+            override fun run() {
+                if (channelActivity !== activity || activeGatt !== gatt) return
+                val now = SystemClock.elapsedRealtime()
+                if (activity.decide(now) == AirChannelActivity.Decision.WAIT) {
+                    handler.postDelayed(this, HOLD_TICK_MS)
+                    return
+                }
+                channelActivity = null
+                holdTick = null
+                channelHoldOutcome = activity.outcome(now)
+                android.util.Log.d("FitbitAir", "channel hold $channelHoldOutcome: " +
+                    "${activity.observedPackets} packets, ${activity.observedBytes} bytes")
+                startGoldengate(activeGatt, device)
+            }
+        }
+        holdTick = tick
+        handler.postDelayed(tick, HOLD_TICK_MS)
+    }
+
     private fun startGoldengate(activeGatt: BluetoothGatt, device: BluetoothDevice) {
         if (activeGatt !== gatt || txSink != null) return
         try {
@@ -742,11 +777,21 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
             }, { }))
             disposables.add(newStack.dtlsEventObservable.subscribe({ state ->
                 android.util.Log.d("FitbitAir", "session DTLS ${state.state} error=${state.lastError}")
+                if (state.state == TLS_STATE_ERROR && state.lastError == LOST_HANDSHAKE_RACE) {
+                    // Google Health answered the Air's handshake too; both stall.
+                    // Retry soon instead of waiting for the full stall deadline.
+                    sessionCallbacks.dispatch(coap) { expediteHandshakeRetry(activeGatt, device, coap) }
+                }
                 sessionCallbacks.dispatch(coap) {
                     if (state.state == TLS_STATE_SESSION && !sessionStarted) {
                         sessionStarted = true
                         handshakeDeadline?.let(handler::removeCallbacks)
                         handshakeDeadline = null
+                        // The idle link runs at ~150 ms with peripheral latency, so each
+                        // request waits several radio events. Boost only once our session
+                        // exists: on a fast link Google Health tends to answer the Air's
+                        // handshake first and both stall. closeTransport() restores low power.
+                        linkBoosted = gatt?.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH) == true
                         runOperation(coap)
                     }
                 }
@@ -761,6 +806,16 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
         } catch (error: Throwable) {
             finishError("GOLDENGATE", error.message ?: error.toString())
         }
+    }
+
+    private fun expediteHandshakeRetry(activeGatt: BluetoothGatt, device: BluetoothDevice, coap: CoapEndpoint) {
+        if (sessionStarted || endpoint !== coap) return
+        handshakeDeadline?.let(handler::removeCallbacks)
+        val retry = Runnable {
+            if (endpoint === coap && !sessionStarted) retryHandshake(activeGatt, device)
+        }
+        handshakeDeadline = retry
+        handler.postDelayed(retry, LOST_RACE_RETRY_MS)
     }
 
     /**
@@ -1199,6 +1254,12 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
         timeout = null
         handshakeDeadline?.let(handler::removeCallbacks)
         handshakeDeadline = null
+        holdTick?.let(handler::removeCallbacks)
+        holdTick = null
+        channelActivity?.let { channelHoldOutcome = it.outcome(SystemClock.elapsedRealtime()) }
+        channelActivity = null
+        channelHoldOutcome?.let { trace.note("channelHold", it) }
+        channelHoldOutcome = null
         trace.step("subscriptions") { disposables.clear() }
         trace.step("secureCapture", secureCapture != null) { secureCapture?.close() }; secureCapture = null
         trace.step("endpoint", closingEndpoint != null) { closingEndpoint?.close() }
@@ -1254,6 +1315,10 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
         private const val OPERATION_TIMEOUT_MS = 45_000L
         private const val HANDOFF_TIMEOUT_MS = 10_000L
         private const val HANDSHAKE_RETRY_MS = 6_000L
+        private const val HOLD_TICK_MS = 100L
+        private const val LOST_RACE_RETRY_MS = 1_500L
+        /** DTLS error observed when Google Health answered the same handshake. */
+        private const val LOST_HANDSHAKE_RACE = -1
         private const val MAX_HANDSHAKE_ATTEMPTS = 2
         private val TRACKER_SERVICE = UUID.fromString("abbaff00-e56a-484c-b832-8b17cf6cbfe8")
         private val TRACKER_TX = UUID.fromString("abbaff01-e56a-484c-b832-8b17cf6cbfe8")
