@@ -1,3 +1,16 @@
+## Unreleased
+
+- Sync-aware hold: before each secure command, passively observe the shared
+  tracker channel and wait (up to 10 s) while Google Health is transferring
+  data. Polling never blocks a command. Reported as `channelHold`. In 8
+  vibrations sent during Google Health syncs, all 8 syncs completed.
+- Request the connection-priority boost only after the session exists; a fast
+  link during the handshake let Google Health win the Air's handshake race.
+- Retry a lost handshake race (`DTLS` error `-1`) after 1.5 s instead of waiting
+  for the 6 s stall deadline.
+- Research: taps, including a recognized alarm dismissal, send nothing to the
+  phone; real-time tap detection is not possible with the tested firmware.
+
 ## 0.1.3
 
 - Add `FitbitAir.tap()`: exactly one pulse at the strength set in Google Health,

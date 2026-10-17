@@ -169,7 +169,7 @@ flutter run
 | Raw diagnostic events | Opt-in research stream; no confirmed tap decoder |
 | Battery resource | Bootstrap read access verified; selected raw fields available in diagnostics, units/scale unverified |
 | Heart rate | Standard BLE readings and continuous updates verified; requires an active Google Health sharing session |
-| Google Health coexistence | Each command ends with a channel handoff; Google Health resynchronizes immediately instead of after its ~60 s watchdog reconnect (measured). Syncs during a command (about 4–5 s) can still fail |
+| Google Health coexistence | Commands wait while Google Health is transferring and end with a channel handoff, so it resynchronizes immediately instead of after a ~60 s watchdog reconnect. In 8 vibrations sent during Google Health syncs, all 8 syncs completed |
 | iOS | Not implemented |
 | Non-arm64 Android | Untested; requires a compatible library in the installed Google Health APK |
 
@@ -299,9 +299,10 @@ updates in this package.
   allows 30–90 seconds of observation plus 15 seconds for connection setup.
 - Google Health remains the pairing owner. This plugin opens a short-lived
   connection and does not unregister, factory-reset, or alter pairing keys.
-- The Air has one secure channel shared with Google Health. After each command
-  the plugin hands it back (`channelHandoff` in transport diagnostics); during a
-  command, and during 30–90 s research captures, Google Health cannot sync.
+- The Air has one secure channel shared with Google Health. Each command first
+  waits while Google Health is transferring (`channelHold`, at most 10 s), then
+  hands the channel back afterward (`channelHandoff`). During 30–90 s research
+  captures Google Health cannot sync.
 - The plugin accepts the native implementation only from the expected signed
   Google Health package; a look-alike package is rejected.
 - Firmware or Google Health updates may change the private protocol.
