@@ -38,6 +38,36 @@ class DemoController extends ChangeNotifier {
   bool? airConnected;
   StreamSubscription<AirConnectionEvent>? _connection;
   bool _visible = false;
+  Timer? _automaticBatteryTimer;
+  DateTime? _lastBatteryAttempt;
+  static const batteryFreshness = Duration(hours: 6);
+
+  bool get _shouldUpdateBattery =>
+      !_disposed &&
+      _visible &&
+      setupCompleted &&
+      airConnected == true &&
+      canReadBattery &&
+      (batteryReadAt == null ||
+          DateTime.now().difference(batteryReadAt!) >= batteryFreshness) &&
+      (_lastBatteryAttempt == null ||
+          DateTime.now().difference(_lastBatteryAttempt!) >=
+              const Duration(minutes: 15));
+
+  void _scheduleBatteryUpdate() {
+    if (!_shouldUpdateBattery) {
+      _automaticBatteryTimer?.cancel();
+      _automaticBatteryTimer = null;
+      return;
+    }
+    // Let the screen settle and give a user's Start tap priority.
+    _automaticBatteryTimer ??= Timer(const Duration(seconds: 3), () {
+      _automaticBatteryTimer = null;
+      if (!_shouldUpdateBattery) return;
+      unawaited(refreshBattery());
+    });
+  }
+
   bool get canReadBattery =>
       initialized &&
       !busy &&
@@ -55,6 +85,7 @@ class DemoController extends ChangeNotifier {
 
   Future<void> refreshBattery() async {
     if (!canReadBattery) return;
+    _lastBatteryAttempt = DateTime.now();
     batteryReading = true;
     batteryError = null;
     _changed();
@@ -191,6 +222,7 @@ class DemoController extends ChangeNotifier {
       // The status explains that this app needs Android.
     }
     initialized = true;
+    _scheduleBatteryUpdate();
     _changed();
   }
 
@@ -204,6 +236,7 @@ class DemoController extends ChangeNotifier {
       _connection = null;
       airConnected = null;
     }
+    _scheduleBatteryUpdate();
     _watchConnectionIfAllowed();
     if (visible) {
       unawaited(refresh());
@@ -221,6 +254,7 @@ class DemoController extends ChangeNotifier {
     _connection = FitbitAir.watchConnection().listen(
       (event) {
         airConnected = event.connected;
+        _scheduleBatteryUpdate();
         _changed();
       },
       onError: (Object error) {
@@ -314,6 +348,7 @@ class DemoController extends ChangeNotifier {
       setupError = 'This demo requires an Android phone.';
     } finally {
       _watchConnectionIfAllowed();
+      _scheduleBatteryUpdate();
       _changed();
     }
   }
@@ -739,7 +774,7 @@ class DemoController extends ChangeNotifier {
 
   Map<String, Object?> report() => {
     'schemaVersion': 1,
-    'demoVersion': '0.1.4-dev.5',
+    'demoVersion': '0.1.4-dev.6',
     'exportedAt': DateTime.now().toUtc().toIso8601String(),
     'relay': {
       'running': relayRunning,
@@ -791,6 +826,7 @@ class DemoController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _automaticBatteryTimer?.cancel();
     _poll?.cancel();
     unawaited(_connection?.cancel());
     super.dispose();

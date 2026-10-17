@@ -24,7 +24,7 @@ class AirStatusStrip extends StatelessWidget {
     final stale =
         state.batteryReadAt == null ||
         DateTime.now().difference(state.batteryReadAt!) >=
-            const Duration(hours: 6);
+            DemoController.batteryFreshness;
     final color = battery != null && battery.percent <= 20
         ? colors.error
         : colors.onSurfaceVariant;
@@ -67,7 +67,9 @@ class AirStatusStrip extends StatelessWidget {
               size: 18,
             ),
             label: Text(
-              battery == null
+              state.batteryReading
+                  ? 'Checking battery…'
+                  : battery == null
                   ? 'Battery'
                   : '${battery.percent}%${stale ? ' · Saved' : ''}',
             ),
@@ -107,7 +109,7 @@ class AirStatusStrip extends StatelessWidget {
                                         ) <
                                         const Duration(minutes: 1)
                               ? 'Up to date. You can check again in a minute.'
-                              : 'Updates briefly connect to your Air. Saved readings stay available between visits.',
+                              : 'Updates automatically while this app is open and notifications are stopped. Saved readings stay available between visits.',
                         ),
                         if (state.batteryError != null) ...[
                           const SizedBox(height: 8),

@@ -469,11 +469,17 @@ whether it was on its charger then, and an Update battery action. Readings and
 their original timestamps survive app restarts in local preferences excluded
 from Android backup and device transfer. A failed refresh keeps the last value.
 
-Battery refresh is explicit, never scheduled. It opens a short secure session,
+Battery updates automatically while the app is visible, setup is complete, the
+passive Bluetooth link is connected, and a reading is missing or six hours old.
+A three-second delay lets the screen settle and gives Start priority. Failed
+automatic attempts back off for 15 minutes. Pending updates are cancelled in
+the background and rechecked before running. Manual refresh remains available.
+A read opens a short secure session,
 so the action is unavailable while relaying, stopping, previewing or running a
 device operation. Starting the relay is blocked during the read. Successful
-readings are reused for at least a minute. Opening Home, returning to the app,
-and the ordinary status poll never request battery or interrupt the relay.
+readings are reused for at least a minute. The ordinary status poll only schedules
+an eligible stale update; it never
+reads the battery every two seconds or interrupts an active relay.
 
 The connection label uses PR #6's passive Android Bluetooth events only while
 the app is visible and permission is granted. It describes the phone's Bluetooth

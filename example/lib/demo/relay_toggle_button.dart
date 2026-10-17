@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'demo_controller.dart';
 
 /// Stable geometry and delayed progress avoid flashes on very fast operations.
@@ -81,7 +82,12 @@ class _RelayToggleButtonState extends State<RelayToggleButton> {
               ? Duration.zero
               : const Duration(milliseconds: 180),
         ),
-        onPressed: widget.transition == null ? widget.onPressed : null,
+        onPressed: widget.transition == null && widget.onPressed != null
+            ? () {
+                unawaited(HapticFeedback.selectionClick());
+                widget.onPressed!();
+              }
+            : null,
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [

@@ -15,6 +15,11 @@ void main() {
   Completer<Map<String, Object?>>? pending;
   var fail = false;
   setUp(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('fitbit_air/connection'),
+          (call) async => null,
+        );
     reads = 0;
     saved = null;
     pending = null;
@@ -44,6 +49,75 @@ void main() {
   tearDown(() {
     controller.dispose();
   });
+
+  testWidgets(
+    'foreground automatically reads a missing battery once and reuses it on resume',
+    (tester) async {
+      controller.setupCompleted = true;
+      controller.airConnected = true;
+      controller.setVisible(true);
+      await tester.pump(const Duration(seconds: 2));
+      expect(reads, 0);
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump();
+      expect(reads, 1);
+      expect(controller.battery!.percent, 55);
+      controller.setVisible(false);
+      controller.airConnected = true;
+      controller.setVisible(true);
+      await tester.pump(const Duration(seconds: 10));
+      expect(reads, 1);
+      controller.setVisible(false);
+      await tester.pump();
+    },
+  );
+
+  testWidgets(
+    'automatic read waits for relay shutdown and cancels when backgrounded',
+    (tester) async {
+      controller.setupCompleted = true;
+      controller.airConnected = true;
+      controller.relayRunning = true;
+      controller.setVisible(true);
+      await tester.pump(const Duration(seconds: 5));
+      expect(reads, 0);
+      controller.relayRunning = false;
+      await controller.refresh();
+      controller.setVisible(false);
+      await tester.pump(const Duration(seconds: 5));
+      expect(reads, 0);
+      controller.airConnected = true;
+      controller.setVisible(true);
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pump();
+      expect(reads, 1);
+      controller.setVisible(false);
+      await tester.pump();
+    },
+  );
+
+  testWidgets(
+    'failed automatic read backs off across status refreshes and resume',
+    (tester) async {
+      fail = true;
+      controller.setupCompleted = true;
+      controller.airConnected = true;
+      controller.setVisible(true);
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pump();
+      expect(reads, 1);
+      controller.setVisible(false);
+      controller.airConnected = true;
+      controller.setVisible(true);
+      await tester.pump(const Duration(seconds: 10));
+      await controller.refresh();
+      await tester.pump(const Duration(seconds: 5));
+      expect(reads, 1);
+      expect(controller.batteryError, isNotNull);
+      controller.setVisible(false);
+      await tester.pump();
+    },
+  );
 
   test(
     'passive connection subscription is shared across refreshes and released in background',

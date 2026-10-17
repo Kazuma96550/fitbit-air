@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'demo_controller.dart';
 import 'rules_panel.dart';
@@ -337,7 +339,12 @@ class RelayPanel extends StatelessWidget {
               if (paused && !transitioning)
                 TextButton(
                   key: const ValueKey('relay-toggle'),
-                  onPressed: enabled ? () => perform(state.stopRelay) : null,
+                  onPressed: enabled
+                      ? () {
+                          unawaited(HapticFeedback.selectionClick());
+                          perform(state.stopRelay);
+                        }
+                      : null,
                   child: const Text('Stop'),
                 ),
               _testButton(context, state),

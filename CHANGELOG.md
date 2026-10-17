@@ -1,9 +1,11 @@
 ## Unreleased
 
+- Give enabled notification Start/Stop taps subtle phone haptic feedback.
+
 - Show battery and passive Bluetooth link status on Home. Persist timestamped
-  battery readings locally, label older values as saved, and allow an explicit
-  refresh only when the relay and device operations are idle. Never poll the
-  secure battery endpoint or stop a relay to update it.
+  battery readings locally and label older values as saved. Automatically
+  update missing or six-hour-old readings while visible, connected and idle,
+  with a short delay and failure backoff. Never stop a relay to update battery.
 
 - Add `FitbitAir.readBattery()`: the battery percentage Google Health shows
   (verified equal), voltage in millivolts, and whether the Air is on its

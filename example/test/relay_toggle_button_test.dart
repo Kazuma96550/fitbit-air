@@ -2,9 +2,60 @@ import 'package:fitbit_air_example/demo/app_theme.dart';
 import 'package:fitbit_air_example/demo/demo_controller.dart';
 import 'package:fitbit_air_example/demo/relay_toggle_button.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('only enabled Start and Stop taps request phone haptics', (
+    tester,
+  ) async {
+    final feedback = <Object?>[];
+    var taps = 0;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'HapticFeedback.vibrate') {
+          feedback.add(call.arguments);
+        }
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
+    Future<void> render(bool running, RelayTransition? transition) =>
+        tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: RelayToggleButton(
+                running: running,
+                transition: transition,
+                onPressed: () => taps++,
+              ),
+            ),
+          ),
+        );
+    await render(false, null);
+    await tester.tap(find.byKey(const ValueKey('relay-toggle')));
+    await tester.pump();
+    await render(true, null);
+    await tester.tap(find.byKey(const ValueKey('relay-toggle')));
+    await tester.pump();
+    expect(taps, 2);
+    expect(feedback, [
+      'HapticFeedbackType.selectionClick',
+      'HapticFeedbackType.selectionClick',
+    ]);
+    await render(true, RelayTransition.stopping);
+    await tester.tap(find.byKey(const ValueKey('relay-toggle')));
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(feedback.length, 2);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('fast operations never flash a busy indicator', (tester) async {
     Future<void> render(bool running, RelayTransition? transition) =>
         tester.pumpWidget(
