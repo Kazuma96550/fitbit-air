@@ -34,9 +34,15 @@ package: it turns phone notifications into a gentle vibration on your Fitbit Air
 - **Runs in the background** as a foreground service once you grant
   notification access in its guided setup.
 
-See [Run the example](#run-the-example) to try it.
-
 <br clear="right">
+
+To try it, connect an Android phone with the Air already paired in Google
+Health, then:
+
+```bash
+cd example
+flutter run
+```
 
 ## Install
 
@@ -181,15 +187,6 @@ await haptics.submit(AirHapticCommand(
 Receiving notifications and keeping your app alive in the background are up
 to your app; see [background integration](doc/background.md). The example app
 implements a complete notification relay.
-
-## Run the example
-
-Connect an Android phone with a Fitbit Air already paired in Google Health, then:
-
-```bash
-cd example
-flutter run
-```
 
 ## Current scope
 
