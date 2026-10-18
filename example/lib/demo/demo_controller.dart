@@ -6,10 +6,20 @@ import 'package:fitbit_air/fitbit_air_diagnostics.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import 'relay_settings.dart';
+
+enum RelayTransition { starting, stopping }
+
 class DemoAction {
-  const DemoAction(this.run, {this.streaming = false, this.parameters});
+  const DemoAction(
+    this.run, {
+    this.streaming = false,
+    this.parameters,
+    this.exclusive = true,
+  });
   final FutureOr<void> Function() run;
   final bool streaming;
+  final bool exclusive;
   final Map<String, Object?> Function()? parameters;
 }
 
@@ -19,15 +29,243 @@ class DemoController extends ChangeNotifier {
   final actions = <String, DemoAction>{};
   Future<void> Function()? cancelCurrent;
   Map<String, Object?> transportDiagnostics = {};
+  RelaySettings settings = const RelaySettings();
+  AirWristPresenceEvent? lastWristObservation;
+  AirBattery? battery;
+  DateTime? batteryReadAt;
+  bool batteryReading = false;
+  bool signalReading = false;
+  int? signalRssi;
+  DateTime? signalReadAt;
+  DateTime? _lastSignalAttempt;
+  String? signalError;
+  bool _deviceVisible = false;
+  bool get canReadSignal =>
+      _deviceReadInFlight == null &&
+      initialized &&
+      !busy &&
+      !previewing &&
+      !changingRelay &&
+      !batteryReading &&
+      !signalReading &&
+      !relayStopping &&
+      (!relayRunning || relayReady) &&
+      relayTransition == null &&
+      bluetoothPermission &&
+      bluetoothEnabled != false &&
+      (_lastSignalAttempt == null ||
+          DateTime.now().difference(_lastSignalAttempt!) >=
+              const Duration(seconds: 15));
+
+  void setDeviceVisible(bool visible) {
+    _deviceVisible = visible;
+    if (visible && _visible) unawaited(refreshSignalStrength());
+  }
+
+  Future<void> refreshSignalStrength({bool force = false}) {
+    if (!canReadSignal ||
+        (!force &&
+            _lastSignalAttempt != null &&
+            DateTime.now().difference(_lastSignalAttempt!) <
+                const Duration(minutes: 2))) {
+      return Future<void>.value();
+    }
+    final task = _readSignalStrength();
+    _deviceReadInFlight = task;
+    return task.whenComplete(() => _deviceReadInFlight = null);
+  }
+
+  Future<void> _readSignalStrength() async {
+    signalReading = true;
+    _lastSignalAttempt = DateTime.now();
+    signalError = null;
+    _changed();
+    try {
+      if (relayRunning) {
+        final result = await channel
+            .invokeMapMethod<String, Object?>('readRelaySignal')
+            .timeout(const Duration(seconds: 30));
+        signalRssi = result?['rssi'] as int?;
+      } else {
+        signalRssi = await FitbitAir.readSignalStrength();
+      }
+      if (signalRssi == null) throw StateError('No signal reading');
+      signalReadAt = DateTime.now();
+    } catch (_) {
+      signalError = 'Could not check signal. Try again shortly.';
+    } finally {
+      signalReading = false;
+      _changed();
+    }
+  }
+
+  Future<void>? _deviceReadInFlight;
+  Future<void>? _previewInFlight;
+  bool get canQueueRelayStart =>
+      (!busy || _previewInFlight != null) &&
+      ((!batteryReading && !signalReading) || _deviceReadInFlight != null);
+  String? get startWaitMessage =>
+      _requestedRelayTransition != RelayTransition.starting
+      ? null
+      : _previewInFlight != null
+      ? 'Finishing your test first…'
+      : _deviceReadInFlight != null
+      ? batteryReading
+            ? 'Finishing battery check…'
+            : 'Finishing device check…'
+      : null;
+  String? batteryError;
+  String? batteryErrorCode;
+  bool? airConnected;
+  StreamSubscription<AirConnectionEvent>? _connection;
+  bool _visible = false;
+  Timer? _automaticBatteryTimer;
+  bool get batteryPending => batteryReading || _automaticBatteryTimer != null;
+  DateTime? _lastBatteryAttempt;
+  static const batteryFreshness = Duration(hours: 1);
+  static const batteryResumeFreshness = Duration(minutes: 15);
+  DateTime? _batteryResumedAt;
+
+  bool get batteryStale =>
+      battery != null &&
+      (batteryReadAt == null ||
+          DateTime.now().difference(batteryReadAt!) >= batteryFreshness);
+
+  bool get _batteryRefreshDue =>
+      batteryReadAt == null ||
+      DateTime.now().difference(batteryReadAt!) >= batteryFreshness ||
+      (_batteryResumedAt != null &&
+          _batteryResumedAt!.difference(batteryReadAt!) >=
+              batteryResumeFreshness);
+
+  bool get _shouldUpdateBattery =>
+      !_disposed &&
+      _visible &&
+      setupCompleted &&
+      canReadBattery &&
+      _batteryRefreshDue &&
+      (_lastBatteryAttempt == null ||
+          DateTime.now().difference(_lastBatteryAttempt!) >=
+              const Duration(minutes: 15));
+
+  void _scheduleBatteryUpdate() {
+    if (!_shouldUpdateBattery) {
+      _automaticBatteryTimer?.cancel();
+      _automaticBatteryTimer = null;
+      return;
+    }
+    // Let the screen settle and give a user's Start tap priority.
+    _automaticBatteryTimer ??= Timer(const Duration(seconds: 3), () {
+      _automaticBatteryTimer = null;
+      if (!_shouldUpdateBattery) return;
+      unawaited(refreshBattery());
+    });
+  }
+
+  bool get canReadBattery =>
+      _deviceReadInFlight == null &&
+      initialized &&
+      !busy &&
+      !previewing &&
+      !changingRelay &&
+      (!relayRunning || relayReady) &&
+      !relayStopping &&
+      relayTransition == null &&
+      !batteryReading &&
+      !signalReading &&
+      bluetoothPermission &&
+      bluetoothEnabled != false &&
+      (batteryReadAt == null ||
+          DateTime.now().difference(batteryReadAt!) >=
+              const Duration(minutes: 1));
+
+  Future<void> refreshBattery() {
+    if (!canReadBattery) return Future<void>.value();
+    final task = _readBattery();
+    _deviceReadInFlight = task;
+    return task.whenComplete(() => _deviceReadInFlight = null);
+  }
+
+  Future<void> _readBattery() async {
+    _lastBatteryAttempt = DateTime.now();
+    batteryReading = true;
+    batteryError = null;
+    batteryErrorCode = null;
+    _changed();
+    try {
+      final value = relayRunning
+          ? AirBattery.fromMap(
+              Map<String, Object?>.from(
+                (await channel
+                        .invokeMapMethod<String, Object?>('readRelayBattery')
+                        .timeout(const Duration(seconds: 60))) ??
+                    (throw const FitbitAirException(
+                      'EMPTY_RESULT',
+                      'Battery read unavailable.',
+                    )),
+              ),
+            )
+          : await FitbitAir.readBattery();
+      final at = DateTime.now();
+      battery = value;
+      batteryReadAt = at;
+      try {
+        await channel.invokeMethod<void>('saveBattery', {
+          'percent': value.percent,
+          'onCharger': value.onCharger,
+          'readAt': at.millisecondsSinceEpoch,
+        });
+      } catch (_) {
+        batteryError =
+            'Updated, but could not save this reading for next time.';
+      }
+    } on PlatformException catch (error) {
+      batteryErrorCode = error.code;
+      if (error.code == 'BUSY') {
+        _lastBatteryAttempt = DateTime.now().subtract(
+          const Duration(minutes: 14, seconds: 30),
+        );
+        batteryError =
+            'Waiting for notification delivery. Will try again shortly.';
+      } else {
+        batteryError = 'Could not update. Tap to try again.';
+      }
+    } on FitbitAirException catch (error) {
+      batteryErrorCode = error.code;
+      batteryError = 'Could not update. Tap to try again.';
+    } catch (_) {
+      batteryErrorCode = 'READ_FAILED';
+      batteryError = 'Could not update. Tap to try again.';
+    } finally {
+      batteryReading = false;
+      _changed();
+    }
+  }
+
+  bool previewing = false;
   bool initialized = false;
+  bool setupCompleted = false;
+  int setupStep = 0;
   bool relayRunning = false;
   bool relayReady = false;
   bool relayStopping = false;
   bool changingRelay = false;
+  RelayTransition? _requestedRelayTransition;
+
+  /// Holds the button's intent until the native worker confirms its state.
+  RelayTransition? get relayTransition =>
+      _requestedRelayTransition ??
+      (relayStopping
+          ? RelayTransition.stopping
+          : relayRunning && !relayReady
+          ? RelayTransition.starting
+          : null);
+
   bool access = false;
   bool listenerConnected = false;
   bool? bluetoothEnabled;
   bool bluetoothPermission = false;
+  bool? notificationControlsAllowed;
   bool? paired;
   String relayOutcome = 'Relay is off.';
   String? setupError;
@@ -55,9 +293,20 @@ class DemoController extends ChangeNotifier {
   Map<String, Object?>? _activeTrial;
   final List<Map<String, Object?>> _observations = [];
 
+  int get selectedInstalledAppCount =>
+      apps.where((app) => selectedApps.contains(app['packageName'])).length;
+
+  String get selectedAppsSummary {
+    final count = apps.isEmpty
+        ? selectedApps.length
+        : selectedInstalledAppCount;
+    return '$count ${count == 1 ? 'app' : 'apps'} selected';
+  }
+
   bool get busy => _activeTrial != null;
   String? get operationId => _activeTrial?['operation'] as String?;
-  bool get controlsBlocked => busy || relayRunning || changingRelay;
+  bool get controlsBlocked =>
+      busy || relayRunning || changingRelay || batteryReading || signalReading;
   List<Map<String, Object?>> get trials => List.unmodifiable(_trials);
   List<String> get actionIds => actions.keys.toList()..sort();
 
@@ -68,6 +317,27 @@ class DemoController extends ChangeNotifier {
   Future<void> initialize() async {
     await refresh();
     await loadApps();
+    try {
+      final cache = await channel.invokeMapMethod<String, Object?>(
+        'batteryCache',
+      );
+      final percent = cache?['percent'];
+      final readAt = cache?['readAt'];
+      if (percent is int &&
+          percent >= 0 &&
+          percent <= 100 &&
+          readAt is int &&
+          readAt > 0 &&
+          readAt <= DateTime.now().millisecondsSinceEpoch) {
+        battery = AirBattery(
+          percent: percent,
+          onCharger: cache?['onCharger'] as bool?,
+        );
+        batteryReadAt = DateTime.fromMillisecondsSinceEpoch(readAt);
+      }
+    } catch (_) {
+      // A missing or invalid cache never blocks setup.
+    }
     try {
       final settings = await channel.invokeMapMethod<String, Object?>(
         'labSettings',
@@ -82,6 +352,7 @@ class DemoController extends ChangeNotifier {
       // The status explains that this app needs Android.
     }
     initialized = true;
+    _scheduleBatteryUpdate();
     _changed();
   }
 
@@ -89,6 +360,15 @@ class DemoController extends ChangeNotifier {
   void setVisible(bool visible) {
     _poll?.cancel();
     _poll = null;
+    if (visible && !_visible) _batteryResumedAt = DateTime.now();
+    _visible = visible;
+    if (!visible) {
+      unawaited(_connection?.cancel());
+      _connection = null;
+      airConnected = null;
+    }
+    _scheduleBatteryUpdate();
+    _watchConnectionIfAllowed();
     if (visible) {
       unawaited(refresh());
       _poll = Timer.periodic(
@@ -96,6 +376,23 @@ class DemoController extends ChangeNotifier {
         (_) => unawaited(refresh()),
       );
     }
+  }
+
+  void _watchConnectionIfAllowed() {
+    if (!_visible || _disposed || !bluetoothPermission || _connection != null) {
+      return;
+    }
+    _connection = FitbitAir.watchConnection().listen(
+      (event) {
+        airConnected = event.connected;
+        _scheduleBatteryUpdate();
+        _changed();
+      },
+      onError: (Object error) {
+        airConnected = null;
+        _changed();
+      },
+    );
   }
 
   Future<void> refresh({bool force = false}) async {
@@ -126,6 +423,8 @@ class DemoController extends ChangeNotifier {
     try {
       final state = await channel.invokeMapMethod<String, Object?>('status');
       if (state == null || _disposed) return;
+      setupCompleted = state['setupCompleted'] == true;
+      setupStep = (state['setupStep'] as int? ?? 0).clamp(0, 3);
       relayRunning = state['running'] == true;
       relayReady = state['ready'] == true;
       relayStopping = state['stopping'] == true;
@@ -133,10 +432,15 @@ class DemoController extends ChangeNotifier {
       listenerConnected = state['connected'] == true;
       bluetoothEnabled = state['bluetoothEnabled'] as bool?;
       bluetoothPermission = state['bluetoothPermission'] == true;
+      notificationControlsAllowed =
+          state['notificationControlsAllowed'] as bool?;
       relayOutcome = state['outcome'] as String? ?? 'Relay is off.';
       final selected = state['selectedApps'] as List?;
       if (selected != null) selectedApps = selected.cast<String>().toSet();
       pulseStyle = state['pulseStyle'] == 'double' ? 'double' : 'single';
+      settings = state['rules'] is Map
+          ? RelaySettings.fromMap(state['rules'] as Map)
+          : RelaySettings(defaultPreset: VibrationPreset.parse(pulseStyle));
       final conversations = Map<String, Object?>.from(
         state['conversations'] as Map? ?? const {},
       );
@@ -174,6 +478,9 @@ class DemoController extends ChangeNotifier {
     } on MissingPluginException {
       setupError = 'This demo requires an Android phone.';
     } finally {
+      _watchConnectionIfAllowed();
+      _scheduleBatteryUpdate();
+      if (_visible && _deviceVisible) unawaited(refreshSignalStrength());
       _changed();
     }
   }
@@ -226,9 +533,6 @@ class DemoController extends ChangeNotifier {
   }
 
   Future<void> selectApp(String packageName, bool selected) async {
-    if (relayRunning || changingRelay) {
-      throw StateError('Stop the relay before changing apps.');
-    }
     final packages = {...selectedApps};
     selected ? packages.add(packageName) : packages.remove(packageName);
     await _relayCall('selectApps', {'packages': packages.toList()});
@@ -238,10 +542,92 @@ class DemoController extends ChangeNotifier {
     if (style != 'double' && style != 'single') {
       throw ArgumentError.value(style, 'style');
     }
-    if (relayRunning || changingRelay) {
-      throw StateError('Stop the relay before changing the pulse style.');
-    }
     await _relayCall('setPulseStyle', {'style': style});
+  }
+
+  Future<void> saveAppRule(
+    String packageName,
+    bool enabled,
+    VibrationPreset? preset,
+  ) => _relayCall('saveAppRule', {
+    'packageName': packageName,
+    'enabled': enabled,
+    'preset': preset?.id,
+  });
+  Future<void> saveChatRule(String id, VibrationPreset? preset) =>
+      _relayCall('saveChatRule', {'id': id, 'preset': preset?.id});
+  Future<void> saveDefaultPreset(VibrationPreset preset) =>
+      _relayCall('saveDefaultPreset', {'preset': preset.id});
+  Future<void> setPause(int minutes) =>
+      _relayCall('setPause', {'minutes': minutes});
+  Future<void> saveQuietHours(bool enabled, int start, int end) => _relayCall(
+    'saveQuietHours',
+    {'enabled': enabled, 'startMinute': start, 'endMinute': end},
+  );
+
+  Future<void> previewPreset(VibrationPreset preset) {
+    if (_previewInFlight != null) {
+      return Future<void>.error(StateError('Wait for the current test.'));
+    }
+    final task = _previewPreset(preset);
+    _previewInFlight = task;
+    return task.whenComplete(() => _previewInFlight = null);
+  }
+
+  Future<void> _previewPreset(VibrationPreset preset) async {
+    if (preset == VibrationPreset.mute) {
+      throw ArgumentError('Silent rules cannot vibrate.');
+    }
+    if (busy ||
+        changingRelay ||
+        previewing ||
+        batteryReading ||
+        signalReading) {
+      throw StateError('Wait for the current operation.');
+    }
+    if (relayRunning) {
+      if (!relayReady || relayStopping) {
+        throw StateError('Wait until the relay is ready.');
+      }
+      previewing = true;
+      _changed();
+      try {
+        await channel.invokeMethod<void>('previewPreset', {
+          'preset': preset.id,
+        });
+      } finally {
+        previewing = false;
+        await refresh();
+        _changed();
+      }
+    } else {
+      final id = 'preview-${preset.id}';
+      actions[id] = DemoAction(() async {
+        if (preset == VibrationPreset.doublePulse) {
+          final result = await FitbitAir.vibrate();
+          if (!result.verified || !result.restored) {
+            throw const FitbitAirException(
+              'UNVERIFIED',
+              'Restoration was not verified.',
+            );
+          }
+        } else {
+          final result = await FitbitAir.tap(intensity: preset.intensity);
+          if (!result.verified) {
+            throw const FitbitAirException(
+              'UNVERIFIED',
+              'Tap was not verified.',
+            );
+          }
+        }
+      }, parameters: () => {'preset': preset.id});
+      await runAction(id);
+    }
+  }
+
+  void recordWristObservation(AirWristPresenceEvent observation) {
+    lastWristObservation = observation;
+    _changed();
   }
 
   Future<void> configureConversations(String method, [Object? arguments]) {
@@ -275,6 +661,36 @@ class DemoController extends ChangeNotifier {
     }
   }
 
+  bool get setupRequirementsMet =>
+      bluetoothPermission &&
+      bluetoothEnabled == true &&
+      paired == true &&
+      access &&
+      listenerConnected &&
+      selectedInstalledAppCount > 0;
+
+  Future<void> rememberSetupStep(int value) async {
+    setupStep = value.clamp(0, 3);
+    try {
+      await channel.invokeMethod<void>('saveSetupStep', {'step': setupStep});
+    } on PlatformException {
+      // Setup remains usable if its resume position cannot be saved.
+    } on MissingPluginException {
+      // Older example hosts restart setup at the first step.
+    }
+  }
+
+  Future<void> completeSetup() async {
+    if (!setupRequirementsMet) {
+      throw StateError(
+        'Finish the connection, notification and app steps first.',
+      );
+    }
+    await channel.invokeMethod<void>('completeSetup');
+    setupCompleted = true;
+    _changed();
+  }
+
   Future<void> checkPaired() async {
     paired = await FitbitAir.isAirPaired();
     await refresh();
@@ -282,14 +698,31 @@ class DemoController extends ChangeNotifier {
   }
 
   Future<void> startRelay() async {
-    if (busy || changingRelay) {
+    if (!canQueueRelayStart ||
+        changingRelay ||
+        _requestedRelayTransition != null) {
       throw StateError('Wait for the current operation.');
     }
+    if (relayRunning) return;
     if (selectedApps.isEmpty) throw StateError('Select at least one app.');
+    _requestedRelayTransition = RelayTransition.starting;
     changingRelay = true;
     setupError = null;
     _changed();
     try {
+      final waiting = [
+        _previewInFlight,
+        _deviceReadInFlight,
+      ].whereType<Future<void>>();
+      await Future.wait(
+        waiting.map(
+          (task) => task.then<void>(
+            (_) {},
+            onError: (Object error, StackTrace stack) {},
+          ),
+        ),
+      );
+      if (_disposed) return;
       await checkPaired();
       if (paired != true) {
         setupError = 'Pair the Air in Google Health, then check again.';
@@ -302,12 +735,29 @@ class DemoController extends ChangeNotifier {
     } on FitbitAirException catch (error) {
       setupError = recoveryHint(error.code);
     } finally {
+      _requestedRelayTransition = null;
       changingRelay = false;
       _changed();
     }
   }
 
-  Future<void> stopRelay() => _relayCall('stop');
+  Future<void> stopRelay() async {
+    if (_requestedRelayTransition == RelayTransition.stopping ||
+        relayStopping) {
+      return;
+    }
+    if (_requestedRelayTransition == RelayTransition.starting) {
+      throw StateError('Wait until the start request finishes.');
+    }
+    _requestedRelayTransition = RelayTransition.stopping;
+    _changed();
+    try {
+      await _relayCall('stop');
+    } finally {
+      _requestedRelayTransition = null;
+      _changed();
+    }
+  }
 
   Future<void> stopRelayAndWait() async {
     await stopRelay();
@@ -330,6 +780,16 @@ class DemoController extends ChangeNotifier {
     return _relayCall('testPulse');
   }
 
+  Future<void> allowNotificationControls() async {
+    await channel.invokeMethod<void>('allowNotificationControls');
+    await refresh(force: true);
+  }
+
+  Future<void> openAppSettings() => channel.invokeMethod<void>('appSettings');
+
+  Future<void> openNotificationControlsSettings() =>
+      channel.invokeMethod<void>('notificationControlsSettings');
+
   Future<void> openAccessSettings() => channel.invokeMethod<void>('settings');
   Future<void> openBluetoothSettings() =>
       channel.invokeMethod<void>('bluetoothSettings');
@@ -347,7 +807,16 @@ class DemoController extends ChangeNotifier {
 
   /// Same named operations for buttons and device integration tests.
   Future<void> runAction(String id) async {
-    if (busy || changingRelay) {
+    final auxiliary = actions[id];
+    if (auxiliary != null && !auxiliary.exclusive) {
+      await auxiliary.run();
+      return;
+    }
+    if (busy ||
+        changingRelay ||
+        previewing ||
+        batteryReading ||
+        signalReading) {
       throw StateError('An operation is already running.');
     }
     if (relayRunning) {
@@ -466,8 +935,15 @@ class DemoController extends ChangeNotifier {
 
   Map<String, Object?> report() => {
     'schemaVersion': 1,
-    'demoVersion': '0.1.3',
+    'demoVersion': '0.1.4-dev.9',
     'exportedAt': DateTime.now().toUtc().toIso8601String(),
+    'battery': {
+      'hasReading': battery != null,
+      'readAt': batteryReadAt?.toUtc().toIso8601String(),
+      'refreshing': batteryReading,
+      'errorCode': batteryErrorCode,
+      'connectionHint': airConnected,
+    },
     'relay': {
       'running': relayRunning,
       'history': history,
@@ -476,6 +952,13 @@ class DemoController extends ChangeNotifier {
       'captureDiagnostics': captureDiagnostics,
     },
     'transport': transportDiagnostics,
+    'settings': {
+      'defaultPreset': settings.defaultPreset.id,
+      'appRuleCount': settings.apps.length,
+      'chatOverrideCount': settings.chats.length,
+      'silenceReason': settings.silenceReason,
+      'quietEnabled': settings.quietEnabled,
+    },
     'trials': _trials,
     'manualObservations': _observations,
   };
@@ -511,7 +994,9 @@ class DemoController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _automaticBatteryTimer?.cancel();
     _poll?.cancel();
+    unawaited(_connection?.cancel());
     super.dispose();
   }
 }

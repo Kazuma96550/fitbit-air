@@ -5,15 +5,16 @@ notification filtering and Android lifecycle management are not package APIs.
 
 ## Screens
 
-- **Relay:** permission/Bluetooth/pairing setup, selected apps with search and
-  icons, Start/Stop, Test vibration, and recent command activity. Selected apps
-  sort first. Test vibration uses the existing relay worker while the relay is
-  listening; when stopped, it uses the shared device preview action.
-- **Device:** pairing, haptic controls, device information and heart rate.
-- **Lab:** all existing diagnostic monitors, resource probes, headless tests,
-  timed wrist-presence/alarm trials, manual markers and structured trial results.
+- **Home:** relay status, Start/Stop, timed pause, default vibration preview,
+  setup checks and recent outcomes.
+- **Rules:** selected apps, per-app/chat vibration presets, WhatsApp capture and
+  restrictions, and daily quiet hours. App edits apply to new alerts while on.
+- **Device:** pairing, device controls/information, heart rate and historical
+  wrist observation. **Developer tools** opens Lab.
+- **Lab:** existing monitors, probes, headless tests, timed wrist/alarm trials,
+  manual markers and structured results. Android Back returns to Device.
 
-The owner banner always identifies a running operation or relay session. Merely
+Home owns the relay status; an owner banner identifies active device work. Merely
 opening Device/Lab does not stop the relay. An exclusive device action asks
 whether to stop it, waits for any active command's verification/restoration, and
 leaves the relay stopped afterward. Cancelled/incomplete trials keep their
@@ -153,20 +154,18 @@ future work.
 
 ## Selected WhatsApp conversations (after 0.1.2)
 
-This example-only feature is independent of the published 0.1.2 plugin. The demo
-is `0.1.3-dev.2` and the app bar shows `dev.2`. It supports WhatsApp and WhatsApp
-Business; other app selections retain their existing behavior.
+This example-only feature supports WhatsApp and WhatsApp Business. Other app
+selections retain their existing behavior.
 
-1. Stop the relay. In **Choose people**, enable WhatsApp notifications if needed
-   and turn on **Only selected WhatsApp chats**. An empty list allows no WhatsApp
-   notifications; it never means “allow all”.
-2. Leave a WhatsApp message unread and tap **Find chats**. The app immediately
-   inspects currently visible WhatsApp notifications, then listens for new ones
-   for up to 60 seconds. Capture never vibrates. You can close the demo and have
-   the chosen person send a notification while their WhatsApp chat is closed.
-3. Select the observed chat. Results remain available for five minutes after
-   listening ends or you tap **Stop listening**. You no longer have to return
-   within the 60-second listening window.
+1. Open **Rules > WhatsApp people**, above the app list. Choose **All chats** or
+   **Selected**. An empty Selected list allows no WhatsApp notifications.
+2. Tap **Add people**. The app checks unread notifications and listens for up to
+   60 seconds. If the relay is running, confirm **Stop and continue** first.
+   Leave a message unread, or receive a new message while that chat is closed.
+3. Tap a found person to add them. Name-only matches require confirmation.
+   Close discovery to stop listening. Saved people appear in one list where you
+   can edit their vibration, mute them, or remove them. Results remain available
+   for five minutes. Start the relay from Home when you finish.
 4. An available **Conversation ID** rule matches the app-scoped Android shortcut
    ID. Existing selections from dev.1 keep their original IDs.
 5. If WhatsApp provides message-notification metadata and a chat title without
@@ -366,3 +365,157 @@ tap (keeps strength)** alongside the older alternating **Single pulse**. Four
 production taps (two from the Device tab, two through the relay worker) were
 felt as single pulses at the wearer's strength, each with
 `channelHandoff: reset_observed`.
+
+## Guided setup and readiness (0.1.4-dev.4)
+
+Setup opens full screen on first launch, resumes the saved step after closing,
+and stays out of the way once completed. Review it from **Device > Permissions
+& setup**. Completion and resume position stay local and are excluded from backup.
+
+The four steps are Connect, Permissions, Apps and Test. Permissions explicitly
+handles two Android grants: reading notifications and showing Air Relay's own
+notifications (pause/stop controls). Each request is the bottom primary action.
+If app notifications are denied, the user can open settings or explicitly skip.
+Starting the relay does not request that permission again. Skipped controls have
+an Allow action on Home. Notification access is explained before requesting it.
+
+The test is optional. A verified command is distinct from the wearer confirming
+that they felt it. Setup never starts notifications automatically.
+
+Home has a single status, a primary control, app rules and three recent events.
+Start/Stop keeps the heading at the previous state while the button shows
+progress. On appears only when the native worker is ready; Off follows native
+shutdown. Fast operations skip the brief busy flash. Start uses the teal accent,
+Stop uses a neutral fill, and reduced motion disables the color animation.
+Latency, error explanations and sanitized exports are behind activity details.
+Readiness does not imply a permanent Bluetooth connection or live wrist detection.
+
+## Custom notification rules (0.1.4 development)
+
+Everyday navigation is **Home**, **Rules**, **Device**. Home owns Start/Stop,
+Try it and timed pause. Rules owns app selection, default and app-specific
+vibrations, WhatsApp chat overrides and a daily quiet-hours window. Device
+retains device controls and opens **Developer tools** (Lab). Lab has a normal
+back action to Device; entering it never stops the relay. Device experiments
+still require the existing explicit relay-stop handoff.
+
+App rows keep their positions while you toggle notifications. Tap **Selected first**
+to regroup them, or reopen Rules. Status refreshes reuse the existing app icons.
+
+The four presets are `single` (current strength), `low`, `high`, and `double`
+(two-pulse preview with restoration). Explicit low/high persists that strength
+on the band. Chat overrides additionally support `mute`. Removing an override
+uses the app rule, subject to the selected-chat allowlist. Choosing or forgetting
+chats and capture still requires a stopped relay; app and vibration edits apply
+to new alerts while running. In-flight commands keep their captured preset.
+
+The existing 15-second transport cooldown is retained. A follow-up combines
+fresh alerts, preferring chat-specific presets over app presets and the newest
+match for equal specificity. It does not send a vibration for each merged
+notification. Muted or restricted-out alerts cannot win a burst. Stop, pause
+and quiet hours cancel waiting follow-ups; the active write/handoff finishes.
+Notification freshness advances during silence and there is no replay afterward.
+Alerts older than 30 seconds expire rather than being refreshed by combining.
+
+Pause supports 15 minutes, one hour or until resumed; resuming never starts a
+stopped relay. Quiet hours are disabled by default, run daily in local phone
+time, and support overnight intervals. The service rechecks time at dispatch,
+after time/timezone changes and at minute/pause boundaries without opening BLE
+or acquiring a periodic wake lock. Missed timers during sleep do not bypass the
+dispatch-time silence check. No exact-alarm permission is needed.
+
+Settings migrate existing selected apps and pulse style once. Existing WhatsApp
+restrictions and identities remain authoritative. `relay_rules.xml` is excluded
+from cloud backup and device transfer along with captured chats. A migration
+marker prevents an older backed-up app selection from being re-enabled if the
+private rule file is absent after restore; users must choose apps again. Invalid
+configuration fails closed. Reports contain rule counts, preset and suppression
+reasons, not chat names, hashes, titles or message text.
+
+### Agent and integration access
+
+The same `DemoController` drives UI and automation. Existing device action IDs
+remain. `runAction('openLab')` opens Lab, `previewDefault` tries the configured
+default, and `pause15`, `pause60`, `pauseUntilResumed`, `resumeRelay` control
+silence without acquiring transport ownership. Existing transport actions still
+require exclusivity. `nav-relay` remains the Home tab key, `nav-rules` identifies
+Rules, `nav-device` identifies Device, and `nav-lab` now identifies the Developer
+tools entry on Device. Integration navigation uses `openLab` so it does not
+depend on the entry's scroll position.
+
+Typed controller methods expose `saveAppRule(packageName, enabled, preset)`,
+`saveChatRule(id, preset)`, `saveDefaultPreset`, `previewPreset`, `setPause` and
+`saveQuietHours`. Null app/chat preset means inheritance; `mute` is chat-only in
+the editor. Preview does not save; while relaying it waits for the service-owned
+worker's verified result. Pause/Stop remain available during that preview.
+
+A manual secure-event Lab trial can populate **Wrist presence** on Device. It is
+explicitly the last observed on/off-wrist state and receipt timestamp, never live
+presence, and is discarded when the process exits. It never filters relay rules
+or adds a continuous Bluetooth monitor.
+
+Before release, exercise low/high retained strength, current-strength single
+and restored double, app/chat overrides, mute, quiet hours crossing midnight,
+timezone changes, pause expiry, combined bursts and Google Health sync after
+both previews and real relay commands. Builds and physical trials belong in CI
+or on a development machine. Keep the connection agent's handoff and recovery
+implementation intact.
+
+### Home battery and connection
+
+Home shows the last battery percentage, a low-battery accent at 20% or below,
+and a small clock badge on readings older than an hour. Tap it to see when it was checked,
+whether it was on its charger then, and an Update battery action. Readings and
+their original timestamps survive app restarts in local preferences excluded
+from Android backup and device transfer. A failed refresh keeps the last value.
+
+Battery updates automatically while the app is visible, setup is complete,
+and a reading is missing or an hour old. Returning to the app also refreshes
+readings that were already at least 15 minutes old when it became visible. The passive Bluetooth connection
+label is informational and never prevents a read: Android may report no
+existing link even though the paired Air can be contacted.
+
+A three-second delay lets the screen settle. When notifications are on,
+battery reads use the relay's existing worker only if its queue is idle.
+Notifications arriving during a read wait in the same serial queue, retaining
+their original expiry, instead of racing another engine for Bluetooth. Stop
+remains available and waits for the read's cleanup before destroying the worker.
+When the relay is off, the foreground engine performs the read instead.
+The relay is never stopped or restarted automatically to check battery.
+
+A busy worker defers automatic retry for 30 seconds; other read failures back
+off for 15 minutes. Pending updates are cancelled in the background. Manual
+refresh remains available, and successful readings are reused for at least a
+minute. The ordinary two-second status poll only schedules eligible updates.
+Battery read errors and timestamps are included in diagnostic exports without
+chat identities or device addresses.
+
+The connection label uses PR #6's passive Android Bluetooth events only while
+the app is visible and permission is granted. It describes the phone's Bluetooth
+link, independently of whether notification relaying is enabled. It does not
+claim that a notification will be delivered or that Google Health is syncing.
+Signal strength and channel-traffic monitoring are not enabled by Home.
+
+### Starting after a test and Device overview
+
+Start remains available during a finite Try it preview or device-status read.
+Tapping it records one start request, shows Starting with a short wait reason,
+and waits for the active operation's cleanup before starting the relay. The
+request proceeds even if the preview fails; its error remains visible. Ongoing
+Lab streams still require an explicit stop. Disposing the controller prevents
+an uncompleted queued start from launching later.
+
+Device begins with a compact overview: battery (tap for details), the passive
+connection hint, timestamped signal strength, and model/firmware after a device
+info read. Signal is only a rough proximity hint. Device checks it on entry
+and at most every two minutes while visible; explicit checks have a 15-second
+minimum interval. RSSI stays in memory, since an old proximity reading is not
+useful across app restarts. Signal and battery reads share the worker queue
+when the relay is on, and a pending Start takes priority over new status reads.
+
+Home labels its status group Fitbit Air so the Bluetooth link, battery and
+notification controls clearly refer to the band. The clock badge replaces
+inline stale-reading prose; its tooltip and the battery detail sheet give the
+reading age. Refresh progress keeps the previous percentage visible, and a
+failed refresh retains the reading and its original timestamp. Battery reads
+remain foreground-only and share the existing device-operation queue.
