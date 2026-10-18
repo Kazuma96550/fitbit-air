@@ -22,14 +22,18 @@ internal data class RelayNotificationSignals(
             Notification.CATEGORY_CALL, Notification.CATEGORY_ALARM, Notification.CATEGORY_REMINDER, "missed_call",
         )
 
+        /** Timestamps of the other person's messages that fall within the burst window. */
+        fun recentCount(timestamps: List<Long>, now: Long) = timestamps.count { now - it in 0..BURST_WINDOW_MILLIS }
+
         @Suppress("DEPRECATION")
         fun from(notification: Notification, ranking: NotificationListenerService.Ranking?, now: Long): RelayNotificationSignals {
             // Group chats are skipped: several people writing at once is not a burst.
             val group = notification.extras.getBoolean(Notification.EXTRA_IS_GROUP_CONVERSATION)
             val recent = if (Build.VERSION.SDK_INT < 30 || group) 0 else runCatching {
-                Notification.MessagingStyle.Message.getMessagesFromBundleArray(
+                // Messages without a sender are the user's own replies; a quick back-and-forth is not a burst.
+                recentCount(Notification.MessagingStyle.Message.getMessagesFromBundleArray(
                     notification.extras.getParcelableArray(Notification.EXTRA_MESSAGES)
-                ).count { now - it.timestamp in 0..BURST_WINDOW_MILLIS }
+                ).filter { it.senderPerson != null || it.sender != null }.map { it.timestamp }, now)
             }.getOrDefault(0)
             val importance = ranking?.importance ?: NotificationManager.IMPORTANCE_UNSPECIFIED
             return RelayNotificationSignals(

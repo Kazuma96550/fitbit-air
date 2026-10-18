@@ -958,7 +958,10 @@ class DemoController extends ChangeNotifier {
     },
     'relay': {
       'running': relayRunning,
-      'history': history,
+      // Message tone categories stay on screen; shared reports leave them out.
+      'history': [
+        for (final entry in history) {...entry}..remove('tone'),
+      ],
       'restrictedConversations': restrictedConversations,
       'allowedConversationCount': allowedConversations.length,
       'captureDiagnostics': captureDiagnostics,

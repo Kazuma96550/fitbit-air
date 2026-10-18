@@ -83,6 +83,11 @@ class RelayToneClassifierTest {
         assertEquals(RelayTone.URGENT, english("Autounfall, Notrufnummer?"))
         assertEquals(RelayTone.NEGATIVE, english("Bad news"))
     }
+    @Test fun `burst window counts only recent timestamps`() {
+        val now = 1_000_000L
+        val window = RelayNotificationSignals.BURST_WINDOW_MILLIS
+        assertEquals(2, RelayNotificationSignals.recentCount(listOf(now, now - window, now - window - 1, now + 1), now))
+    }
     @Test fun `Android signals add urgency and silent channels stay neutral`() {
         val burst = RelayNotificationSignals(recentMessages = 3)
         assertEquals(RelayTone.URGENT, RelayToneClassifier.classify("ok", burst))

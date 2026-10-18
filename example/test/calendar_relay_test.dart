@@ -875,6 +875,9 @@ void main() {
     );
     expect(controller.history, hasLength(2));
     expect(controller.exportJson(), contains('TIMEOUT'));
+    expect(controller.exportJson(), contains('"preset": "double"'));
+    expect(controller.exportJson(), isNot(contains('urgent')));
+    expect(controller.history.first['tone'], 'urgent');
     await tap(tester, 'activity-two-failed');
     expect(find.textContaining('delivery is uncertain'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());

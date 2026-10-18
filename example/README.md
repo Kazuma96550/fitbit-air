@@ -112,7 +112,8 @@ kept, logged or exported. Only selected package
 IDs, the latest outcome, and up to 100 metadata-only history entries are persisted
 locally. History records detection, queueing, terminal result, total latency,
 an optional error code, the chosen vibration and, with Message tone on, the
-message's tone category (urgent, negative or neutral). Test vibration uses the running relay worker; when the
+message's tone category (urgent, negative or neutral; shown in the app but left
+out of copied diagnostic reports). Test vibration uses the running relay worker; when the
 relay is off it uses the device preview. Copy sanitized report exports that
 history and the current session's bounded trial results as JSON. The relay uses a user-started
 connected-device foreground service and a separate Flutter engine, with a
