@@ -241,6 +241,56 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
     _controller.cancelCurrent = _cancelOperation;
   }
 
+  static const _repositoryUrl = 'https://github.com/ThoreKoritzius/fitbit-air';
+
+  Widget _repositoryLink(BuildContext context) => InkWell(
+    key: const ValueKey('about-repository'),
+    onTap: () async {
+      try {
+        await DemoController.channel.invokeMethod<void>('openRepository');
+      } on PlatformException {
+        await Clipboard.setData(const ClipboardData(text: _repositoryUrl));
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Link copied to the clipboard.')),
+          );
+        }
+      }
+    },
+    child: Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          const Icon(Icons.code, size: 18),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              'github.com/ThoreKoritzius/fitbit-air',
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.primary,
+                decoration: TextDecoration.underline,
+              ),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+
+  Widget _madeWithLove(BuildContext context) => Semantics(
+    key: const ValueKey('about-credit'),
+    label: 'Made with love by Thore (The Centaurus)',
+    excludeSemantics: true,
+    child: Wrap(
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: const [
+        Text('Made with '),
+        Icon(Icons.favorite, size: 16, color: Color(0xffe25563)),
+        Text(' by Thore (The Centaurus)'),
+      ],
+    ),
+  );
+
   /// Relay-tab test: progress stays in the button; failures use a snackbar.
   Future<void> _testVibration() async {
     _testFeedbackTimer?.cancel();
@@ -1142,14 +1192,18 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
                     applicationVersion:
                         _controller.report()['demoVersion'] as String?,
                     applicationIcon: const AirRelayMark(size: 48),
-                    children: const [
-                      Text(
+                    children: [
+                      const Text(
                         'An independent notification companion for Fitbit Air. Not affiliated with Google or Fitbit.',
                       ),
-                      SizedBox(height: 12),
-                      Text(
+                      const SizedBox(height: 12),
+                      const Text(
                         'Early access. Google Health sync compatibility is still being tested.',
                       ),
+                      const SizedBox(height: 12),
+                      _repositoryLink(context),
+                      const SizedBox(height: 12),
+                      _madeWithLove(context),
                     ],
                   ),
                 ),

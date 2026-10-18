@@ -4,6 +4,7 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.Manifest
 import android.content.pm.PackageManager
@@ -174,6 +175,11 @@ class MainActivity : FlutterActivity() {
                                 }) }
                             result.success(null)
                         }
+                        "openRepository" -> {
+                            // Fixed URL only; the channel never opens arbitrary links.
+                            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(REPOSITORY_URL)))
+                            result.success(null)
+                        }
                         "settings" -> {
                             startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
                             result.success(null)
@@ -213,5 +219,9 @@ class MainActivity : FlutterActivity() {
                     result.success(getSharedPreferences("headless_test", MODE_PRIVATE).getString("result", null))
                 } else result.notImplemented()
             }
+    }
+
+    private companion object {
+        const val REPOSITORY_URL = "https://github.com/ThoreKoritzius/fitbit-air"
     }
 }

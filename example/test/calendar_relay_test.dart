@@ -216,6 +216,7 @@ void main() {
               if (!deferStop) running = false;
               return null;
             case 'settings':
+            case 'openRepository':
             case 'bluetoothSettings':
             case 'clearHistory':
             case 'testPulse':
@@ -318,6 +319,16 @@ void main() {
       find.textContaining('independent notification companion'),
       findsOneWidget,
     );
+    expect(find.text('github.com/ThoreKoritzius/fitbit-air'), findsOneWidget);
+    expect(
+      find.bySemanticsLabel('Made with love by Thore (The Centaurus)'),
+      findsOneWidget,
+    );
+    await tester.ensureVisible(find.byKey(const ValueKey('about-repository')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('about-repository')));
+    await tester.pump();
+    expect(calls, contains('openRepository'));
     await tester.pumpWidget(const SizedBox());
   });
 
