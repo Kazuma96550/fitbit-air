@@ -18,7 +18,7 @@ same Android phone in the installed Google Health app.
 > compatible, authentic Google Health installation. Android arm64 is the only
 > configuration tested so far. Taps on the Air are not reported to the phone.
 
-## Air Relay: the example app
+## Air Relay
 
 <img src="doc/images/air-relay-home.png" alt="Air Relay home screen showing notifications on, connection and battery status, and recent activity" width="280" align="right">
 
