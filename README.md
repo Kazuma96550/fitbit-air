@@ -18,6 +18,26 @@ same Android phone in the installed Google Health app.
 > compatible, authentic Google Health installation. Android arm64 is the only
 > configuration tested so far. Taps on the Air are not reported to the phone.
 
+## Air Relay: the example app
+
+<img src="doc/images/air-relay-home.png" alt="Air Relay home screen showing notifications on, connection and battery status, and recent activity" width="280" align="right">
+
+The [example](example/) is **Air Relay**, a complete Android app built on this
+package: it turns phone notifications into a gentle vibration on your Fitbit Air.
+
+- **Choose what buzzes:** pick apps, or specific WhatsApp chats, and give each
+  its own vibration (one pulse, two pulses, or a strength).
+- **Stays out of the way:** bursts of messages merge into one follow-up buzz,
+  quiet hours and a timed pause silence it, and Google Health keeps syncing.
+- **Shows the Air's status:** connection, battery and recent deliveries at a
+  glance, with research tools under Device → Developer tools.
+- **Runs in the background** as a foreground service once you grant
+  notification access in its guided setup.
+
+See [Run the example](#run-the-example) to try it.
+
+<br clear="right">
+
 ## Install
 
 ```bash
