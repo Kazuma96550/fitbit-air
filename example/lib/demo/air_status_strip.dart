@@ -20,10 +20,7 @@ class AirStatusStrip extends StatelessWidget {
     final state = controller;
     final colors = Theme.of(context).colorScheme;
     final battery = state.battery;
-    final stale =
-        state.batteryReadAt == null ||
-        DateTime.now().difference(state.batteryReadAt!) >=
-            DemoController.batteryFreshness;
+    final stale = state.batteryStale;
     final color = battery != null && battery.percent <= 20
         ? colors.error
         : colors.onSurfaceVariant;
@@ -52,29 +49,75 @@ class AirStatusStrip extends StatelessWidget {
                 ),
               ],
             ),
-          TextButton.icon(
-            key: const ValueKey('battery-status'),
-            style: TextButton.styleFrom(foregroundColor: color),
-            icon: Icon(
-              battery?.onCharger == true
-                  ? Icons.battery_charging_full
-                  : battery == null
-                  ? Icons.battery_unknown
-                  : battery.percent <= 20
-                  ? Icons.battery_alert
-                  : Icons.battery_std,
-              size: 18,
+          Tooltip(
+            message:
+                'Fitbit Air battery · ${readingAge(state.batteryReadAt)}${stale ? ' · Reading is out of date' : ''}${state.batteryPending ? ' · Updating' : ''}',
+            child: TextButton.icon(
+              key: const ValueKey('battery-status'),
+              style: TextButton.styleFrom(foregroundColor: color),
+              icon: SizedBox.square(
+                dimension: 20,
+                child: state.batteryReading
+                    ? MediaQuery.disableAnimationsOf(context)
+                          ? const Icon(
+                              Icons.sync,
+                              key: ValueKey('battery-refresh-progress'),
+                              size: 18,
+                            )
+                          : CircularProgressIndicator(
+                              key: const ValueKey('battery-refresh-progress'),
+                              strokeWidth: 1.8,
+                              color: color,
+                            )
+                    : Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          Center(
+                            child: Icon(
+                              battery?.onCharger == true
+                                  ? Icons.battery_charging_full
+                                  : battery == null
+                                  ? Icons.battery_unknown
+                                  : battery.percent <= 20
+                                  ? Icons.battery_alert
+                                  : Icons.battery_std,
+                              size: 18,
+                            ),
+                          ),
+                          if (stale)
+                            Positioned(
+                              right: -3,
+                              bottom: -2,
+                              child: DecoratedBox(
+                                decoration: BoxDecoration(
+                                  color: colors.surface,
+                                  shape: BoxShape.circle,
+                                ),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(1),
+                                  child: Icon(
+                                    Icons.schedule,
+                                    key: const ValueKey('battery-stale-clock'),
+                                    size: 11,
+                                    color: colors.onSurfaceVariant,
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+              ),
+              label: Text(
+                battery != null
+                    ? '${battery.percent}%'
+                    : state.batteryPending
+                    ? 'Checking battery…'
+                    : state.batteryError != null
+                    ? 'Battery · Retry'
+                    : 'Battery',
+              ),
+              onPressed: () => showDetails(context, state),
             ),
-            label: Text(
-              state.batteryPending && battery == null
-                  ? 'Checking battery…'
-                  : battery == null
-                  ? state.batteryError != null
-                        ? 'Battery · Retry'
-                        : 'Battery'
-                  : '${battery.percent}%${stale ? ' · Saved' : ''}',
-            ),
-            onPressed: () => showDetails(context, state),
           ),
         ],
       ),
@@ -97,7 +140,7 @@ class AirStatusStrip extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Air battery',
+                'Fitbit Air battery',
                 style: Theme.of(context).textTheme.titleLarge,
               ),
               const SizedBox(height: 16),

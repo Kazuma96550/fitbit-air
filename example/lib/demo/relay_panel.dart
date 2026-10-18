@@ -197,7 +197,15 @@ class RelayPanel extends StatelessWidget {
                       : colors.onSurfaceVariant,
                 ),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 12),
+              Text(
+                'Fitbit Air',
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  color: colors.onSurfaceVariant,
+                  letterSpacing: .3,
+                ),
+              ),
+              const SizedBox(height: 8),
               Text(
                 title,
                 key: const ValueKey('relay-status'),

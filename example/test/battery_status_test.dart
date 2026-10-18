@@ -83,6 +83,87 @@ void main() {
     },
   );
 
+  testWidgets('an open app refreshes when its reading reaches an hour old', (tester) async {
+    controller.setupCompleted = true;
+    controller.battery = const AirBattery(percent: 40);
+    controller.batteryReadAt = DateTime.now().subtract(const Duration(minutes: 5));
+    controller.setVisible(true);
+    await tester.pump(const Duration(seconds: 3));
+    expect(reads, 0);
+    controller.batteryReadAt = DateTime.now().subtract(const Duration(hours: 1));
+    await controller.refresh();
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pump();
+    expect(reads, 1);
+    controller.setVisible(false);
+    await tester.pump();
+  });
+
+  for (final ageMinutes in [5, 20]) {
+    testWidgets(
+      'resume refreshes a $ageMinutes minute old reading only when needed',
+      (tester) async {
+        controller.setupCompleted = true;
+        controller.battery = const AirBattery(percent: 40);
+        controller.batteryReadAt = DateTime.now().subtract(
+          Duration(minutes: ageMinutes),
+        );
+        controller.setVisible(true);
+        await tester.pump(const Duration(seconds: 3));
+        await tester.pump();
+        expect(reads, ageMinutes >= 15 ? 1 : 0);
+        controller.setVisible(false);
+        await tester.pump();
+      },
+    );
+  }
+
+  testWidgets(
+    'an older percentage stays visible while refreshing with an age tooltip',
+    (tester) async {
+      controller.battery = const AirBattery(percent: 55);
+      controller.batteryReadAt = DateTime.now().subtract(
+        const Duration(hours: 2),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: AnimatedBuilder(
+              animation: controller,
+              builder: (context, child) =>
+                  AirStatusStrip(controller: controller),
+            ),
+          ),
+        ),
+      );
+      expect(find.byKey(const ValueKey('battery-stale-clock')), findsOneWidget);
+      expect(find.text('55%'), findsOneWidget);
+      expect(
+        find.byTooltip(
+          'Fitbit Air battery · Checked 2 h ago · Reading is out of date',
+        ),
+        findsOneWidget,
+      );
+      pending = Completer();
+      final read = controller.refreshBattery();
+      await tester.pump();
+      expect(find.text('55%'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('battery-refresh-progress')),
+        findsOneWidget,
+      );
+      pending!.complete({'percent': 50});
+      await read;
+      await tester.pumpAndSettle();
+      expect(find.text('50%'), findsOneWidget);
+      expect(find.byKey(const ValueKey('battery-stale-clock')), findsNothing);
+      expect(
+        find.byKey(const ValueKey('battery-refresh-progress')),
+        findsNothing,
+      );
+    },
+  );
+
   testWidgets(
     'foreground reads a missing battery without a passive connection report and reuses it on resume',
     (tester) async {
@@ -292,7 +373,8 @@ void main() {
           home: Scaffold(body: AirStatusStrip(controller: controller)),
         ),
       );
-      expect(find.text('15% · Saved'), findsOneWidget);
+      expect(find.text('15%'), findsOneWidget);
+      expect(find.byKey(const ValueKey('battery-stale-clock')), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey('battery-status')));
       await tester.pumpAndSettle();
       expect(find.text('Checked 1 d ago'), findsOneWidget);

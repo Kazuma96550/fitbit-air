@@ -1,5 +1,10 @@
 ## Unreleased
 
+- Clarify that Home status belongs to Fitbit Air. Replace stale battery text
+  with a clock badge and age tooltip; keep percentages visible during updates.
+- Refresh battery hourly while visible and on resume for readings at least
+  15 minutes old, retaining queue coordination and failure backoff.
+
 - Queue Start behind a finishing test or battery check with visible feedback,
   preserving the user's intent without overlapping Bluetooth operations.
 - Add a styled Device overview with timestamped battery and signal readings,
@@ -14,7 +19,7 @@
 
 - Show battery and passive Bluetooth link status on Home. Persist timestamped
   battery readings locally and label older values as saved. Automatically
-  update missing or six-hour-old readings while visible and ready,
+  update missing or hour-old readings while visible and ready,
   with a short delay and failure backoff. Never stop a relay to update battery.
 
 - Add `FitbitAir.readBattery()`: the battery percentage Google Health shows

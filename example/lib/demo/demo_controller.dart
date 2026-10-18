@@ -122,15 +122,28 @@ class DemoController extends ChangeNotifier {
   Timer? _automaticBatteryTimer;
   bool get batteryPending => batteryReading || _automaticBatteryTimer != null;
   DateTime? _lastBatteryAttempt;
-  static const batteryFreshness = Duration(hours: 6);
+  static const batteryFreshness = Duration(hours: 1);
+  static const batteryResumeFreshness = Duration(minutes: 15);
+  DateTime? _batteryResumedAt;
+
+  bool get batteryStale =>
+      battery != null &&
+      (batteryReadAt == null ||
+          DateTime.now().difference(batteryReadAt!) >= batteryFreshness);
+
+  bool get _batteryRefreshDue =>
+      batteryReadAt == null ||
+      DateTime.now().difference(batteryReadAt!) >= batteryFreshness ||
+      (_batteryResumedAt != null &&
+          _batteryResumedAt!.difference(batteryReadAt!) >=
+              batteryResumeFreshness);
 
   bool get _shouldUpdateBattery =>
       !_disposed &&
       _visible &&
       setupCompleted &&
       canReadBattery &&
-      (batteryReadAt == null ||
-          DateTime.now().difference(batteryReadAt!) >= batteryFreshness) &&
+      _batteryRefreshDue &&
       (_lastBatteryAttempt == null ||
           DateTime.now().difference(_lastBatteryAttempt!) >=
               const Duration(minutes: 15));
@@ -347,6 +360,7 @@ class DemoController extends ChangeNotifier {
   void setVisible(bool visible) {
     _poll?.cancel();
     _poll = null;
+    if (visible && !_visible) _batteryResumedAt = DateTime.now();
     _visible = visible;
     if (!visible) {
       unawaited(_connection?.cancel());
@@ -921,7 +935,7 @@ class DemoController extends ChangeNotifier {
 
   Map<String, Object?> report() => {
     'schemaVersion': 1,
-    'demoVersion': '0.1.4-dev.8',
+    'demoVersion': '0.1.4-dev.9',
     'exportedAt': DateTime.now().toUtc().toIso8601String(),
     'battery': {
       'hasReading': battery != null,

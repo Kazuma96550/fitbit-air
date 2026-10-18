@@ -464,13 +464,14 @@ implementation intact.
 ### Home battery and connection
 
 Home shows the last battery percentage, a low-battery accent at 20% or below,
-and a saved indicator after six hours. Tap it to see when it was checked,
+and a small clock badge on readings older than an hour. Tap it to see when it was checked,
 whether it was on its charger then, and an Update battery action. Readings and
 their original timestamps survive app restarts in local preferences excluded
 from Android backup and device transfer. A failed refresh keeps the last value.
 
 Battery updates automatically while the app is visible, setup is complete,
-and a reading is missing or six hours old. The passive Bluetooth connection
+and a reading is missing or an hour old. Returning to the app also refreshes
+readings that were already at least 15 minutes old when it became visible. The passive Bluetooth connection
 label is informational and never prevents a read: Android may report no
 existing link even though the paired Air can be contacted.
 
@@ -511,3 +512,10 @@ and at most every two minutes while visible; explicit checks have a 15-second
 minimum interval. RSSI stays in memory, since an old proximity reading is not
 useful across app restarts. Signal and battery reads share the worker queue
 when the relay is on, and a pending Start takes priority over new status reads.
+
+Home labels its status group Fitbit Air so the Bluetooth link, battery and
+notification controls clearly refer to the band. The clock badge replaces
+inline stale-reading prose; its tooltip and the battery detail sheet give the
+reading age. Refresh progress keeps the previous percentage visible, and a
+failed refresh retains the reading and its original timestamp. Battery reads
+remain foreground-only and share the existing device-operation queue.
