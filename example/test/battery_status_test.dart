@@ -83,14 +83,20 @@ void main() {
     },
   );
 
-  testWidgets('an open app refreshes when its reading reaches an hour old', (tester) async {
+  testWidgets('an open app refreshes when its reading reaches an hour old', (
+    tester,
+  ) async {
     controller.setupCompleted = true;
     controller.battery = const AirBattery(percent: 40);
-    controller.batteryReadAt = DateTime.now().subtract(const Duration(minutes: 5));
+    controller.batteryReadAt = DateTime.now().subtract(
+      const Duration(minutes: 5),
+    );
     controller.setVisible(true);
     await tester.pump(const Duration(seconds: 3));
     expect(reads, 0);
-    controller.batteryReadAt = DateTime.now().subtract(const Duration(hours: 1));
+    controller.batteryReadAt = DateTime.now().subtract(
+      const Duration(hours: 1),
+    );
     await controller.refresh();
     await tester.pump(const Duration(seconds: 3));
     await tester.pump();
