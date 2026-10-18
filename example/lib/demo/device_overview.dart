@@ -36,16 +36,9 @@ class DeviceOverview extends StatelessWidget {
       key: const ValueKey('device-overview'),
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            colors.primaryContainer.withValues(alpha: .65),
-            colors.surfaceContainerLow,
-          ],
-        ),
-        borderRadius: BorderRadius.circular(28),
-        border: Border.all(color: colors.outlineVariant.withValues(alpha: .4)),
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: colors.outlineVariant.withValues(alpha: .5)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -54,10 +47,10 @@ class DeviceOverview extends StatelessWidget {
             children: [
               Container(
                 width: 64,
-                height: 72,
+                height: 64,
                 decoration: BoxDecoration(
-                  color: colors.surface.withValues(alpha: .6),
-                  borderRadius: BorderRadius.circular(22),
+                  color: colors.surfaceContainerHighest,
+                  shape: BoxShape.circle,
                 ),
                 child: Icon(
                   Icons.watch_outlined,
@@ -71,9 +64,8 @@ class DeviceOverview extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'YOUR DEVICE',
+                      'Your device',
                       style: text.labelSmall?.copyWith(
-                        letterSpacing: 1.5,
                         color: colors.onSurfaceVariant,
                       ),
                     ),
