@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'demo_controller.dart';
 import 'app_icon.dart';
 import 'conversation_picker.dart';
+import 'relay_settings.dart';
 import 'vibration_editor.dart';
 
 class RulesPanel extends StatefulWidget {
@@ -96,6 +97,8 @@ class _RulesPanelState extends State<RulesPanel> {
           trailing: const Icon(Icons.chevron_right),
           onTap: () => editQuietHours(context, state),
         ),
+        const SizedBox(height: 12),
+        ..._toneRules(context, state, widget.perform),
         const SizedBox(height: 24),
         Wrap(
           spacing: 12,
@@ -177,7 +180,7 @@ class _RulesPanelState extends State<RulesPanel> {
             Padding(
               padding: EdgeInsets.only(bottom: 16),
               child: Text(
-                'Nearby alerts can share one vibration to leave time for Google Health to sync. A saved person’s vibration takes priority.',
+                'Nearby alerts can share one vibration to leave time for Google Health to sync. A saved person’s vibration takes priority, unless message tone marks another alert as urgent.',
               ),
             ),
           ],
@@ -185,6 +188,95 @@ class _RulesPanelState extends State<RulesPanel> {
       ],
     );
   }
+}
+
+List<Widget> _toneRules(
+  BuildContext context,
+  DemoController state,
+  void Function(Future<void> Function()) perform,
+) {
+  final s = state.settings;
+  Future<void> save({
+    bool? enabled,
+    VibrationPreset? Function()? urgent,
+    VibrationPreset? Function()? negative,
+    VibrationPreset? Function()? neutral,
+  }) => state.saveToneRules(
+    enabled: enabled ?? s.toneEnabled,
+    urgent: urgent != null ? urgent() : s.toneUrgent,
+    negative: negative != null ? negative() : s.toneNegative,
+    neutral: neutral != null ? neutral() : s.toneNeutral,
+  );
+  Widget row(
+    String key,
+    String title,
+    VibrationPreset? preset,
+    Future<void> Function(VibrationPreset?) onSave,
+  ) => ListTile(
+    key: ValueKey('tone-$key'),
+    contentPadding: const EdgeInsets.only(left: 40),
+    title: Text(title),
+    subtitle: Text(preset?.label ?? 'Keep app or chat vibration'),
+    trailing: const Icon(Icons.chevron_right),
+    onTap: () => editVibration(
+      context,
+      state,
+      title: title,
+      initial: preset,
+      allowMute: true,
+      inheritLabel: 'Keep app or chat vibration',
+      onSave: onSave,
+    ),
+  );
+  final fresh =
+      s.toneUrgent == null && s.toneNegative == null && s.toneNeutral == null;
+  return [
+    SwitchListTile(
+      key: const ValueKey('message-tone'),
+      contentPadding: EdgeInsets.zero,
+      secondary: const Icon(Icons.priority_high),
+      title: const Text('Message tone'),
+      subtitle: const Text(
+        'Reads message text on this phone to vary the vibration for urgent or negative messages. Text is never stored or shared.',
+      ),
+      value: s.toneEnabled,
+      onChanged: state.changingRelay
+          ? null
+          : (value) => perform(
+              () => state.saveToneRules(
+                enabled: value,
+                // Suggest a starting point the first time it is switched on.
+                urgent: value && fresh
+                    ? VibrationPreset.doublePulse
+                    : s.toneUrgent,
+                negative: value && fresh
+                    ? VibrationPreset.high
+                    : s.toneNegative,
+                neutral: s.toneNeutral,
+              ),
+            ),
+    ),
+    if (s.toneEnabled) ...[
+      row(
+        'urgent',
+        'Urgent',
+        s.toneUrgent,
+        (value) => save(urgent: () => value),
+      ),
+      row(
+        'negative',
+        'Negative',
+        s.toneNegative,
+        (value) => save(negative: () => value),
+      ),
+      row(
+        'neutral',
+        'Everything else',
+        s.toneNeutral,
+        (value) => save(neutral: () => value),
+      ),
+    ],
+  ];
 }
 
 String formatMinute(BuildContext context, int minute) =>

@@ -78,7 +78,9 @@ Trial records include operation/parameters, phone start/end timestamps, duration
 outcome, error code and bounded observations. Interruption records retain actual
 reported observation coverage. Known device model/firmware and protocol event
 IDs/names can appear; raw BLE payloads, Bluetooth addresses/sensor IDs, account
-data, notification contents and sender names are not included. Heart-rate
+data, notification contents and sender names are not included. With Message
+tone on, message text is classified in memory on the phone and discarded; only
+whether the feature is enabled appears in the report. Heart-rate
 receipt timing can be recorded, but readings are not exported. Source application
 package IDs and command timings remain in relay history. Treat exports as
 research data and review them before sharing.

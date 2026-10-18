@@ -37,6 +37,9 @@ class CalendarRelayService : Service() {
     private var sequence = 0
     private val inFlight = mutableMapOf<String, Pair<String?, Long>>()
     private var selectedPackages = emptySet<String>()
+    /** Read by the listener so message text is only inspected after the user opts in. */
+    var toneEnabled = false
+        private set
     private var pulseStyle = "single"
     private val previewReplies = mutableMapOf<String, (RelayWorkerResult) -> Unit>()
     private val choices = mutableMapOf<String, RelayBurstChoice>()
@@ -56,6 +59,8 @@ class CalendarRelayService : Service() {
     fun settingsChanged() {
         val config = RelayRuleStore.read(this)
         val packages = config.selectedPackages
+        toneEnabled = config.tone.enabled
+        if (toneEnabled) RelayToneLexicons.preload(this)
         if (packages != selectedPackages) {
             selectedPackages = packages
             if (ready) filter = CalendarAlertFilter(System.currentTimeMillis(),
@@ -124,6 +129,8 @@ class CalendarRelayService : Service() {
         restrictedConversations = RelayConversations.restricted(this)
         allowedConversations = RelayConversations.allowed(this)
         selectedPackages = RelayRuleStore.read(this).selectedPackages
+        toneEnabled = RelayRuleStore.read(this).tone.enabled
+        if (toneEnabled) RelayToneLexicons.preload(this)
         pulseStyle = RelayAppSelection.pulseStyle(this)
         if (selectedPackages.isEmpty()) {
             saveOutcome("Select at least one notification app before starting.")
@@ -184,15 +191,16 @@ class CalendarRelayService : Service() {
 
     fun acceptsPackage(packageName: String): Boolean = ready && !stopping && packageName in selectedPackages
 
-    fun onAlert(packageName: String, key: String, postedAt: Long, ongoing: Boolean, summary: Boolean, messageTimestamp: Long?, conversationIds: Set<String>) {
+    internal fun onAlert(packageName: String, key: String, postedAt: Long, ongoing: Boolean, summary: Boolean, messageTimestamp: Long?, conversationIds: Set<String>, tone: RelayTone? = null) {
         if (!ready || stopping) return
         val now = System.currentTimeMillis()
         if (filter?.accept(packageName, key, postedAt, now, ongoing, summary, messageTimestamp) != true) return
         val config = RelayRuleStore.read(this)
-        val match = config.match(packageName, conversationIds, restrictedConversations, allowedConversations)
-        if (match == null) { record(nextId(), packageName, postedAt, "filtered"); return }
+        val match = config.match(packageName, conversationIds, restrictedConversations, allowedConversations, tone)
+        val category = tone?.takeIf { config.tone.enabled }
+        if (match == null) { record(nextId(), packageName, postedAt, "filtered", tone = category); return }
         val silence = config.silence.reason(now)
-        if (silence != null) { cancelWaiting(silence); record(nextId(), packageName, postedAt, silence); return }
+        if (silence != null) { cancelWaiting(silence); record(nextId(), packageName, postedAt, silence, tone = category); return }
         submit(packageName, postedAt, match)
     }
 
@@ -214,14 +222,14 @@ class CalendarRelayService : Service() {
         }
         if (completion != null) previewReplies[id] = completion
         choices[id] = RelayBurstChoice(match, System.currentTimeMillis())
-        record(id, sbnPackage, postedAt, "detected")
+        record(id, sbnPackage, postedAt, "detected", match = match)
         val now = System.currentTimeMillis()
         when (val decision = coalescer.onAlert(id, now)) {
-            RelayCoalescer.Decision.DispatchNow -> dispatch(id, sbnPackage, postedAt, postedAt + 30_000, match.preset)
+            RelayCoalescer.Decision.DispatchNow -> dispatch(id, sbnPackage, postedAt, postedAt + 30_000, match)
             is RelayCoalescer.Decision.Merged -> {
                 if (!holdingFollowUp) { holdingFollowUp = true; begin() }
                 inFlight[id] = sbnPackage to postedAt
-                record(id, sbnPackage, postedAt, "merged")
+                record(id, sbnPackage, postedAt, "merged", match = match)
                 decision.scheduleAtMillis?.let { handler.postDelayed(followUp, maxOf(0, it - now)) }
             }
         }
@@ -253,12 +261,12 @@ class CalendarRelayService : Service() {
             previewReplies.remove(it.first)?.invoke(RelayWorkerResult("failed", "EXPIRED"))
         }
         val winner = fresh.reduceOrNull { a, b -> if (a.third.prefer(b.third) === b.third) b else a }
-        fresh.forEach { record(it.first, it.second.first, it.second.second, "combined") }
+        fresh.forEach { record(it.first, it.second.first, it.second.second, "combined", match = it.third.match) }
         if (winner != null) {
             val id = nextId()
             val replies = fresh.mapNotNull { previewReplies.remove(it.first) }
             if (replies.isNotEmpty()) previewReplies[id] = { result -> replies.forEach { it(result) } }
-            dispatch(id, winner.second.first, winner.second.second, winner.second.second + 30_000, winner.third.match.preset)
+            dispatch(id, winner.second.first, winner.second.second, winner.second.second + 30_000, winner.third.match)
         } else coalescer.onFinished(now)
         holdingFollowUp = false
         end()
@@ -281,16 +289,17 @@ class CalendarRelayService : Service() {
         })
     }
 
-    private fun dispatch(id: String, sbnPackage: String?, postedAt: Long, expiresAt: Long, preset: RelayPreset) {
+    private fun dispatch(id: String, sbnPackage: String?, postedAt: Long, expiresAt: Long, match: RelayMatch) {
+        val preset = match.preset
         begin()
         refreshDeadline()
         inFlight[id] = sbnPackage to postedAt
-        record(id, sbnPackage, postedAt, "queued")
+        record(id, sbnPackage, postedAt, "queued", match = match)
         fun finished(result: RelayWorkerResult) {
             previewReplies.remove(id)?.invoke(result)
             choices.remove(id)
             inFlight.remove(id)
-            record(id, sbnPackage, postedAt, result.stage, result.errorCode)
+            record(id, sbnPackage, postedAt, result.stage, result.errorCode, match)
             saveOutcome("Haptic ${result.stage}${result.errorCode?.let { ": $it" } ?: ""}.")
             val now = System.currentTimeMillis()
             coalescer.onFinished(now)?.let { if (!stopping) handler.postDelayed(followUp, maxOf(0, it - now)) }
@@ -336,9 +345,11 @@ class CalendarRelayService : Service() {
 
     private fun nextId() = "relay-${System.currentTimeMillis()}-${++sequence}"
 
-    private fun record(id: String, sbnPackage: String?, postedAt: Long, stage: String, code: String? = null) {
+    private fun record(id: String, sbnPackage: String?, postedAt: Long, stage: String, code: String? = null,
+                       match: RelayMatch? = null, tone: RelayTone? = match?.tone) {
         val now = System.currentTimeMillis()
-        RelayHistory.add(this, RelayActivity(id, sbnPackage, stage, now, maxOf(0, now - postedAt), code))
+        RelayHistory.add(this, RelayActivity(id, sbnPackage, stage, now, maxOf(0, now - postedAt), code,
+            match?.preset?.id, tone?.id))
     }
 
     fun requestStop(reason: String) {

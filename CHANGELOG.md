@@ -1,3 +1,18 @@
+## Unreleased
+
+### Example app
+
+- Add an opt-in **Message tone** rule: an on-device English/German keyword
+  heuristic marks relayed messages as urgent, negative or neutral, and each
+  category can pick its own vibration (or keep the app/chat rule, or mute).
+  Message text is classified in memory only and never stored or exported.
+  English messages are also scored with the VADER sentiment lexicon (MIT) and
+  German ones with a project-written lexicon that handles word endings,
+  compounds and negation after the verb; mixed messages use both, and
+  message bursts, priority conversations, call/alarm/reminder notifications and
+  silent channels feed the result. Relay history shows the vibration sent and
+  the message's category.
+
 ## 0.1.4
 
 ### Package

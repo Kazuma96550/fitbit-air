@@ -843,6 +843,8 @@ void main() {
         'stage': 'verified',
         'atMillis': 1000,
         'latencyMillis': 125,
+        'preset': 'double',
+        'tone': 'urgent',
       },
       {
         'commandId': 'two',
@@ -862,6 +864,13 @@ void main() {
     await tester.pumpAndSettle();
     expect(
       find.descendant(of: target, matching: find.text('WhatsApp')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: target,
+        matching: find.textContaining('Sent · Two pulses · Urgent'),
+      ),
       findsOneWidget,
     );
     expect(controller.history, hasLength(2));
