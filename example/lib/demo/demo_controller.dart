@@ -935,7 +935,7 @@ class DemoController extends ChangeNotifier {
 
   Map<String, Object?> report() => {
     'schemaVersion': 1,
-    'demoVersion': '0.1.4-dev.9',
+    'demoVersion': '0.1.4',
     'exportedAt': DateTime.now().toUtc().toIso8601String(),
     'battery': {
       'hasReading': battery != null,

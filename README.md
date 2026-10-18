@@ -28,7 +28,7 @@ Or add it to `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  fitbit_air: ^0.1.3
+  fitbit_air: ^0.1.4
 ```
 
 To try unreleased changes, depend on the Git repository instead:

@@ -51,7 +51,7 @@ Stable Flutter keys are part of the demo's test interface:
 
 | Purpose | Key |
 |---|---|
-| Navigation | `nav-relay`, `nav-device`, `nav-lab` |
+| Navigation | `nav-relay` (Home), `nav-rules`, `nav-device`, `nav-lab` (Developer tools) |
 | Ownership and cancellation | `operation-owner`, `cancel-operation` |
 | Relay controls | `relay-toggle`, `relay-status`, `test-vibration`, `pulse-style`, `pulse-style-hint`, `error-bar` |
 | App selection | `app-picker`, `app-search`, `app-<packageName>` |
