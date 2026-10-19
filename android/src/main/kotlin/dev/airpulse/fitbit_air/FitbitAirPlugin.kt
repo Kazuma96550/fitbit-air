@@ -874,7 +874,7 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
                 return
             }
             txCharacteristic = tx
-            GoogleHealthNativeLoader.initialize(appContext)
+            BundledNativeLoader.initialize()
             val sink = TxSink()
             txSink = sink
             val source = RxSource()

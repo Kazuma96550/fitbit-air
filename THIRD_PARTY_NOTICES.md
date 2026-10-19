@@ -1,7 +1,8 @@
 # Third-party notices
 
 No binary from the Google Health or Fitbit Android applications is included in
-this repository, package archive, or built example APK.
+this repository, package archive, or built example APK, and none is loaded at
+runtime.
 
 ## Golden Gate
 
@@ -12,11 +13,28 @@ this repository, package archive, or built example APK.
 
 The full license text is included in [`LICENSE-APACHE-2.0`](LICENSE-APACHE-2.0).
 
+The native libraries under `android/src/main/jniLibs/` are built from this
+source by [`tool/native/build.py`](tool/native/build.py) without modification;
+upstream's `NOTICE` is reproduced in
+[`third_party/golden-gate/NOTICE`](third_party/golden-gate/NOTICE).
+
 The Kotlin sources under
 `android/src/main/kotlin/com/fitbit/goldengate/bindings/` are derived from the
 upstream Android bindings and retain their SPDX headers. They include limited
-adaptations for the JNI ABI exposed by the currently tested Google Health
-version, error propagation, and Gattlink configuration.
+adaptations: a per-stack TLS key resolver and logging cleanups.
+
+## Mbed TLS (statically linked into `libgg.so`)
+
+- Source: https://github.com/Mbed-TLS/mbedtls (Golden Gate submodule pin)
+- License: Apache License 2.0, see
+  [`third_party/mbedtls/LICENSE`](third_party/mbedtls/LICENSE)
+
+## lwIP (statically linked into `libgg.so`)
+
+- Source: https://savannah.nongnu.org/projects/lwip/ (Golden Gate submodule pin)
+- Copyright (c) 2001, 2002 Swedish Institute of Computer Science
+- License: BSD 3-Clause, see [`third_party/lwip/COPYING`](third_party/lwip/COPYING).
+  Apps that ship this plugin must reproduce this notice.
 
 ## VADER sentiment lexicon (example app)
 
@@ -29,11 +47,3 @@ mean-valence columns of the upstream `vader_lexicon.txt`; the license text ships
 beside it as `LICENSE.txt`. `RelayVader.kt` is a Kotlin port of the upstream
 scoring rules. Hutto, C.J. & Gilbert, E.E. (2014). VADER: A Parsimonious
 Rule-based Model for Sentiment Analysis of Social Media Text. ICWSM-14.
-
-## Runtime Google Health dependency
-
-At runtime, the plugin verifies the installed `com.fitbit.FitbitMobile` signing
-certificate and loads a compatible `libxp.so` copied from that app's publicly
-installed APK split into the caller app's private code cache. That binary is not
-redistributed by this project and remains subject to its owner's terms. No file
-from Google Health's private application-data directory is read.

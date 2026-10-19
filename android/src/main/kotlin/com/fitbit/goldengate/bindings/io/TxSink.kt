@@ -7,9 +7,6 @@ import androidx.annotation.Keep
 import androidx.annotation.VisibleForTesting
 import com.fitbit.goldengate.bindings.GoldenGate
 import com.fitbit.goldengate.bindings.NativeReference
-import com.fitbit.goldengate.bindings.NativeReferenceCreationResult
-import com.fitbit.goldengate.bindings.GoldenGateNativeException
-import com.fitbit.goldengate.bindings.GoldenGateNativeResult
 import com.fitbit.goldengate.bindings.util.hexString
 import io.reactivex.Observable
 import io.reactivex.subjects.PublishSubject
@@ -34,7 +31,7 @@ class TxSink : NativeReference, Closeable {
 
     init {
         GoldenGate.check()
-        thisPointer = create(TxSink::class.java, "putData", "([B)I").validPointer("TxSink")
+        thisPointer = create(TxSink::class.java, "putData", "([B)V")
     }
 
     /**
@@ -43,28 +40,14 @@ class TxSink : NativeReference, Closeable {
      */
     @VisibleForTesting
     @Keep
-    fun putData(data: ByteArray): Int {
+    fun putData(data: ByteArray) {
         dataSubject.onNext(data)
-        return GoldenGateNativeResult.GG_SUCCESS.code
     }
 
     override fun close() {
-        destroy(thisPointer).throwIfError("TxSink.destroy")
+        destroy(thisPointer)
     }
 
-    private external fun create(clazz: Class<TxSink>, methodName: String, methodSignature: String): NativeReferenceCreationResult
-    private external fun destroy(ptr: Long): Int
-    protected external fun notifyListener(ptr: Long): Int
-
-    private fun NativeReferenceCreationResult.validPointer(operation: String): Long {
-        if (isSuccess) return pointer
-        throw GoldenGateNativeException("$operation failed: ${result.title}", resultCode)
-    }
-
-    private fun Int.throwIfError(operation: String) {
-        val nativeResult = GoldenGateNativeResult.getNativeResultFrom(this)
-        if (nativeResult != GoldenGateNativeResult.GG_SUCCESS) {
-            throw GoldenGateNativeException("$operation failed: ${nativeResult.title}", this)
-        }
-    }
+    private external fun create(clazz: Class<TxSink>, methodName: String, methodSignature: String): Long
+    private external fun destroy(ptr: Long)
 }

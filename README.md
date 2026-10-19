@@ -222,7 +222,7 @@ Android reconnects it when the Air returns to range.
 | Heart rate | Standard BLE readings and continuous updates verified; requires an active Google Health sharing session |
 | Google Health coexistence | Commands wait while Google Health is transferring and end with a channel handoff, so it resynchronizes immediately instead of after a ~60 s watchdog reconnect. In 8 vibrations sent during Google Health syncs, all 8 syncs completed |
 | iOS | Not implemented |
-| Non-arm64 Android | Untested; requires a compatible library in the installed Google Health APK |
+| Non-arm64 Android | Bundled for armeabi-v7a, x86_64 and x86; untested on hardware |
 
 The Google Health implementation contains a `GET liveactivity` resource with
 steps, activity, and heart-rate fields, but the Air rejects it with CoAP `4.01`
@@ -326,20 +326,17 @@ exports; see the [demo and agent guide](doc/demo.md).
 
 ## Native compatibility and provenance
 
-The package and its APKs do **not** redistribute Google's `libxp.so`. At runtime,
-the Android plugin verifies the installed `com.fitbit.FitbitMobile` signing
-certificate, reads the matching library from that app's publicly installed APK
-split, and copies it to this app's private code cache for loading. The cached
-copy is keyed by Google Health's version and update timestamp.
+The plugin bundles its own Golden Gate transport (`libgg.so` and `libxp.so`),
+built from the public Apache-2.0 source at commit
+`b8a6f2552e12aaf92c1549dc88a41c9b7e73f1aa` with pinned mbedTLS and lwIP. It
+loads no code from Google Health or any other app. The build is reproducible:
+[`tool/native/build.py`](tool/native/build.py) rebuilds the libraries with a
+pinned NDK, and CI checks that the output is byte-identical to the committed
+files. The JNI-facing Kotlin bindings follow the same upstream revision. See
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) for licenses.
 
-The JNI-facing Kotlin bindings are adapted from the Apache-2.0 Golden Gate
-Android bindings at commit `b8a6f2552e12aaf92c1549dc88a41c9b7e73f1aa`.
-See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) for provenance.
-
-This arrangement avoids distributing a proprietary native binary or reading
-Google Health's private files, but it creates a strict compatibility dependency:
-a Google Health update can change the JNI ABI and require corresponding binding
-updates in this package.
+Google Health updates no longer affect the transport; only changes in the
+Air's firmware can.
 
 ## Safety and compatibility
 
@@ -367,6 +364,7 @@ Google are trademarks of their respective owners; this project is unaffiliated.
 
 ## License
 
-Plugin code is MIT licensed. Adapted upstream source retains its Apache-2.0
-license. The runtime-loaded Google Health library remains subject to its owner's
-terms and is not part of this distribution.
+Plugin code is MIT licensed. Adapted upstream source and the bundled Golden Gate
+libraries retain their Apache-2.0 license; the libraries also contain mbedTLS
+(Apache-2.0) and lwIP (BSD-3-Clause). See
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).

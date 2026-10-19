@@ -29,11 +29,7 @@ sealed class StackConfig(
     /**
      * Remote UDP port number
      */
-    open val remotePort: Int,
-    open val gattlinkRxWindowSize: Int? = null,
-    open val gattlinkTxWindowSize: Int? = null,
-    open val gattlinkBufferThresholdHysteresis: Double? = null,
-    open val gattlinkExpectedAckTimeout: Int? = null
+    open val remotePort: Int
 ): Serializable
 
 /**
@@ -48,14 +44,8 @@ data class SocketNetifGattlink(
     override val localAddress: Inet4Address = defaultAddress(),
     override val localPort: Int = 0,
     override val remoteAddress: Inet4Address = defaultAddress(),
-    override val remotePort: Int = 0,
-    override val gattlinkRxWindowSize: Int? = null,
-    override val gattlinkTxWindowSize: Int? = null,
-    override val gattlinkBufferThresholdHysteresis: Double? = null,
-    override val gattlinkExpectedAckTimeout: Int? = null
-) : StackConfig("SNG", localAddress, localPort, remoteAddress, remotePort,
-    gattlinkRxWindowSize, gattlinkTxWindowSize, gattlinkBufferThresholdHysteresis,
-    gattlinkExpectedAckTimeout)
+    override val remotePort: Int = 0
+) : StackConfig("SNG", localAddress, localPort, remoteAddress, remotePort)
 
 /**
  * Stack with Gattlink, a Network Interface, a UDP socket and DTLS
@@ -64,14 +54,8 @@ data class DtlsSocketNetifGattlink(
     override val localAddress: Inet4Address = defaultAddress(),
     override val localPort: Int = 0,
     override val remoteAddress: Inet4Address = defaultAddress(),
-    override val remotePort: Int = 0,
-    override val gattlinkRxWindowSize: Int? = null,
-    override val gattlinkTxWindowSize: Int? = null,
-    override val gattlinkBufferThresholdHysteresis: Double? = null,
-    override val gattlinkExpectedAckTimeout: Int? = null
-) : StackConfig("DSNG", localAddress, localPort, remoteAddress, remotePort,
-    gattlinkRxWindowSize, gattlinkTxWindowSize, gattlinkBufferThresholdHysteresis,
-    gattlinkExpectedAckTimeout)
+    override val remotePort: Int = 0
+) : StackConfig("DSNG", localAddress, localPort, remoteAddress, remotePort)
 
 private fun defaultAddress() = Inet4Address.getByAddress(byteArrayOf(0, 0, 0, 0)) as Inet4Address
 

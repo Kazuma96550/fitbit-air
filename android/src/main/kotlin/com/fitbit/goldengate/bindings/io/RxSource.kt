@@ -6,9 +6,6 @@ package com.fitbit.goldengate.bindings.io
 import androidx.annotation.AnyThread
 import com.fitbit.goldengate.bindings.GoldenGate
 import com.fitbit.goldengate.bindings.NativeReference
-import com.fitbit.goldengate.bindings.NativeReferenceCreationResult
-import com.fitbit.goldengate.bindings.GoldenGateNativeException
-import com.fitbit.goldengate.bindings.GoldenGateNativeResult
 import com.fitbit.goldengate.bindings.util.hexString
 import io.reactivex.Completable
 import timber.log.Timber
@@ -24,7 +21,7 @@ class RxSource : NativeReference, Closeable {
 
     init {
         GoldenGate.check()
-        thisPointer = create().validPointer("RxSource")
+        thisPointer = create()
     }
 
     /**
@@ -34,27 +31,15 @@ class RxSource : NativeReference, Closeable {
     fun receiveData(data: ByteArray): Completable {
         return Completable.fromCallable {
             // This jni call will post the message to the GG thread where the received data will be processed
-            receiveData(data, thisPointer).throwIfError("RxSource.receiveData")
+            receiveData(data, thisPointer)
         }
     }
 
     override fun close() {
-        destroy(thisPointer).throwIfError("RxSource.destroy")
+        destroy(thisPointer)
     }
 
-    private external fun receiveData(data: ByteArray, rxSourcePtr: Long): Int
-    private external fun create(): NativeReferenceCreationResult
-    private external fun destroy(source: Long): Int
-
-    private fun NativeReferenceCreationResult.validPointer(operation: String): Long {
-        if (isSuccess) return pointer
-        throw GoldenGateNativeException("$operation failed: ${result.title}", resultCode)
-    }
-
-    private fun Int.throwIfError(operation: String) {
-        val nativeResult = GoldenGateNativeResult.getNativeResultFrom(this)
-        if (nativeResult != GoldenGateNativeResult.GG_SUCCESS) {
-            throw GoldenGateNativeException("$operation failed: ${nativeResult.title}", this)
-        }
-    }
+    private external fun receiveData(data: ByteArray, rxSourcePtr: Long)
+    private external fun create(): Long
+    private external fun destroy(source: Long)
 }
