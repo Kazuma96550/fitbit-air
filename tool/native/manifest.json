@@ -1,0 +1,17 @@
+{
+  "upstream": "https://github.com/Google-Health-API/golden-gate.git",
+  "revision": "b8a6f2552e12aaf92c1549dc88a41c9b7e73f1aa",
+  "submodules": [
+    " 1bb6e7f52de1cd86be0eed31e348431edc2cd01e external/lwip (1bb6e7f)",
+    " 8b3f26a5ac38d4fdccbc5c5366229f3e01dafcc0 external/mbedtls (8b3f26a)"
+  ],
+  "ndk": "28.2.13676358",
+  "libraries": {
+    "arm64-v8a/libgg.so": "7855caf0576de560131f1f21a1d5edba509b6769d11d6520553d842ff97560f3",
+    "arm64-v8a/libxp.so": "bf8586850affcd8880bae9dec5ebcb98d4382bceddcc447811968413247168a7",
+    "armeabi-v7a/libgg.so": "38cd768e825c62c3cf70b7d8da6655aac9634df67b2284d78fe7b30962bf38f5",
+    "armeabi-v7a/libxp.so": "df0f2b34e3843e5083cf3c1abc3ad33a6edeacc1eb3add21e6e86d93e08e7f66",
+    "x86_64/libgg.so": "838fee1c34ced8a00d894389cce8f999fc2c7ebf008310c3219907af25e620d0",
+    "x86_64/libxp.so": "29b59480c153e152a01eb9c1ca990ff3bbca054d78954869e002717af6350083"
+  }
+}

@@ -1,7 +1,7 @@
 # Bundled native transport
 
 The plugin ships Golden Gate's core (`libgg.so`) and JNI bridge (`libxp.so`)
-for `arm64-v8a`, `armeabi-v7a`, `x86_64` and `x86` under
+for `arm64-v8a`, `armeabi-v7a` and `x86_64` (the ABIs Flutter supports) under
 `android/src/main/jniLibs/`. They are built from pinned public source:
 
 - Golden Gate `b8a6f2552e12aaf92c1549dc88a41c9b7e73f1aa` (Apache-2.0)

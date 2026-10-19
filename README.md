@@ -222,7 +222,7 @@ Android reconnects it when the Air returns to range.
 | Heart rate | Standard BLE readings and continuous updates verified; requires an active Google Health sharing session |
 | Google Health coexistence | Commands wait while Google Health is transferring and end with a channel handoff, so it resynchronizes immediately instead of after a ~60 s watchdog reconnect. In 8 vibrations sent during Google Health syncs, all 8 syncs completed |
 | iOS | Not implemented |
-| Non-arm64 Android | Bundled for armeabi-v7a, x86_64 and x86; untested on hardware |
+| Non-arm64 Android | Bundled for armeabi-v7a and x86_64; untested on hardware |
 
 The Google Health implementation contains a `GET liveactivity` resource with
 steps, activity, and heart-rate fields, but the Air rejects it with CoAP `4.01`

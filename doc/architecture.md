@@ -67,8 +67,8 @@ stored setting after this short-lived connection closes.
 
 ## Deliberate limitations
 
-- Android arm64 on Pixel 7 Pro is the verified target. The armeabi-v7a, x86_64
-  and x86 libraries are bundled but untested on hardware.
+- Android arm64 on Pixel 7 Pro is the verified target. The armeabi-v7a and x86_64
+  libraries are bundled but untested on hardware.
 - Pairing remains owned by Google Health. The plugin does not provision or copy
   the normal device-specific mobile-data PSK or read private app data.
 - The haptic operation works through the bootstrap session observed on the Air.

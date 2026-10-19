@@ -21,7 +21,8 @@ UPSTREAM = "https://github.com/Google-Health-API/golden-gate.git"
 REVISION = "b8a6f2552e12aaf92c1549dc88a41c9b7e73f1aa"
 SUBMODULES = ["external/lwip", "external/mbedtls"]
 NDK_REVISION = "28.2.13676358"
-ABIS = ["arm64-v8a", "armeabi-v7a", "x86_64", "x86"]
+# Flutter supports no other Android ABIs.
+ABIS = ["arm64-v8a", "armeabi-v7a", "x86_64"]
 LIBRARIES = ["libgg.so", "libxp.so"]
 JNI_FAMILIES = ["GoldenGate_initModulesJNI", "RunLoop", "Stack_create", "CoapEndpoint"]
 

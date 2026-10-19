@@ -3,7 +3,7 @@
 ### Package
 
 - Bundle the Golden Gate transport, built reproducibly from its public
-  Apache-2.0 source for arm64-v8a, armeabi-v7a, x86_64 and x86. The plugin no
+  Apache-2.0 source for arm64-v8a, armeabi-v7a and x86_64. The plugin no
   longer copies or loads `libxp.so` from the installed Google Health app, so
   Google Health updates cannot break it. Verified on a Pixel 7 Pro: battery
   read, single tap, two-pulse restore and handoff; Google Health synced
