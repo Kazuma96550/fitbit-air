@@ -31,7 +31,8 @@ class MainActivity : FlutterActivity() {
                             result.success(mapOf(
                                 "firmware" to cache.getString("firmware", null),
                                 "readAt" to cache.getLong("readAt", 0),
-                                "dismissedFirmware" to cache.getString("dismissedFirmware", null)))
+                                "dismissedFirmware" to cache.getString("dismissedFirmware", null),
+                                "workingFirmware" to cache.getString("workingFirmware", null)))
                         }
                         "saveDevice" -> {
                             val edit = getSharedPreferences("air_device", MODE_PRIVATE).edit()
@@ -40,9 +41,11 @@ class MainActivity : FlutterActivity() {
                                 edit.putString("firmware", it)
                                     .putLong("readAt", requireNotNull(call.argument<Number>("readAt")).toLong())
                             }
-                            call.argument<String>("dismissedFirmware")?.let {
-                                require(it.length <= 64)
-                                edit.putString("dismissedFirmware", it)
+                            for (key in listOf("dismissedFirmware", "workingFirmware")) {
+                                call.argument<String>(key)?.let {
+                                    require(it.length <= 64)
+                                    edit.putString(key, it)
+                                }
                             }
                             edit.apply()
                             result.success(null)

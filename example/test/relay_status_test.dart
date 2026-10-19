@@ -175,4 +175,16 @@ void main() {
     state.firmware = '99.0.0.2';
     expect(state.showFirmwareNotice, isTrue);
   });
+
+  test('untested firmware that already worked here needs no notice', () {
+    state
+      ..firmware = '99.0.0.1'
+      ..workingFirmware = '99.0.0.1';
+    expect(state.firmwareWorks, isTrue);
+    expect(state.showFirmwareNotice, isFalse);
+    // A later update is unproven again until a command succeeds on it.
+    state.firmware = '99.0.0.2';
+    expect(state.firmwareWorks, isFalse);
+    expect(state.showFirmwareNotice, isTrue);
+  });
 }

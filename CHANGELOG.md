@@ -30,8 +30,10 @@
   two alerts in a row were not confirmed. Only repeated compatibility errors
   suggest an update, with a **Check for updates** action.
 - A notice appears once when the Air runs firmware this release was not
-  tested with. The firmware is read at most daily, together with a battery
-  read, and shown on the Device tab as tested or not yet tested.
+  tested with, unless a battery read or vibration has already succeeded on
+  it here ("works on your Air"). The firmware is read at most daily and shown
+  on the Device tab as tested, works on your Air, or not yet tested.
+- Issue templates for problems and for reports on new Air firmware.
 - About explains typical delay, range and the firmware risk, shows the tested
   and current firmware, and links to releases and issue reports. Setup sets
   the same expectations.

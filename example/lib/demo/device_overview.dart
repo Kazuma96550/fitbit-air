@@ -178,7 +178,11 @@ class DeviceOverview extends StatelessWidget {
               [
                 ?model,
                 if (firmware != null)
-                  'Firmware $firmware · ${FitbitAir.testedFirmware.contains(firmware) ? 'tested' : 'not yet tested'}',
+                  'Firmware $firmware · ${FitbitAir.testedFirmware.contains(firmware)
+                      ? 'tested'
+                      : state.workingFirmware == firmware
+                      ? 'not yet tested, works on your Air'
+                      : 'not yet tested'}',
               ].join(' · '),
               key: const ValueKey('device-firmware'),
               style: text.bodySmall?.copyWith(color: colors.onSurfaceVariant),

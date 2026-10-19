@@ -195,6 +195,10 @@ class DemoController extends ChangeNotifier {
   String? firmware;
   DateTime? firmwareReadAt;
   String? dismissedFirmware;
+
+  /// The firmware on which a battery read or vibration last succeeded here.
+  /// That proves the secure session and settings still work on it.
+  String? workingFirmware;
   DateTime? _lastFirmwareAttempt;
   Timer? _firmwareTimer;
   static const firmwareFreshness = Duration(days: 1);
@@ -232,9 +236,26 @@ class DemoController extends ChangeNotifier {
   bool? get firmwareTested =>
       firmware == null ? null : FitbitAir.testedFirmware.contains(firmware);
 
-  /// An untested firmware the user has not dismissed yet.
+  bool get firmwareWorks => firmware != null && workingFirmware == firmware;
+
+  /// An untested firmware that has not worked here yet and was not dismissed.
   bool get showFirmwareNotice =>
-      firmwareTested == false && dismissedFirmware != firmware;
+      firmwareTested == false &&
+      !firmwareWorks &&
+      dismissedFirmware != firmware;
+
+  Future<void> _markFirmwareWorking() async {
+    if (firmware == null || firmwareWorks) return;
+    workingFirmware = firmware;
+    _changed();
+    try {
+      await channel.invokeMethod<void>('saveDevice', {
+        'workingFirmware': firmware,
+      });
+    } on PlatformException {
+      // Re-confirmed by the next successful command.
+    }
+  }
 
   Future<void> dismissFirmwareNotice() async {
     dismissedFirmware = firmware;
@@ -344,6 +365,7 @@ class DemoController extends ChangeNotifier {
             'Updated, but could not save this reading for next time.';
       }
       await _readFirmwareIfDue();
+      await _markFirmwareWorking();
     } on PlatformException catch (error) {
       batteryErrorCode = error.code;
       if (error.code == 'BUSY') {
@@ -473,6 +495,7 @@ class DemoController extends ChangeNotifier {
         firmwareReadAt = DateTime.fromMillisecondsSinceEpoch(readAt);
       }
       dismissedFirmware = device?['dismissedFirmware'] as String?;
+      workingFirmware = device?['workingFirmware'] as String?;
     } catch (_) {
       // Unknown firmware only hides the compatibility notice.
     }
@@ -611,6 +634,23 @@ class DemoController extends ChangeNotifier {
       history = (state['history'] as List? ?? [])
           .map((entry) => Map<String, Object?>.from(entry as Map))
           .toList();
+      // A vibration confirmed after the firmware was read worked on it.
+      final lastAttempt = history
+          .where(
+            (e) => const {
+              'verified',
+              'failed',
+              'interrupted',
+            }.contains(e['stage']),
+          )
+          .firstOrNull;
+      final at = lastAttempt?['atMillis'];
+      if (lastAttempt?['stage'] == 'verified' &&
+          at is int &&
+          firmwareReadAt != null &&
+          at >= firmwareReadAt!.millisecondsSinceEpoch) {
+        unawaited(_markFirmwareWorking());
+      }
     } on PlatformException catch (error) {
       setupError = recoveryHint(error.code);
     } on MissingPluginException {
