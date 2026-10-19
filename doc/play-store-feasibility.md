@@ -8,12 +8,12 @@ Gate commit `b8a6f2552e12aaf92c1549dc88a41c9b7e73f1aa`.
 The current application is not cleared for a public Play release by this
 review. Removing message-tone analysis does not resolve the native dependency,
 protocol authorization, or shared-channel behavior. A self-built open-source
-transport is a credible engineering direction, but has not been compiled or
-verified on the Air as part of this review. Store acceptance and applicable
+transport now has a successful ARM64 compilation proof, but has not been
+integrated with the app or verified on the Air. Store acceptance and applicable
 legal rights remain separate questions.
 
-This is a static source and published-policy review, not a legal determination,
-a Google approval, or a device-validation result. No account credentials were
+This combines source/policy review with a CI native-compilation experiment,
+not a legal determination, Google approval, or device-validation result. No account credentials were
 accessed, no support requests were sent, and no application behavior was changed.
 
 ## Confirmed implementation facts
@@ -113,6 +113,24 @@ Google Health `libxp.so`, including any additional code in it, has identical
 licensing. A reproducible build from the public source is a cleaner provenance
 boundary than assuming that binary is covered.
 
+## Compilation result
+
+[CI run 39296287474](https://github.com/ThoreKoritzius/fitbit-air/actions/runs/39296287474)
+succeeded for ARM64 with Android NDK 28.2.13676358. It built the core `libgg.so`
+and JNI wrapper `libxp.so` from public Golden Gate source and pinned mbedTLS
+and lwIP submodules, without reading any Google Health APK.
+
+The checks passed for 16 KB ELF LOAD alignment and exported JNI function
+families. Artifacts include shared libraries, ELF/symbol dumps, source revision
+metadata, dependency pins and SHA-256 digests. The build script and workflow are
+under `tool/native-proof/` and `.github/workflows/native-source-proof.yml`.
+
+This establishes source-build feasibility. It does not establish Kotlin/JNI
+ABI compatibility with this app, runtime loading on Android, Air firmware
+interoperability, Android App Bundle packaging alignment, or policy/legal
+clearance. Old pinned crypto dependencies still need a release security review.
+The application's current runtime backend has deliberately not been changed.
+
 ## Required proof before calling a source-built backend viable
 
 1. Pin all selected upstream dependencies and inventory licenses/notices.
@@ -151,3 +169,6 @@ Resolve native-source feasibility and the authorization question before
 spending effort on a store submission. Keep experimental phone testing
 available while investigating. Build flavors, listing polish and signing can
 follow, but do not by themselves address these findings.
+
+A [draft clarification request](google-health-authorization-request.md) is ready
+for developer review and sending. It has not been submitted to Google.

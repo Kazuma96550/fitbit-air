@@ -44,6 +44,8 @@ def main():
         "external/lwip", "external/mbedtls", cwd=source)
     if output("git", "-C", source, "rev-parse", "HEAD").strip() != REVISION:
         raise RuntimeError("Unexpected upstream revision")
+    if output("git", "-C", source, "status", "--porcelain").strip():
+        raise RuntimeError("Upstream checkout must be clean before building")
     env = dict(os.environ)
     env["SOURCE_DATE_EPOCH"] = output("git", "-C", source, "show", "-s", "--format=%ct", "HEAD").strip()
     common = [
@@ -98,6 +100,8 @@ def main():
         (source / "external/lwip/COPYING", "lwip-COPYING"),
     ]:
         shutil.copy2(src, licenses / name)
+    shutil.copy2(Path(__file__).resolve().parents[2] / "LICENSE-APACHE-2.0",
+                 licenses / "Apache-2.0.txt")
     (artifact / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(f"Native proof artifacts: {artifact}")
 
