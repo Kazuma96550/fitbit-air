@@ -15,7 +15,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install pinned NDK
-        run: sdkmanager 'ndk;28.2.13676358'
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;28.2.13676358"' 
       - name: Compile source core and JNI bridge
         run: python3 tool/native-proof/build.py --ndk "$ANDROID_HOME/ndk/28.2.13676358"
       - uses: actions/upload-artifact@v4
