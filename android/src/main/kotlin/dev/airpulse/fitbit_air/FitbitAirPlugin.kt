@@ -63,6 +63,8 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
     private var connectionWatcher: AirConnectionWatcher? = null
     private lateinit var channelActivityChannel: EventChannel
     private var channelMonitor: AirChannelMonitor? = null
+    private var warmLink: AirWarmLink? = null
+    private var usingWarmLink = false
     private var heartRateEvents: EventChannel.EventSink? = null
     private var heartRateStreamGeneration = 0
     private var activity: Activity? = null
@@ -341,6 +343,25 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
             }
             "getHapticIntensity" -> withBluetoothPermission(result) {
                 startOperation(result, Operation.ReadHapticIntensity)
+            }
+            "keepLinkWarm" -> {
+                val enabled = call.argument<Boolean>("enabled") == true
+                if (!enabled) {
+                    warmLink?.close()
+                    warmLink = null
+                    result.success(null)
+                } else withBluetoothPermission(result) {
+                    val device = findBondedAir()
+                    if (device == null) {
+                        result.error("AIR_NOT_FOUND", "Pair your Air in Google Health first.", null)
+                    } else {
+                        if (warmLink?.address != device.address) {
+                            warmLink?.close()
+                            warmLink = AirWarmLink(appContext).also { it.start(device) }
+                        }
+                        result.success(null)
+                    }
+                }
             }
             "readBattery" -> withBluetoothPermission(result) {
                 startOperation(result, Operation.ReadBattery)
@@ -640,6 +661,23 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
                 }
             }
         }
+        val warm = warmLink
+        val usesSession = operation != Operation.ReadDeviceInfo && operation != Operation.ReadHeartRate &&
+            operation != Operation.ReadSignalStrength
+        if (usesSession && warm != null && warm.isSettled(SystemClock.elapsedRealtime()) &&
+            warm.address == device.address) {
+            // Already connected and subscribed: skip setup and decide from known traffic.
+            val connection = warm.gatt!!
+            warm.delegate = callback
+            gatt = connection
+            usingWarmLink = true
+            // The idle link (~150 ms with peripheral latency) dominates the
+            // handshake. Request the fast link now; the update needs several
+            // slow radio events to take effect. closeTransport() releases it.
+            linkBoosted = connection.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
+            handler.post { if (gatt === connection) holdWhileChannelBusy(connection, device) }
+            return
+        }
         val connection = try {
             device.connectGatt(appContext, false, callback, BluetoothDevice.TRANSPORT_LE)
         } catch (error: Exception) {
@@ -799,8 +837,11 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
      * [AirChannelActivity].
      */
     private fun holdWhileChannelBusy(activeGatt: BluetoothGatt, device: BluetoothDevice) {
-        val activity = AirChannelActivity()
-        activity.begin(SystemClock.elapsedRealtime())
+        val now = SystemClock.elapsedRealtime()
+        val history = if (usingWarmLink) warmLink?.recentTraffic(now) else null
+        val activity = if (history != null) AirChannelActivity(observeMillis = 0) else AirChannelActivity()
+        activity.begin(now)
+        history?.forEach { (at, size) -> activity.record(at, size) }
         channelActivity = activity
         val tick = object : Runnable {
             override fun run() {
@@ -871,7 +912,9 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
                         // request waits several radio events. Boost only once our session
                         // exists: on a fast link Google Health tends to answer the Air's
                         // handshake first and both stall. closeTransport() restores low power.
-                        linkBoosted = gatt?.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH) == true
+                        if (!linkBoosted) {
+                            linkBoosted = gatt?.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH) == true
+                        }
                         runOperation(coap)
                     }
                 }
@@ -1378,8 +1421,16 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
             closingGatt?.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_LOW_POWER)
         }
         linkBoosted = false
-        trace.step("gattDisconnect", closingGatt != null) { closingGatt?.disconnect() }
-        trace.step("gattClose", closingGatt != null) { closingGatt?.close() }
+        val keepWarm = closingGatt != null && closingGatt === warmLink?.gatt
+        if (keepWarm) {
+            // The warm link stays connected for the next command.
+            warmLink?.delegate = null
+            trace.note("warmLink", "kept")
+        } else {
+            trace.step("gattDisconnect", closingGatt != null) { closingGatt?.disconnect() }
+            trace.step("gattClose", closingGatt != null) { closingGatt?.close() }
+        }
+        usingWarmLink = false
         AirTransportLease.release(transportOwner)
         if (record) AirTransportDiagnostics.record(cleanupOperation ?: "Scan", trace.snapshot())
         cleanupOperation = null
@@ -1398,6 +1449,8 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
         channelActivityChannel.setStreamHandler(null)
         channelMonitor?.close()
         channelMonitor = null
+        warmLink?.close()
+        warmLink = null
         diagnosticEvents = null
         eventMonitor?.close()
         eventMonitor = null

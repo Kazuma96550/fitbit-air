@@ -73,6 +73,24 @@ class FitbitAir {
   static Future<int> readSignalStrength() async =>
       (await _invokeMap('readSignalStrength'))['rssi']! as int;
 
+  /// Keeps a listen-only Bluetooth link to the Air open while [enabled].
+  ///
+  /// Useful for apps that send commands on demand, such as a notification
+  /// relay: commands then skip connection setup and start without first
+  /// observing the channel, about a second sooner. The link never writes on
+  /// its own and does not compete with Google Health. Android reconnects it
+  /// when the Air returns to range. Disable it when you no longer need it.
+  static Future<void> keepLinkWarm(bool enabled) async {
+    try {
+      await _channel.invokeMethod<void>('keepLinkWarm', {'enabled': enabled});
+    } on PlatformException catch (error) {
+      throw FitbitAirException(
+        error.code,
+        error.message ?? 'Could not change the warm link.',
+      );
+    }
+  }
+
   /// Reads the battery level the Air reports, which matches the percentage
   /// shown in Google Health.
   ///

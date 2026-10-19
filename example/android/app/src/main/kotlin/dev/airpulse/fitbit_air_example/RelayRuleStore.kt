@@ -25,6 +25,9 @@ internal object RelayRuleStore {
         val apps = json.getJSONObject("apps")
         val chats = json.getJSONObject("chats")
         val quiet = json.getJSONObject("silence")
+        // Configs saved before message tone existed decode with it switched off.
+        val tone = json.optJSONObject("tone")
+        fun tonePreset(key: String) = if (tone == null || tone.isNull(key)) null else RelayPreset.parse(tone.getString(key))
         return RelayRuleConfig(
             RelayPreset.parse(json.getString("defaultPreset")),
             apps.keys().asSequence().associateWith { key ->
@@ -33,6 +36,7 @@ internal object RelayRuleStore {
             },
             chats.keys().asSequence().associateWith { RelayPreset.parse(chats.getString(it)) },
             RelaySilence(quiet.getLong("pauseUntil"), quiet.getBoolean("quietEnabled"), quiet.getInt("startMinute"), quiet.getInt("endMinute")),
+            RelayToneRules(tone?.getBoolean("enabled") ?: false, tonePreset("urgent"), tonePreset("negative"), tonePreset("neutral")),
         )
     }
 
@@ -46,6 +50,9 @@ internal object RelayRuleStore {
             .put("apps", apps).put("chats", chats)
             .put("silence", JSONObject().put("pauseUntil", s.pauseUntil).put("quietEnabled", s.quietEnabled)
                 .put("startMinute", s.startMinute).put("endMinute", s.endMinute))
+        val t = config.tone
+        json.put("tone", JSONObject().put("enabled", t.enabled).put("urgent", t.urgent?.id ?: JSONObject.NULL)
+            .put("negative", t.negative?.id ?: JSONObject.NULL).put("neutral", t.neutral?.id ?: JSONObject.NULL))
         return json
     }
 
@@ -70,6 +77,8 @@ internal object RelayRuleStore {
             "chats" to c.chats.mapValues { it.value.id },
             "pauseUntil" to c.silence.pauseUntil, "quietEnabled" to c.silence.quietEnabled,
             "startMinute" to c.silence.startMinute, "endMinute" to c.silence.endMinute,
-            "silenceReason" to c.silence.reason(System.currentTimeMillis()))
+            "silenceReason" to c.silence.reason(System.currentTimeMillis()),
+            "toneEnabled" to c.tone.enabled, "toneUrgent" to c.tone.urgent?.id,
+            "toneNegative" to c.tone.negative?.id, "toneNeutral" to c.tone.neutral?.id)
     }
 }

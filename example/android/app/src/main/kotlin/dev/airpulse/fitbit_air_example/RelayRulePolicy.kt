@@ -12,7 +12,20 @@ internal enum class RelayPreset(val id: String, val intensity: Int? = null) {
 }
 
 internal data class RelayAppRule(val enabled: Boolean, val preset: RelayPreset? = null)
-internal data class RelayMatch(val preset: RelayPreset, val specificity: Int)
+/** [tone] is the message's category when message tone is on, for history. */
+internal data class RelayMatch(val preset: RelayPreset, val specificity: Int, val tone: RelayTone? = null)
+/** Per-tone presets; null keeps the app or chat rule. Off unless the user opts in. */
+internal data class RelayToneRules(
+    val enabled: Boolean = false,
+    val urgent: RelayPreset? = null,
+    val negative: RelayPreset? = null,
+    val neutral: RelayPreset? = null,
+) {
+    fun preset(tone: RelayTone): RelayPreset? = when (tone) {
+        RelayTone.URGENT -> urgent; RelayTone.NEGATIVE -> negative; RelayTone.NEUTRAL -> neutral
+    }
+}
+
 internal data class RelaySilence(
     val pauseUntil: Long = 0,
     val quietEnabled: Boolean = false,
@@ -39,17 +52,24 @@ internal data class RelayRuleConfig(
     val apps: Map<String, RelayAppRule> = emptyMap(),
     val chats: Map<String, RelayPreset> = emptyMap(),
     val silence: RelaySilence = RelaySilence(),
+    val tone: RelayToneRules = RelayToneRules(),
 ) {
     val selectedPackages: Set<String> get() = apps.filterValues { it.enabled }.keys
-    fun match(packageName: String, identities: Set<String>, restricted: Boolean, allowed: Set<String>): RelayMatch? {
+    fun match(packageName: String, identities: Set<String>, restricted: Boolean, allowed: Set<String>, tone: RelayTone? = null): RelayMatch? {
         val app = apps[packageName]?.takeIf { it.enabled } ?: return null
         val whatsapp = packageName in RelayConversationPolicy.packages
         if (whatsapp && restricted && identities.none { it in allowed }) return null
         val overrides = if (whatsapp) identities.filter { it in allowed }.mapNotNull { chats[it] } else emptyList()
         // A saved mute always wins if Android supplies multiple identity forms.
         if (RelayPreset.MUTE in overrides) return null
-        val preset = overrides.firstOrNull() ?: app.preset ?: defaultPreset
-        return if (preset == RelayPreset.MUTE) null else RelayMatch(preset, if (overrides.isEmpty()) 0 else 1)
+        val base = overrides.firstOrNull() ?: app.preset ?: defaultPreset
+        if (base == RelayPreset.MUTE) return null
+        val category = tone?.takeIf { this.tone.enabled }
+        val toned = category?.let { this.tone.preset(it) }
+        val preset = toned ?: base
+        // An urgent message outranks person-specific rules within a burst.
+        val specificity = if (toned != null && tone == RelayTone.URGENT) 2 else if (overrides.isEmpty()) 0 else 1
+        return if (preset == RelayPreset.MUTE) null else RelayMatch(preset, specificity, category)
     }
 }
 

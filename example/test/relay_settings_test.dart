@@ -37,10 +37,17 @@ void main() {
             'quietEnabled': true,
             'startMinute': 1320,
             'endMinute': 420,
+            'toneEnabled': true,
+            'toneUrgent': 'double',
+            'toneNegative': null,
           },
         },
       );
       await controller.refresh();
+      expect(controller.settings.toneEnabled, isTrue);
+      expect(controller.settings.toneUrgent, VibrationPreset.doublePulse);
+      expect(controller.settings.toneNegative, isNull);
+      expect(controller.settings.toneNeutral, isNull);
       expect(controller.settings.defaultPreset, VibrationPreset.doublePulse);
       expect(
         controller.settings.apps['com.whatsapp']?.preset,

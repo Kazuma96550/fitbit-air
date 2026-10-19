@@ -31,11 +31,19 @@ class CalendarNotificationListener : NotificationListenerService() {
             .onFailure { RelayConversations.captureError() }
         val relay = CalendarRelayService.active ?: return
         if (!relay.acceptsPackage(sbn.packageName)) return
+        // Opt-in: the text stays local to this call; only the tone reaches the relay.
+        val tone = if (!relay.toneEnabled) null else runCatching {
+            val ranking = NotificationListenerService.Ranking()
+                .takeIf { currentRanking?.getRanking(sbn.key, it) == true }
+            RelayToneClassifier.classify(latestMessageText(sbn.notification)?.toString(),
+                RelayNotificationSignals.from(sbn.notification, ranking, System.currentTimeMillis()),
+                RelayToneLexicons.shared(this))
+        }.getOrNull()
         relay.onAlert(
             sbn.packageName, sbn.key, sbn.postTime, sbn.isOngoing,
             sbn.notification.flags and Notification.FLAG_GROUP_SUMMARY != 0,
             latestMessageTimestamp(sbn.notification),
-            RelayConversations.identities(sbn.packageName, sbn.notification)
+            RelayConversations.identities(sbn.packageName, sbn.notification), tone
         )
     }
 
@@ -52,6 +60,17 @@ class CalendarNotificationListener : NotificationListenerService() {
                     notification.extras.getParcelableArray(Notification.EXTRA_MESSAGES)
                 ).maxOfOrNull { it.timestamp }?.takeIf { it > 0 }
             }.getOrNull()
+        }
+
+        @Suppress("DEPRECATION")
+        fun latestMessageText(notification: Notification): CharSequence? {
+            if (Build.VERSION.SDK_INT >= 30) runCatching {
+                Notification.MessagingStyle.Message.getMessagesFromBundleArray(
+                    notification.extras.getParcelableArray(Notification.EXTRA_MESSAGES)
+                ).maxByOrNull { it.timestamp }?.text
+            }.getOrNull()?.let { return it }
+            return notification.extras.getCharSequence(Notification.EXTRA_BIG_TEXT)
+                ?: notification.extras.getCharSequence(Notification.EXTRA_TEXT)
         }
 
         fun captureExisting() {

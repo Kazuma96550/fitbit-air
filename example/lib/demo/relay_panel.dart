@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 
 import 'demo_controller.dart';
 import 'rules_panel.dart';
+import 'relay_settings.dart';
 import 'relay_status.dart';
 import 'relay_toggle_button.dart';
 import 'air_status_strip.dart';
@@ -472,6 +473,19 @@ class RelayPanel extends StatelessWidget {
             DateTime.fromMillisecondsSinceEpoch(millis),
           ).format(context);
     final code = entry['errorCode'] as String?;
+    // Vibration and message tone category; absent on older entries.
+    final presetId = entry['preset'] as String?;
+    final tone = switch (entry['tone']) {
+      'urgent' => 'Urgent',
+      'negative' => 'Negative',
+      'neutral' => 'Neutral',
+      _ => null,
+    };
+    final signal = [
+      if (presetId != null) VibrationPreset.parse(presetId).label,
+      ?tone,
+    ].join(' · ');
+    final signalPart = signal.isEmpty ? '' : ' · $signal';
     return ListTile(
       key: ValueKey(
         '${detailed ? "detail" : "activity"}-${entry['commandId']}-$stage',
@@ -487,14 +501,14 @@ class RelayPanel extends StatelessWidget {
       title: Text(detailed ? '$source · $title' : source),
       subtitle: Text(
         detailed
-            ? '$time${entry['latencyMillis'] == null ? "" : " · ${entry['latencyMillis']} ms total"}${code == null ? "" : "\n${DemoController.recoveryHint(code)}"}'
+            ? '$time$signalPart${entry['latencyMillis'] == null ? "" : " · ${entry['latencyMillis']} ms total"}${code == null ? "" : "\n${DemoController.recoveryHint(code)}"}'
             : '${switch (stage) {
                 'verified' => 'Sent',
                 'failed' || 'interrupted' => 'Not confirmed',
                 'combined' || 'merged' => 'Combined',
                 'paused' || 'quiet_hours' => 'Quiet',
                 _ => 'Skipped',
-              }} · $time',
+              }}$signalPart · $time',
       ),
       trailing: detailed ? null : const Icon(Icons.chevron_right, size: 18),
       onTap: detailed
@@ -514,7 +528,7 @@ class RelayPanel extends StatelessWidget {
                       style: Theme.of(context).textTheme.headlineSmall,
                     ),
                     const SizedBox(height: 8),
-                    Text('$title · $time'),
+                    Text('$title$signalPart · $time'),
                     const SizedBox(height: 16),
                     Text(
                       code != null

@@ -29,6 +29,24 @@ class RelayRulePolicyTest {
         assertNotNull(config.match(whatsapp, setOf("alice"), true, setOf("alice")))
         assertNull(config.copy(apps = mapOf(whatsapp to RelayAppRule(false))).match(whatsapp, setOf("alice"), false, setOf("alice")))
     }
+    @Test fun `message tone only applies when enabled and keeps mutes`() {
+        assertEquals(RelayMatch(RelayPreset.CURRENT, 0), config.match(whatsapp, emptySet(), false, emptySet(), RelayTone.URGENT))
+        val toned = config.copy(tone = RelayToneRules(true, urgent = RelayPreset.DOUBLE, neutral = RelayPreset.MUTE))
+        assertEquals(RelayMatch(RelayPreset.DOUBLE, 2, RelayTone.URGENT), toned.match(whatsapp, setOf("alice"), false, setOf("alice"), RelayTone.URGENT))
+        // The category is kept for history even when it keeps the chat's vibration.
+        assertEquals(RelayMatch(RelayPreset.HIGH, 1, RelayTone.NEGATIVE), toned.match(whatsapp, setOf("alice"), false, setOf("alice"), RelayTone.NEGATIVE))
+        assertEquals(RelayMatch(RelayPreset.DOUBLE, 0), toned.match("calendar", emptySet(), false, emptySet(), null))
+        assertNull(toned.match(whatsapp, emptySet(), false, emptySet(), RelayTone.NEUTRAL))
+        assertNull(toned.match(whatsapp, setOf("muted"), false, setOf("muted"), RelayTone.URGENT))
+        val mutedApp = toned.copy(apps = mapOf(whatsapp to RelayAppRule(true, RelayPreset.MUTE)))
+        assertNull(mutedApp.match(whatsapp, emptySet(), false, emptySet(), RelayTone.URGENT))
+    }
+    @Test fun `urgent message wins a burst over a person rule`() {
+        val toned = config.copy(tone = RelayToneRules(true, urgent = RelayPreset.DOUBLE))
+        val person = RelayBurstChoice(toned.match(whatsapp, setOf("alice"), false, setOf("alice"))!!, 2)
+        val urgent = RelayBurstChoice(toned.match(whatsapp, emptySet(), false, emptySet(), RelayTone.URGENT)!!, 1)
+        assertEquals(urgent, person.prefer(urgent))
+    }
     private fun time(hour: Int, minute: Int = 0): Long = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply {
         set(2026, Calendar.OCTOBER, 17, hour, minute, 0); set(Calendar.MILLISECOND, 0)
     }.timeInMillis

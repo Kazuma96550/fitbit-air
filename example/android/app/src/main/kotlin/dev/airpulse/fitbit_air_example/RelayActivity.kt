@@ -4,19 +4,25 @@ import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** Strictly metadata: no notification keys, text, sender names, or BLE identifiers. */
+/**
+ * Strictly metadata: no notification keys, text, sender names, or BLE identifiers.
+ * [preset] is the chosen vibration and [tone] the message tone category, both as ids.
+ */
 internal data class RelayActivity(
     val commandId: String,
     val sourcePackage: String?,
     val stage: String,
     val atMillis: Long,
     val latencyMillis: Long? = null,
-    val errorCode: String? = null
+    val errorCode: String? = null,
+    val preset: String? = null,
+    val tone: String? = null,
 ) {
     fun toMap(): Map<String, Any?> = mapOf(
         "commandId" to commandId, "sourcePackage" to sourcePackage,
         "stage" to stage, "atMillis" to atMillis,
-        "latencyMillis" to latencyMillis, "errorCode" to errorCode
+        "latencyMillis" to latencyMillis, "errorCode" to errorCode,
+        "preset" to preset, "tone" to tone,
     )
 }
 
@@ -40,7 +46,10 @@ internal object RelayHistory {
                 if (value.isNull("sourcePackage")) null else value.getString("sourcePackage"),
                 value.getString("stage"), value.getLong("atMillis"),
                 if (value.isNull("latencyMillis")) null else value.getLong("latencyMillis"),
-                if (value.isNull("errorCode")) null else value.getString("errorCode"))
+                if (value.isNull("errorCode")) null else value.getString("errorCode"),
+                // Entries saved before these fields existed have neither key.
+                if (value.isNull("preset")) null else value.getString("preset"),
+                if (value.isNull("tone")) null else value.getString("tone"))
         }
     }.getOrDefault(emptyList())
 

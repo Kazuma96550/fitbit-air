@@ -9,12 +9,17 @@ package dev.airpulse.fitbit_air
  * session during a sync makes that sync fail, so commands wait until the
  * channel is quiet, bounded by [maxHoldMillis] so alerts are never held
  * indefinitely. Only timing and sizes are recorded; payloads are encrypted.
+ *
+ * A silent channel starts after [quietStartMillis]: Google Health's syncs and
+ * polling produce traffic well within that time. With a warm link the history
+ * is already known, so [observeMillis] can be zero.
  */
 internal class AirChannelActivity(
     private val observeMillis: Long = 700,
     private val quietWindowMillis: Long = 1_200,
     private val busyBytes: Int = 400,
     private val maxHoldMillis: Long = 10_000,
+    private val quietStartMillis: Long = 300,
 ) {
     enum class Decision { WAIT, START }
 
@@ -51,13 +56,13 @@ internal class AirChannelActivity(
     fun decide(nowMillis: Long): Decision {
         val start = checkNotNull(startedAt) { "Call begin() first." }
         val elapsed = nowMillis - start
-        if (elapsed < observeMillis) return Decision.WAIT
         if (elapsed >= maxHoldMillis) return Decision.START
+        if (observedPackets == 0 && elapsed >= minOf(quietStartMillis, observeMillis)) return Decision.START
         if (busy(nowMillis)) {
             waited = true
             return Decision.WAIT
         }
-        return Decision.START
+        return if (elapsed < observeMillis) Decision.WAIT else Decision.START
     }
 
     /** Fixed diagnostic label for the cleanup trace. */

@@ -18,6 +18,18 @@ upstream Android bindings and retain their SPDX headers. They include limited
 adaptations for the JNI ABI exposed by the currently tested Google Health
 version, error propagation, and Gattlink configuration.
 
+## VADER sentiment lexicon (example app)
+
+- Source: https://github.com/cjhutto/vaderSentiment
+- Copyright 2016 C.J. Hutto
+- License: MIT
+
+`example/android/app/src/main/assets/vader/vader_lexicon.txt` keeps the word and
+mean-valence columns of the upstream `vader_lexicon.txt`; the license text ships
+beside it as `LICENSE.txt`. `RelayVader.kt` is a Kotlin port of the upstream
+scoring rules. Hutto, C.J. & Gilbert, E.E. (2014). VADER: A Parsimonious
+Rule-based Model for Sentiment Analysis of Social Media Text. ICWSM-14.
+
 ## Runtime Google Health dependency
 
 At runtime, the plugin verifies the installed `com.fitbit.FitbitMobile` signing
