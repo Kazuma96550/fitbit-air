@@ -441,7 +441,7 @@ class _RelaySetupPageState extends State<RelaySetupPage> {
                         ),
                         const SizedBox(height: 16),
                         Text(
-                          'Early access: if Google Health sync stalls, stop notifications.',
+                          'Vibrations usually arrive a few seconds after a notification, while the Air is near your phone. Air Relay is unofficial: an Air firmware update can stop it until Air Relay is updated. If Google Health sync stalls, stop notifications.',
                           style: Theme.of(context).textTheme.bodySmall
                               ?.copyWith(color: colors.onSurfaceVariant),
                         ),

@@ -151,4 +151,14 @@ void main() {
     expect(received, [true, false]);
     await subscription.cancel();
   });
+
+  test('classifies errors by what the user can do', () {
+    expect(AirFailureKind.of('HANDSHAKE_TIMEOUT'), AirFailureKind.temporary);
+    expect(AirFailureKind.of('AIR_NOT_FOUND'), AirFailureKind.setup);
+    expect(
+      const FitbitAirException('NATIVE_UNAVAILABLE', '').kind,
+      AirFailureKind.compatibility,
+    );
+    expect(AirFailureKind.of('SOMETHING_NEW'), AirFailureKind.unknown);
+  });
 }

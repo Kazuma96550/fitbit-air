@@ -54,7 +54,7 @@ Or add it to `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  fitbit_air: ^0.1.4
+  fitbit_air: ^0.2.0
 ```
 
 To try unreleased changes, depend on the Git repository instead:
@@ -166,6 +166,29 @@ try {
   }
 }
 ```
+
+`error.kind` groups codes by what the user can do: `temporary` (retry
+later), `setup` (fix Bluetooth, a permission or pairing), `compatibility`
+(the Air answered unexpectedly, for example after a firmware update) or
+`unknown`. A single compatibility error can still be a glitch; when it
+repeats, suggest checking for an app update.
+
+### Prepare for firmware updates
+
+The Air's interface is undocumented, so a firmware update can change it.
+`FitbitAir.testedFirmware` lists the versions this package release was
+verified with; compare it with `readDeviceInfo().firmware` to tell users when
+their Air runs an untested version:
+
+```dart
+final firmware = (await FitbitAir.readDeviceInfo()).firmware;
+if (firmware != null && !FitbitAir.testedFirmware.contains(firmware)) {
+  // Show a gentle "not yet tested" notice, not an error.
+}
+```
+
+The Google Health app no longer matters for compatibility: the plugin ships
+its own transport and loads no code from it.
 
 ### Vibrate on notifications
 

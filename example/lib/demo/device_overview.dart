@@ -1,3 +1,4 @@
+import 'package:fitbit_air/fitbit_air.dart';
 import 'package:flutter/material.dart';
 import 'air_status_strip.dart';
 import 'demo_controller.dart';
@@ -174,7 +175,12 @@ class DeviceOverview extends StatelessWidget {
           if (model != null || firmware != null) ...[
             const SizedBox(height: 8),
             Text(
-              [?model, if (firmware != null) 'Firmware $firmware'].join(' · '),
+              [
+                ?model,
+                if (firmware != null)
+                  'Firmware $firmware · ${FitbitAir.testedFirmware.contains(firmware) ? 'tested' : 'not yet tested'}',
+              ].join(' · '),
+              key: const ValueKey('device-firmware'),
               style: text.bodySmall?.copyWith(color: colors.onSurfaceVariant),
             ),
           ],

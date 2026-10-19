@@ -109,6 +109,8 @@ class RelayPanel extends StatelessWidget {
         openRules?.call();
       case RelayRecovery.setup:
         _setup(context, controller);
+      case RelayRecovery.update:
+        perform(controller.openReleases);
       case RelayRecovery.none:
         break;
     }
@@ -127,6 +129,7 @@ class RelayPanel extends StatelessWidget {
     final needsSetup =
         !state.setupCompleted && !displayedRunning && !transitioning;
     final needsFix = status.recovery != RelayRecovery.none;
+    final attention = needsFix || status.attention;
     final paused = displayedRunning && state.settings.silenceReason == 'paused';
     final title = needsSetup
         ? 'Finish setup'
@@ -163,6 +166,7 @@ class RelayPanel extends StatelessWidget {
       RelayRecovery.bluetooth => 'Turn on Bluetooth',
       RelayRecovery.notifications => 'Review notification access',
       RelayRecovery.rules => 'Choose apps',
+      RelayRecovery.update => 'Check for updates',
       _ => 'Check setup',
     };
     return ListView(
@@ -189,7 +193,7 @@ class RelayPanel extends StatelessWidget {
                 child: Icon(
                   paused
                       ? Icons.pause
-                      : needsFix && !needsSetup
+                      : attention && !needsSetup
                       ? Icons.error_outline
                       : Icons.watch_outlined,
                   size: 40,
@@ -222,7 +226,7 @@ class RelayPanel extends StatelessWidget {
                     ? 'Pick up where you left off.'
                     : state.startWaitMessage != null
                     ? state.startWaitMessage!
-                    : needsFix && !transitioning
+                    : attention && !transitioning
                     ? status.detail
                     : state.selectedAppsSummary,
                 key: const ValueKey('relay-status-detail'),
@@ -379,6 +383,7 @@ class RelayPanel extends StatelessWidget {
               child: const Text('Allow'),
             ),
           ),
+        if (state.showFirmwareNotice) _firmwareNotice(context, state),
         const SizedBox(height: 16),
         const Divider(),
         ListTile(
@@ -433,6 +438,58 @@ class RelayPanel extends StatelessWidget {
             ],
           ),
       ],
+    );
+  }
+
+  Widget _firmwareNotice(BuildContext context, DemoController state) {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      key: const ValueKey('firmware-notice'),
+      margin: const EdgeInsets.only(top: 16),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+      decoration: BoxDecoration(
+        color: colors.surfaceContainerHighest.withValues(alpha: .6),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.system_update_outlined, color: colors.primary),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Your Air has new firmware',
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Air Relay hasn’t been tested with firmware ${state.firmware} yet. '
+            'It usually keeps working. If alerts stop arriving, check for an update.',
+          ),
+          Align(
+            alignment: Alignment.centerRight,
+            child: Wrap(
+              spacing: 4,
+              children: [
+                TextButton(
+                  key: const ValueKey('dismiss-firmware-notice'),
+                  onPressed: () => perform(state.dismissFirmwareNotice),
+                  child: const Text('Got it'),
+                ),
+                TextButton(
+                  onPressed: () => perform(state.openReleases),
+                  child: const Text('Check for updates'),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 

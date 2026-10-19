@@ -73,11 +73,19 @@ Future<void> airCalendarRelay() async {
       unawaited(FitbitAir.keepLinkWarm(false).catchError((Object _) {}));
       return null;
     }
-    if (call.method == 'readBattery' || call.method == 'readSignalStrength') {
+    if (const {
+      'readBattery',
+      'readSignalStrength',
+      'readDeviceInfo',
+    }.contains(call.method)) {
       if (!operations.isIdle) throw PlatformException(code: 'BUSY');
       try {
         if (call.method == 'readSignalStrength') {
           return {'rssi': await operations.run(FitbitAir.readSignalStrength)};
+        }
+        if (call.method == 'readDeviceInfo') {
+          final info = await operations.run(FitbitAir.readDeviceInfo);
+          return {'firmware': info.firmware};
         }
         final value = await operations.run(FitbitAir.readBattery);
         return {'percent': value.percent, 'onCharger': value.onCharger};
@@ -927,7 +935,7 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
     DeviceOverview(
       controller: _controller,
       model: _deviceInfo?.model,
-      firmware: _deviceInfo?.firmware,
+      firmware: _deviceInfo?.firmware ?? _controller.firmware,
     ),
     const SizedBox(height: 12),
     ListTile(
@@ -1196,8 +1204,7 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
                   onPressed: () => showAboutDialog(
                     context: context,
                     applicationName: 'Air Relay',
-                    applicationVersion:
-                        _controller.report()['demoVersion'] as String?,
+                    applicationVersion: DemoController.appVersion,
                     applicationIcon: const AirRelayMark(size: 48),
                     children: [
                       const Text(
@@ -1205,10 +1212,43 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
                       ),
                       const SizedBox(height: 12),
                       const Text(
-                        'Early access. Google Health sync compatibility is still being tested.',
+                        'Good to know:\n'
+                        '• Vibrations usually arrive a few seconds after the notification.\n'
+                        '• The Air must be near your phone; missed alerts are not replayed.\n'
+                        '• Air Relay uses an undocumented interface of the Air. A firmware update can stop it from working until Air Relay is updated.',
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'Tested with Air firmware ${FitbitAir.testedFirmware.join(', ')}'
+                        '${_controller.firmware == null ? '' : '. Yours: ${_controller.firmware}'}.',
+                        key: const ValueKey('about-firmware'),
+                        style: Theme.of(context).textTheme.bodySmall,
                       ),
                       const SizedBox(height: 12),
                       _repositoryLink(context),
+                      Wrap(
+                        spacing: 4,
+                        children: [
+                          TextButton.icon(
+                            key: const ValueKey('about-updates'),
+                            onPressed: () => _ui(_controller.openReleases),
+                            icon: const Icon(
+                              Icons.system_update_outlined,
+                              size: 18,
+                            ),
+                            label: const Text('Check for updates'),
+                          ),
+                          TextButton.icon(
+                            key: const ValueKey('about-report'),
+                            onPressed: () => _ui(_controller.openIssues),
+                            icon: const Icon(
+                              Icons.bug_report_outlined,
+                              size: 18,
+                            ),
+                            label: const Text('Report a problem'),
+                          ),
+                        ],
+                      ),
                       const SizedBox(height: 12),
                       _madeWithLove(context),
                     ],
