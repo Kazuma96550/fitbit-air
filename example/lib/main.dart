@@ -70,6 +70,7 @@ Future<void> airCalendarRelay() async {
   channel.setMethodCallHandler((call) async {
     if (call.method == 'close') {
       dispatcher.close();
+      unawaited(FitbitAir.keepLinkWarm(false).catchError((Object _) {}));
       return null;
     }
     if (call.method == 'readBattery' || call.method == 'readSignalStrength') {
@@ -104,6 +105,12 @@ Future<void> airCalendarRelay() async {
     );
     return {'status': result.status.name, 'errorCode': result.error?.code};
   });
+  // Commands then reuse an open link: about a second faster per alert.
+  try {
+    await FitbitAir.keepLinkWarm(true);
+  } on FitbitAirException {
+    // Commands still work with a fresh connection each time.
+  }
   await channel.invokeMethod<void>('ready');
 }
 

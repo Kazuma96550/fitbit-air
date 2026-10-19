@@ -127,6 +127,35 @@ Device Information, `ABBAFD00` (link status), `ABBAFF00` (tracker channel),
 (`1802`) or Alert Notification (`1811`). Writable characteristics of unknown
 services were not written.
 
+## Faster commands with a warm link (2026-10-19)
+
+Timings from command start to the tap write (when the pulse is felt), on a
+Pixel 7 Pro with the Air's link idle at 150 ms / latency 3 or 120 ms / latency 7:
+
+| Variant | Start → tap |
+|---|---|
+| Fresh connection per command | 5.5–8.2 s |
+| Warm link (listen-only client kept open; no setup, no observation wait) | 3.5–5.8 s; ≈1.0–1.2 s when the link happened to be fast |
+| Warm link + fast-link request at command start | **2.4–2.8 s** (10 of 10, no lost handshake races) |
+
+The remaining floor is the connection-parameter update itself: the fast link
+takes effect 2.2–2.5 s after the request, because the request travels over
+the slow idle link. Each command held the fast link 3.5–4.0 s, then released
+it to low power (the link then settled at 120 ms / latency 7, below the Air's
+usual idle). Keeping the link permanently fast would remove the floor but
+costs the Air's battery continuously, so it is not done.
+
+The warm client has no radio traffic of its own; it shares the link Google
+Health keeps open and only receives the Air's notifications. One command
+started immediately after the relay (and the warm link) started received no
+reply from the Air and gave up via the handshake retry; six deliberate
+restarts did not reproduce it. Commands now use the warm link only after it
+has been subscribed for 3 s, otherwise a fresh connection.
+
+The early request is limited to the warm path. Earlier, a fast link during the
+handshake let Google Health win the Air's handshake race; with the warm link
+none of 10 trials lost the race, and a lost race is retried after 1.5 s.
+
 ## Passive tap observation (2026-10-17)
 
 Earlier tap trials held a secure session on the Air's single tracker channel.

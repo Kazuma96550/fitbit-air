@@ -188,6 +188,18 @@ Receiving notifications and keeping your app alive in the background are up
 to your app; see [background integration](doc/background.md). The example app
 implements a complete notification relay.
 
+While your app expects to send commands, keep a listen-only link open so each
+command starts about twice as fast:
+
+```dart
+await FitbitAir.keepLinkWarm(true);  // e.g. when your relay starts
+// ... taps now reuse the open link ...
+await FitbitAir.keepLinkWarm(false); // when it stops
+```
+
+The warm link never writes on its own and does not compete with Google Health;
+Android reconnects it when the Air returns to range.
+
 ## Current scope
 
 | Capability | Status |

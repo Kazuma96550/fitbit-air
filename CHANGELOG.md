@@ -1,6 +1,19 @@
 ## Unreleased
 
+### Package
+
+- Add `FitbitAir.keepLinkWarm(bool)`: a listen-only link that commands reuse,
+  skipping connection setup and the channel observation. With it, commands
+  also request the fast link as soon as they start. On the Air's idle link a
+  tap is felt 2.4–2.8 s after the command starts (10 of 10 trials), down from
+  3.5–5.8 s with a warm link alone and 5.5–8.2 s with a fresh connection.
+  The fast link is held about 3.5–4 s per command, then released to low power.
+- Start immediately once the shared channel has been silent for 0.3 s instead
+  of always observing 0.75 s.
+
 ### Example app
+
+- The relay keeps the link warm while it runs, so alerts arrive sooner.
 
 - Add an opt-in **Message tone** rule: an on-device English/German keyword
   heuristic marks relayed messages as urgent, negative or neutral, and each
