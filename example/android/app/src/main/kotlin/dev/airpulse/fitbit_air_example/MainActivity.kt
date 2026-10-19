@@ -108,11 +108,26 @@ class MainActivity : FlutterActivity() {
                             RelayRuleStore.update(this) { it.copy(apps = it.apps + (pkg to RelayAppRule(enabled, preset))) }
                             result.success(null)
                         }
-                        "saveChatRule" -> {
+                        "saveChat" -> {
+                            // Adds a chat found in the last capture, or changes a saved chat's vibration.
                             val id = requireNotNull(call.argument<String>("id"))
-                            require(id in RelayConversations.allowed(this)) { "Choose this chat first" }
                             val preset = call.argument<String>("preset")?.let { RelayPreset.parse(it) }
-                            RelayRuleStore.update(this) { it.copy(chats = if (preset == null) it.chats - id else it.chats + (id to preset)) }
+                            RelayRuleStore.update(this) { config ->
+                                val chat = config.chats[id] ?: checkNotNull(RelayConversations.candidate(id)) {
+                                    "Find this chat again, then add it."
+                                }
+                                config.copy(chats = config.chats + (id to chat.copy(preset = preset)))
+                            }
+                            result.success(null)
+                        }
+                        "removeChat" -> {
+                            val id = requireNotNull(call.argument<String>("id"))
+                            RelayRuleStore.update(this) { it.copy(chats = it.chats - id) }
+                            result.success(null)
+                        }
+                        "setEveryoneElseSilent" -> {
+                            val silent = requireNotNull(call.argument<Boolean>("silent"))
+                            RelayRuleStore.update(this) { it.copy(everyoneElseSilent = silent) }
                             result.success(null)
                         }
                         "saveDefaultPreset" -> {
@@ -177,22 +192,8 @@ class MainActivity : FlutterActivity() {
                             getSharedPreferences("demo_lab", MODE_PRIVATE).edit().putInt("duration", seconds).apply()
                             result.success(null)
                         }
-                        "captureConversations", "restrictConversations", "selectConversation", "clearConversations" -> {
-                            check(!CalendarRelayService.isRunning) { "Stop the relay before changing conversation rules." }
-                            when (call.method) {
-                                "captureConversations" -> RelayConversations.capture(this, requireNotNull(call.argument<Boolean>("enabled")))
-                                "restrictConversations" -> RelayConversations.setRestricted(this, requireNotNull(call.argument<Boolean>("enabled")))
-                                "selectConversation" -> {
-                                    val id = requireNotNull(call.argument<String>("id"))
-                                    val enabled = requireNotNull(call.argument<Boolean>("enabled"))
-                                    RelayConversations.select(this, id, enabled, call.argument<Boolean>("allowNameMatch") == true)
-                                    if (!enabled) RelayRuleStore.update(this) { it.copy(chats = it.chats - id) }
-                                }
-                                "clearConversations" -> {
-                                    RelayConversations.clear(this)
-                                    RelayRuleStore.update(this) { it.copy(chats = emptyMap()) }
-                                }
-                            }
+                        "captureConversations" -> {
+                            RelayConversations.capture(this, requireNotNull(call.argument<Boolean>("enabled")))
                             result.success(null)
                         }
                         "setPulseStyle" -> {

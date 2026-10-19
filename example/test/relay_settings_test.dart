@@ -31,7 +31,16 @@ void main() {
             'apps': {
               'com.whatsapp': {'enabled': true, 'preset': 'low'},
             },
-            'chats': {'private-chat-identity': 'mute'},
+            'chats': [
+              {
+                'id': 'private-chat-identity',
+                'label': 'Private label',
+                'packageName': 'com.whatsapp',
+                'kind': 'name',
+                'preset': 'mute',
+              },
+            ],
+            'everyoneElseSilent': true,
             'pauseUntil': -1,
             'silenceReason': 'paused',
             'quietEnabled': true,
@@ -53,10 +62,11 @@ void main() {
         controller.settings.apps['com.whatsapp']?.preset,
         VibrationPreset.low,
       );
-      expect(
-        controller.settings.chats['private-chat-identity'],
-        VibrationPreset.mute,
-      );
+      final chat = controller.settings.chats.single;
+      expect(chat.preset, VibrationPreset.mute);
+      expect(chat.nameMatch, isTrue);
+      expect(controller.settings.everyoneElseSilent, isTrue);
+      expect(controller.exportJson(), isNot(contains('Private label')));
       expect(controller.settings.silenceReason, 'paused');
       expect(controller.exportJson(), isNot(contains('private-chat-identity')));
       expect(

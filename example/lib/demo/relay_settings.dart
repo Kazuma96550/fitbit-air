@@ -26,11 +26,39 @@ class AppNotificationRule {
   final VibrationPreset? preset;
 }
 
+/// A WhatsApp chat saved on this phone. [preset] null uses the app vibration.
+class SavedChat {
+  const SavedChat({
+    required this.id,
+    required this.label,
+    required this.packageName,
+    this.nameMatch = false,
+    this.preset,
+  });
+  final String id;
+  final String label;
+  final String packageName;
+
+  /// Matched by exact chat name because WhatsApp gave no conversation ID.
+  final bool nameMatch;
+  final VibrationPreset? preset;
+  bool get business => packageName == 'com.whatsapp.w4b';
+
+  factory SavedChat.fromMap(Map map) => SavedChat(
+    id: map['id'] as String,
+    label: map['label'] as String? ?? 'Chat',
+    packageName: map['packageName'] as String? ?? 'com.whatsapp',
+    nameMatch: map['kind'] == 'name',
+    preset: map['preset'] == null ? null : VibrationPreset.parse(map['preset']),
+  );
+}
+
 class RelaySettings {
   const RelaySettings({
     this.defaultPreset = VibrationPreset.single,
     this.apps = const {},
-    this.chats = const {},
+    this.chats = const [],
+    this.everyoneElseSilent = false,
     this.pauseUntil = 0,
     this.quietEnabled = false,
     this.startMinute = 1320,
@@ -43,7 +71,10 @@ class RelaySettings {
   });
   final VibrationPreset defaultPreset;
   final Map<String, AppNotificationRule> apps;
-  final Map<String, VibrationPreset> chats;
+  final List<SavedChat> chats;
+
+  /// Only saved WhatsApp chats may vibrate.
+  final bool everyoneElseSilent;
   final int pauseUntil;
   final bool quietEnabled;
   final int startMinute;
@@ -74,9 +105,11 @@ class RelaySettings {
           ),
         );
       }),
-      chats: (map['chats'] as Map? ?? {}).map(
-        (key, value) => MapEntry(key as String, VibrationPreset.parse(value)),
-      ),
+      chats: [
+        for (final chat in map['chats'] as List? ?? const [])
+          SavedChat.fromMap(chat as Map),
+      ],
+      everyoneElseSilent: map['everyoneElseSilent'] == true,
       pauseUntil: map['pauseUntil'] as int? ?? 0,
       quietEnabled: map['quietEnabled'] == true,
       startMinute: map['startMinute'] as int? ?? 1320,

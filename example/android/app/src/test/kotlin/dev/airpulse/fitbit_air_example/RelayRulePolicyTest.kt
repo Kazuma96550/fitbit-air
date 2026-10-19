@@ -8,43 +8,49 @@ import java.util.TimeZone
 class RelayRulePolicyTest {
     private val whatsapp = "com.whatsapp"
     private val config = RelayRuleConfig(apps = mapOf(whatsapp to RelayAppRule(true), "calendar" to RelayAppRule(true, RelayPreset.DOUBLE)),
-        chats = mapOf("alice" to RelayPreset.HIGH, "muted" to RelayPreset.MUTE))
+        chats = mapOf("alice" to SavedChat(whatsapp, "Alice", preset = RelayPreset.HIGH),
+            "muted" to SavedChat(whatsapp, "Muted", preset = RelayPreset.MUTE), "bob" to SavedChat(whatsapp, "Bob")))
 
     @Test fun `migration preserves selection and style but backup restore does not reenable stale apps`() {
         val migrated = migrateRelayRules(setOf("com.whatsapp"), "double", false)
         assertEquals(setOf("com.whatsapp"), migrated.selectedPackages)
         assertEquals(RelayPreset.DOUBLE, migrated.defaultPreset)
-        assertNull(migrated.match("com.whatsapp", emptySet(), true, emptySet()))
+        assertNull(migrated.copy(everyoneElseSilent = true).match("com.whatsapp", emptySet()))
         assertTrue(migrateRelayRules(setOf("com.whatsapp"), "double", true).selectedPackages.isEmpty())
     }
     @Test fun `chat overrides app and mute wins across identity forms`() {
-        assertEquals(RelayMatch(RelayPreset.HIGH, 1), config.match(whatsapp, setOf("alice"), false, setOf("alice")))
-        assertNull(config.match(whatsapp, setOf("alice", "muted"), false, setOf("alice", "muted")))
-        assertEquals(RelayMatch(RelayPreset.DOUBLE, 0), config.match("calendar", setOf("alice"), false, setOf("alice")))
-        assertNull(config.match("unknown", emptySet(), false, emptySet()))
+        assertEquals(RelayMatch(RelayPreset.HIGH, 1), config.match(whatsapp, setOf("alice")))
+        assertNull(config.match(whatsapp, setOf("alice", "muted")))
+        assertEquals(RelayMatch(RelayPreset.DOUBLE, 0), config.match("calendar", setOf("alice")))
+        assertNull(config.match("unknown", emptySet()))
     }
-    @Test fun `restricted mode never broadens missing or unapproved identities`() {
-        assertNull(config.match(whatsapp, emptySet(), true, setOf("alice")))
-        assertNull(config.match(whatsapp, setOf("alice"), true, emptySet()))
-        assertNotNull(config.match(whatsapp, setOf("alice"), true, setOf("alice")))
-        assertNull(config.copy(apps = mapOf(whatsapp to RelayAppRule(false))).match(whatsapp, setOf("alice"), false, setOf("alice")))
+    @Test fun `everyone else silent lets only saved chats through`() {
+        val silent = config.copy(everyoneElseSilent = true)
+        assertNull(silent.match(whatsapp, emptySet()))
+        assertNull(silent.match(whatsapp, setOf("carol")))
+        assertNull(silent.copy(chats = emptyMap()).match(whatsapp, setOf("alice")))
+        assertEquals(RelayMatch(RelayPreset.HIGH, 1), silent.match(whatsapp, setOf("alice")))
+        // A saved chat without its own vibration uses the app vibration.
+        assertEquals(RelayMatch(RelayPreset.CURRENT, 0), silent.match(whatsapp, setOf("bob")))
+        assertEquals(RelayMatch(RelayPreset.CURRENT, 0), config.match(whatsapp, setOf("carol")))
+        assertNull(config.copy(apps = mapOf(whatsapp to RelayAppRule(false))).match(whatsapp, setOf("alice")))
     }
     @Test fun `message tone only applies when enabled and keeps mutes`() {
-        assertEquals(RelayMatch(RelayPreset.CURRENT, 0), config.match(whatsapp, emptySet(), false, emptySet(), RelayTone.URGENT))
+        assertEquals(RelayMatch(RelayPreset.CURRENT, 0), config.match(whatsapp, emptySet(), RelayTone.URGENT))
         val toned = config.copy(tone = RelayToneRules(true, urgent = RelayPreset.DOUBLE, neutral = RelayPreset.MUTE))
-        assertEquals(RelayMatch(RelayPreset.DOUBLE, 2, RelayTone.URGENT), toned.match(whatsapp, setOf("alice"), false, setOf("alice"), RelayTone.URGENT))
+        assertEquals(RelayMatch(RelayPreset.DOUBLE, 2, RelayTone.URGENT), toned.match(whatsapp, setOf("alice"), RelayTone.URGENT))
         // The category is kept for history even when it keeps the chat's vibration.
-        assertEquals(RelayMatch(RelayPreset.HIGH, 1, RelayTone.NEGATIVE), toned.match(whatsapp, setOf("alice"), false, setOf("alice"), RelayTone.NEGATIVE))
-        assertEquals(RelayMatch(RelayPreset.DOUBLE, 0), toned.match("calendar", emptySet(), false, emptySet(), null))
-        assertNull(toned.match(whatsapp, emptySet(), false, emptySet(), RelayTone.NEUTRAL))
-        assertNull(toned.match(whatsapp, setOf("muted"), false, setOf("muted"), RelayTone.URGENT))
+        assertEquals(RelayMatch(RelayPreset.HIGH, 1, RelayTone.NEGATIVE), toned.match(whatsapp, setOf("alice"), RelayTone.NEGATIVE))
+        assertEquals(RelayMatch(RelayPreset.DOUBLE, 0), toned.match("calendar", emptySet(), null))
+        assertNull(toned.match(whatsapp, emptySet(), RelayTone.NEUTRAL))
+        assertNull(toned.match(whatsapp, setOf("muted"), RelayTone.URGENT))
         val mutedApp = toned.copy(apps = mapOf(whatsapp to RelayAppRule(true, RelayPreset.MUTE)))
-        assertNull(mutedApp.match(whatsapp, emptySet(), false, emptySet(), RelayTone.URGENT))
+        assertNull(mutedApp.match(whatsapp, emptySet(), RelayTone.URGENT))
     }
     @Test fun `urgent message wins a burst over a person rule`() {
         val toned = config.copy(tone = RelayToneRules(true, urgent = RelayPreset.DOUBLE))
-        val person = RelayBurstChoice(toned.match(whatsapp, setOf("alice"), false, setOf("alice"))!!, 2)
-        val urgent = RelayBurstChoice(toned.match(whatsapp, emptySet(), false, emptySet(), RelayTone.URGENT)!!, 1)
+        val person = RelayBurstChoice(toned.match(whatsapp, setOf("alice"))!!, 2)
+        val urgent = RelayBurstChoice(toned.match(whatsapp, emptySet(), RelayTone.URGENT)!!, 1)
         assertEquals(urgent, person.prefer(urgent))
     }
     private fun time(hour: Int, minute: Int = 0): Long = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply {
