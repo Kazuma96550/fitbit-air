@@ -33,11 +33,14 @@ package: it turns phone notifications into a gentle vibration on your Fitbit Air
   glance, with research tools under Device → Developer tools.
 - **Runs in the background** as a foreground service once you grant
   notification access in its guided setup.
+- **Private by design:** no internet permission, no backup; notifications are
+  matched on the phone and never stored. See the [privacy policy](PRIVACY.md).
 
 <br clear="right">
 
-To try it, connect an Android phone with the Air already paired in Google
-Health, then:
+Download the signed APK from [GitHub releases](https://github.com/ThoreKoritzius/fitbit-air/releases)
+(verify it with the `.sha256` file), or build it yourself: connect an Android
+phone with the Air already paired in Google Health, then:
 
 ```bash
 cd example

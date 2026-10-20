@@ -330,6 +330,8 @@ class DemoController extends ChangeNotifier {
       channel.invokeMethod<void>('openRepository', {'page': 'releases'});
   Future<void> openIssues() =>
       channel.invokeMethod<void>('openRepository', {'page': 'issues'});
+  Future<void> openPrivacyPolicy() =>
+      channel.invokeMethod<void>('openRepository', {'page': 'privacy'});
 
   Future<void> _readBattery() async {
     _lastBatteryAttempt = DateTime.now();

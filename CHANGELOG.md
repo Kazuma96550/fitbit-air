@@ -39,6 +39,14 @@
   on the Device tab as tested, works on your Air, or not yet tested.
 - Issue templates for problems and for reports on new Air firmware.
 - **View licenses** in About lists the bundled native code and VADER.
+- Final app ID `dev.airpulse.airrelay` for Google Play and GitHub releases
+  (installs next to earlier example builds). Release builds use your own key
+  from `key.properties` or CI secrets; a tag builds a signed APK for GitHub
+  releases and an App Bundle for Play ([release guide](doc/release.md)).
+- Privacy: the notification-access step shows a prominent disclosure with a
+  link to the new [privacy policy](PRIVACY.md); app data is excluded from
+  cloud backup and device transfer. [Play submission notes](doc/play-store.md)
+  cover data safety and the foreground-service declaration.
 - About explains typical delay, range and the firmware risk, shows the tested
   and current firmware, and links to releases and issue reports. Setup sets
   the same expectations.
