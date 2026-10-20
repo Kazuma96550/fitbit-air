@@ -35,6 +35,9 @@
   while the relay runs instead of stopping it, and chats matched by name are
   explained inline instead of behind a dialog. Saved chats now live with the
   relay rules; earlier setups are merged once on upgrade.
+- **Message tone** is labelled Experimental and asks before it starts reading
+  message text: a dialog explains that text is checked in memory on the phone
+  and never saved or sent.
 - The relay keeps the link warm while it runs, so alerts arrive sooner.
 - Home shows when the Air is out of range while notifications run, and when
   two alerts in a row were not confirmed. Only repeated compatibility errors

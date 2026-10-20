@@ -66,7 +66,9 @@ Data the app *accesses* but does not collect, to explain if asked:
   - needs a Fitbit Air paired through Google Health on the same phone;
   - vibrations arrive a few seconds after a notification;
   - an Air firmware update can stop it until the app is updated;
-  - no internet access, and nothing leaves the phone.
+  - no internet access, and nothing leaves the phone;
+  - optional, off by default: "vibrate differently for urgent messages
+    (analysed on the phone)". Message tone asks for consent when enabled.
 - **Category:** Tools. **Content rating:** no objectionable content. **Target audience:** 13+.
 - **Ads:** none.
 
