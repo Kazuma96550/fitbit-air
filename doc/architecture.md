@@ -9,7 +9,7 @@ FitbitAir.isAirPaired() / FitbitAir.vibrate()
              FitbitAirPlugin.kt
                     │ Android GATT
                     ▼
-       Golden Gate JNI (runtime-loaded libxp.so)
+       Golden Gate JNI (bundled libxp.so)
                     │
        CoAP → DTLS → Gattlink → tracker BLE channel
                     │
@@ -23,12 +23,9 @@ subscribes to its receive characteristic, bridges BLE packets into Golden Gate,
 and waits for a DTLS session. It then performs the bounded `/settings` sequence
 and tears down GATT in every success, error, or timeout path.
 
-`GoogleHealthNativeLoader` verifies the signing certificate of the installed
-`com.fitbit.FitbitMobile` package, locates `libxp.so` for a supported device ABI
-inside its public base/split APKs, and copies it to a versioned private code-cache
-directory before loading it. Neither the package nor the resulting app APK
-contains that binary. The JNI-compatible Kotlin binding source is compiled into
-the app.
+`BundledNativeLoader` loads the plugin's own Golden Gate core (`libgg.so`) and
+JNI bridge (`libxp.so`), built reproducibly from public source by
+`tool/native/build.py`. The Kotlin bindings match that upstream JNI ABI.
 
 The plugin intentionally does not expose CoAP, DTLS, Gattlink, Bluetooth handles,
 or protocol payloads to Dart. Additional verified operations should be modeled as
@@ -70,14 +67,11 @@ stored setting after this short-lived connection closes.
 
 ## Deliberate limitations
 
-- Android arm64 on Pixel 7 Pro is the verified target. Other Android ABIs are
-  attempted when the installed Google Health APK provides `libxp.so`, but are
-  currently untested.
+- Android arm64 on Pixel 7 Pro is the verified target. The armeabi-v7a and x86_64
+  libraries are bundled but untested on hardware.
 - Pairing remains owned by Google Health. The plugin does not provision or copy
   the normal device-specific mobile-data PSK or read private app data.
 - The haptic operation works through the bootstrap session observed on the Air.
-- The JNI ABI is private and version-sensitive. A Google Health update may
-  require updated Kotlin bindings.
 - Incoming wrist taps and complete activity statistics remain unimplemented.
 
 ## Standard GATT reads and heart rate

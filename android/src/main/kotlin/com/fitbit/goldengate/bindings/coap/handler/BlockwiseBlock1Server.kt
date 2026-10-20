@@ -59,3 +59,4 @@ interface BlockwiseBlock1Server {
      */
     fun onEnd(options: Options, result: Block1ProcessResult): OutgoingResponse?
 }
+

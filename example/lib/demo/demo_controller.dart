@@ -152,6 +152,7 @@ class DemoController extends ChangeNotifier {
     if (!_shouldUpdateBattery) {
       _automaticBatteryTimer?.cancel();
       _automaticBatteryTimer = null;
+      _scheduleFirmwareCheck();
       return;
     }
     // Let the screen settle and give a user's Start tap priority.
@@ -163,6 +164,12 @@ class DemoController extends ChangeNotifier {
   }
 
   bool get canReadBattery =>
+      _deviceIdle &&
+      (batteryReadAt == null ||
+          DateTime.now().difference(batteryReadAt!) >=
+              const Duration(minutes: 1));
+
+  bool get _deviceIdle =>
       _deviceReadInFlight == null &&
       initialized &&
       !busy &&
@@ -174,10 +181,7 @@ class DemoController extends ChangeNotifier {
       !batteryReading &&
       !signalReading &&
       bluetoothPermission &&
-      bluetoothEnabled != false &&
-      (batteryReadAt == null ||
-          DateTime.now().difference(batteryReadAt!) >=
-              const Duration(minutes: 1));
+      bluetoothEnabled != false;
 
   Future<void> refreshBattery() {
     if (!canReadBattery) return Future<void>.value();
@@ -185,6 +189,147 @@ class DemoController extends ChangeNotifier {
     _deviceReadInFlight = task;
     return task.whenComplete(() => _deviceReadInFlight = null);
   }
+
+  /// Air firmware from the last device read; checked at most daily, with a
+  /// battery read when one is due, otherwise on its own while visible.
+  String? firmware;
+  DateTime? firmwareReadAt;
+  String? dismissedFirmware;
+
+  /// The firmware on which a battery read or vibration last succeeded here.
+  /// That proves the secure session and settings still work on it.
+  String? workingFirmware;
+  DateTime? _lastFirmwareAttempt;
+  Timer? _firmwareTimer;
+  static const firmwareFreshness = Duration(days: 1);
+
+  bool get _firmwareDue =>
+      firmwareReadAt == null ||
+      DateTime.now().difference(firmwareReadAt!) >= firmwareFreshness;
+
+  bool get _shouldCheckFirmware =>
+      !_disposed &&
+      _visible &&
+      setupCompleted &&
+      _deviceIdle &&
+      _firmwareDue &&
+      (_lastFirmwareAttempt == null ||
+          DateTime.now().difference(_lastFirmwareAttempt!) >=
+              const Duration(minutes: 15));
+
+  void _scheduleFirmwareCheck() {
+    if (!_shouldCheckFirmware) {
+      _firmwareTimer?.cancel();
+      _firmwareTimer = null;
+      return;
+    }
+    _firmwareTimer ??= Timer(const Duration(seconds: 5), () {
+      _firmwareTimer = null;
+      if (!_shouldCheckFirmware) return;
+      final task = _readFirmwareIfDue().whenComplete(_changed);
+      _deviceReadInFlight = task;
+      unawaited(task.whenComplete(() => _deviceReadInFlight = null));
+    });
+  }
+
+  /// Null until the firmware is known.
+  bool? get firmwareTested =>
+      firmware == null ? null : FitbitAir.testedFirmware.contains(firmware);
+
+  bool get firmwareWorks => firmware != null && workingFirmware == firmware;
+
+  /// An untested firmware that has not worked here yet and was not dismissed.
+  bool get showFirmwareNotice =>
+      firmwareTested == false &&
+      !firmwareWorks &&
+      dismissedFirmware != firmware;
+
+  Future<void> _markFirmwareWorking() async {
+    if (firmware == null || firmwareWorks) return;
+    workingFirmware = firmware;
+    _changed();
+    try {
+      await channel.invokeMethod<void>('saveDevice', {
+        'workingFirmware': firmware,
+      });
+    } on PlatformException {
+      // Re-confirmed by the next successful command.
+    }
+  }
+
+  Future<void> dismissFirmwareNotice() async {
+    dismissedFirmware = firmware;
+    _changed();
+    try {
+      await channel.invokeMethod<void>('saveDevice', {
+        'dismissedFirmware': firmware,
+      });
+    } on PlatformException {
+      // The notice returns next launch; nothing else depends on it.
+    }
+  }
+
+  Future<void> _readFirmwareIfDue() async {
+    if (!_firmwareDue) return;
+    _lastFirmwareAttempt = DateTime.now();
+    try {
+      final Object? value;
+      if (relayRunning) {
+        final info = await channel
+            .invokeMapMethod<String, Object?>('readRelayDeviceInfo')
+            .timeout(const Duration(seconds: 30));
+        value = info?['firmware'];
+      } else {
+        value = (await FitbitAir.readDeviceInfo()).firmware;
+      }
+      if (value is! String || value.isEmpty || value.length > 64) return;
+      firmware = value;
+      firmwareReadAt = DateTime.now();
+      await channel.invokeMethod<void>('saveDevice', {
+        'firmware': value,
+        'readAt': firmwareReadAt!.millisecondsSinceEpoch,
+      });
+    } catch (_) {
+      // Retried with the next battery read; the firmware is informational.
+    }
+  }
+
+  /// Consecutive unconfirmed alerts, newest first, ignoring skipped ones.
+  List<Map<String, Object?>> get _recentFailures {
+    final failures = <Map<String, Object?>>[];
+    for (final entry in history) {
+      final stage = entry['stage'];
+      if (stage == 'verified') break;
+      if (stage == 'failed' || stage == 'interrupted') failures.add(entry);
+    }
+    return failures;
+  }
+
+  /// Set when the last alerts did not reach the Air. One failure is normal
+  /// (for example while Google Health syncs); two in a row are worth showing.
+  AirFailureKind? get deliveryProblem {
+    final failures = _recentFailures;
+    if (failures.length < 2) return null;
+    final kinds = failures
+        .map((entry) => AirFailureKind.of(entry['errorCode'] as String? ?? ''))
+        .toList();
+    // Only a repeated compatibility failure suggests the Air has changed.
+    if (kinds.take(3).length == 3 &&
+        kinds.take(3).every((kind) => kind == AirFailureKind.compatibility)) {
+      return AirFailureKind.compatibility;
+    }
+    return kinds.first == AirFailureKind.setup
+        ? AirFailureKind.setup
+        : AirFailureKind.temporary;
+  }
+
+  String? get lastFailureCode =>
+      _recentFailures.firstOrNull?['errorCode'] as String?;
+
+  Future<void> openReleases() =>
+      channel.invokeMethod<void>('openRepository', {'page': 'releases'});
+  Future<void> openIssues() =>
+      channel.invokeMethod<void>('openRepository', {'page': 'issues'});
 
   Future<void> _readBattery() async {
     _lastBatteryAttempt = DateTime.now();
@@ -219,6 +364,8 @@ class DemoController extends ChangeNotifier {
         batteryError =
             'Updated, but could not save this reading for next time.';
       }
+      await _readFirmwareIfDue();
+      await _markFirmwareWorking();
     } on PlatformException catch (error) {
       batteryErrorCode = error.code;
       if (error.code == 'BUSY') {
@@ -337,6 +484,20 @@ class DemoController extends ChangeNotifier {
       }
     } catch (_) {
       // A missing or invalid cache never blocks setup.
+    }
+    try {
+      final device = await channel.invokeMapMethod<String, Object?>(
+        'deviceCache',
+      );
+      final readAt = device?['readAt'];
+      firmware = device?['firmware'] as String?;
+      if (firmware != null && readAt is int && readAt > 0) {
+        firmwareReadAt = DateTime.fromMillisecondsSinceEpoch(readAt);
+      }
+      dismissedFirmware = device?['dismissedFirmware'] as String?;
+      workingFirmware = device?['workingFirmware'] as String?;
+    } catch (_) {
+      // Unknown firmware only hides the compatibility notice.
     }
     try {
       final settings = await channel.invokeMapMethod<String, Object?>(
@@ -473,6 +634,23 @@ class DemoController extends ChangeNotifier {
       history = (state['history'] as List? ?? [])
           .map((entry) => Map<String, Object?>.from(entry as Map))
           .toList();
+      // A vibration confirmed after the firmware was read worked on it.
+      final lastAttempt = history
+          .where(
+            (e) => const {
+              'verified',
+              'failed',
+              'interrupted',
+            }.contains(e['stage']),
+          )
+          .firstOrNull;
+      final at = lastAttempt?['atMillis'];
+      if (lastAttempt?['stage'] == 'verified' &&
+          at is int &&
+          firmwareReadAt != null &&
+          at >= firmwareReadAt!.millisecondsSinceEpoch) {
+        unawaited(_markFirmwareWorking());
+      }
     } on PlatformException catch (error) {
       setupError = recoveryHint(error.code);
     } on MissingPluginException {
@@ -947,7 +1125,9 @@ class DemoController extends ChangeNotifier {
 
   Map<String, Object?> report() => {
     'schemaVersion': 1,
-    'demoVersion': '0.1.4',
+    'demoVersion': appVersion,
+    'firmware': firmware,
+    'firmwareTested': firmwareTested,
     'exportedAt': DateTime.now().toUtc().toIso8601String(),
     'battery': {
       'hasReading': battery != null,
@@ -980,6 +1160,8 @@ class DemoController extends ChangeNotifier {
   };
   String exportJson() => const JsonEncoder.withIndent('  ').convert(report());
 
+  static const appVersion = '0.2.0';
+
   static String recoveryHint(String code) => switch (code) {
     'TIMEOUT' =>
       'The command timed out; delivery is uncertain. Check the Air and Google Health before testing again. No automatic retry.',
@@ -1003,6 +1185,10 @@ class DemoController extends ChangeNotifier {
       'The relay stopped before reporting a result. Delivery is uncertain; no automatic retry.',
     'PERMISSION_DENIED' || 'BLUETOOTH_PERMISSION' =>
       'Grant Nearby devices permission using Check paired Air.',
+    'NATIVE_UNAVAILABLE' =>
+      'This phone’s processor isn’t supported by Air Relay yet.',
+    _ when AirFailureKind.of(code) == AirFailureKind.compatibility =>
+      'Your Air answered in an unexpected way ($code). If this keeps happening after a firmware update, check for an Air Relay update.',
     _ =>
       'Operation failed ($code). Check permissions, Bluetooth and the paired Air. No automatic retry.',
   };
@@ -1011,6 +1197,7 @@ class DemoController extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _automaticBatteryTimer?.cancel();
+    _firmwareTimer?.cancel();
     _poll?.cancel();
     unawaited(_connection?.cancel());
     super.dispose();

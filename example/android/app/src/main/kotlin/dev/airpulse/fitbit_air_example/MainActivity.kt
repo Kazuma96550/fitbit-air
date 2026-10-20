@@ -17,11 +17,38 @@ class MainActivity : FlutterActivity() {
             .setMethodCallHandler { call, result ->
                 try {
                     when (call.method) {
-                        "readRelayBattery", "readRelaySignal" -> {
+                        "readRelayBattery", "readRelaySignal", "readRelayDeviceInfo" -> {
                             val relay = CalendarRelayService.active
                             if (relay == null) result.error("BUSY", "The relay is changing state.", null)
-                            else if (call.method == "readRelaySignal") relay.readSignal(result)
-                            else relay.readBattery(result)
+                            else when (call.method) {
+                                "readRelaySignal" -> relay.readSignal(result)
+                                "readRelayDeviceInfo" -> relay.readDeviceInfo(result)
+                                else -> relay.readBattery(result)
+                            }
+                        }
+                        "deviceCache" -> {
+                            val cache = getSharedPreferences("air_device", MODE_PRIVATE)
+                            result.success(mapOf(
+                                "firmware" to cache.getString("firmware", null),
+                                "readAt" to cache.getLong("readAt", 0),
+                                "dismissedFirmware" to cache.getString("dismissedFirmware", null),
+                                "workingFirmware" to cache.getString("workingFirmware", null)))
+                        }
+                        "saveDevice" -> {
+                            val edit = getSharedPreferences("air_device", MODE_PRIVATE).edit()
+                            call.argument<String>("firmware")?.let {
+                                require(it.length <= 64)
+                                edit.putString("firmware", it)
+                                    .putLong("readAt", requireNotNull(call.argument<Number>("readAt")).toLong())
+                            }
+                            for (key in listOf("dismissedFirmware", "workingFirmware")) {
+                                call.argument<String>(key)?.let {
+                                    require(it.length <= 64)
+                                    edit.putString(key, it)
+                                }
+                            }
+                            edit.apply()
+                            result.success(null)
                         }
                         "batteryCache" -> {
                             val cache = getSharedPreferences("air_battery", MODE_PRIVATE)
@@ -183,8 +210,13 @@ class MainActivity : FlutterActivity() {
                             result.success(null)
                         }
                         "openRepository" -> {
-                            // Fixed URL only; the channel never opens arbitrary links.
-                            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(REPOSITORY_URL)))
+                            // Fixed URLs only; the channel never opens arbitrary links.
+                            val url = when (call.argument<String>("page")) {
+                                "releases" -> "$REPOSITORY_URL/releases"
+                                "issues" -> "$REPOSITORY_URL/issues"
+                                else -> REPOSITORY_URL
+                            }
+                            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
                             result.success(null)
                         }
                         "settings" -> {

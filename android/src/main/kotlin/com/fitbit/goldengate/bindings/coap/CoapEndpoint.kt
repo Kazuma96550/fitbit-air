@@ -5,9 +5,6 @@ package com.fitbit.goldengate.bindings.coap
 
 import com.fitbit.goldengate.bindings.DataSinkDataSource
 import com.fitbit.goldengate.bindings.NativeReferenceWithCallback
-import com.fitbit.goldengate.bindings.NativeReferenceCreationResult
-import com.fitbit.goldengate.bindings.GoldenGateNativeException
-import com.fitbit.goldengate.bindings.GoldenGateNativeResult
 import com.fitbit.goldengate.bindings.coap.block.BlockwiseCoapResponseListener
 import com.fitbit.goldengate.bindings.coap.data.IncomingResponse
 import com.fitbit.goldengate.bindings.coap.data.OutgoingRequest
@@ -67,10 +64,9 @@ class CoapEndpoint(
     )
 
     init {
-        thisPointerWrapper = create().validPointer("CoapEndpoint")
+        thisPointerWrapper = create()
         if (thisPointerWrapper.isNotNull()) {
             attachFilter(thisPointerWrapper, requestFilter.thisPointerWrapper)
-                .throwIfError("CoapEndpoint.attachFilter")
             isInitialized.set(true)
         }
     }
@@ -163,7 +159,7 @@ class CoapEndpoint(
                 selfPtr = thisPointerWrapper,
                 sourcePtr = dataSinkDataSource.getAsDataSourcePointer(),
                 sinkPtr = dataSinkDataSource.getAsDataSinkPointer()
-            ).throwIfError("CoapEndpoint.attach")
+            )
         } else {
             throw RuntimeException("Please detach before re-attaching")
         }
@@ -174,7 +170,7 @@ class CoapEndpoint(
             detach(
                 selfPtr = thisPointerWrapper,
                 sourcePtr = it.getAsDataSourcePointer()
-            ).throwIfError("CoapEndpoint.detach")
+            )
             this.dataSinkDataSource = null
             this.ggStack = null
         }
@@ -196,7 +192,7 @@ class CoapEndpoint(
         requestFilter.close()
         detach()
         if (thisPointerWrapper.isNotNull()) {
-            destroy(thisPointerWrapper).throwIfError("CoapEndpoint.destroy")
+            destroy(thisPointerWrapper)
         }
     }
 
@@ -222,17 +218,17 @@ class CoapEndpoint(
         val nativeResponseListenerReference: Long
     )
 
-    private external fun create(): NativeReferenceCreationResult
+    private external fun create(): Long
 
-    private external fun attach(selfPtr: Long, sourcePtr: Long, sinkPtr: Long): Int
+    private external fun attach(selfPtr: Long, sourcePtr: Long, sinkPtr: Long)
 
-    private external fun detach(selfPtr: Long, sourcePtr: Long): Int
+    private external fun detach(selfPtr: Long, sourcePtr: Long)
 
     private external fun asDataSource(selfPtr: Long = thisPointerWrapper): Long
 
     private external fun asDataSink(selfPtr: Long = thisPointerWrapper): Long
 
-    private external fun destroy(selfPtr: Long): Int
+    private external fun destroy(selfPtr: Long)
 
     private external fun responseFor(
         selfPtr: Long,
@@ -255,17 +251,5 @@ class CoapEndpoint(
 
     private external fun removeResourceHandler(handlerNativeReference: Long): Int
 
-    private external fun attachFilter(selfPtr: Long, filterPrt: Long): Int
-
-    private fun NativeReferenceCreationResult.validPointer(operation: String): Long {
-        if (isSuccess) return pointer
-        throw GoldenGateNativeException("$operation failed: ${result.title}", resultCode)
-    }
-
-    private fun Int.throwIfError(operation: String) {
-        val nativeResult = GoldenGateNativeResult.getNativeResultFrom(this)
-        if (nativeResult != GoldenGateNativeResult.GG_SUCCESS) {
-            throw GoldenGateNativeException("$operation failed: ${nativeResult.title}", this)
-        }
-    }
+    private external fun attachFilter(selfPtr: Long, filterPrt: Long)
 }

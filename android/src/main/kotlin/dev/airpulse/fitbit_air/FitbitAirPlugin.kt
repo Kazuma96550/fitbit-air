@@ -874,7 +874,7 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
                 return
             }
             txCharacteristic = tx
-            GoogleHealthNativeLoader.initialize(appContext)
+            BundledNativeLoader.initialize()
             val sink = TxSink()
             txSink = sink
             val source = RxSource()
@@ -926,6 +926,9 @@ class FitbitAirPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHa
             handshakeDeadline = deadline
             handler.postDelayed(deadline, HANDSHAKE_RETRY_MS)
             newStack.start()
+        } catch (error: UnsatisfiedLinkError) {
+            // No bundled library for this device's ABI, or it failed to load.
+            finishError("NATIVE_UNAVAILABLE", error.message ?: error.toString())
         } catch (error: Throwable) {
             finishError("GOLDENGATE", error.message ?: error.toString())
         }

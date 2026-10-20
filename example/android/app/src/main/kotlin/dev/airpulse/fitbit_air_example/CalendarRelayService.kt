@@ -274,6 +274,7 @@ class CalendarRelayService : Service() {
 
     internal fun readBattery(reply: MethodChannel.Result) = readDeviceStatus("readBattery", reply)
     internal fun readSignal(reply: MethodChannel.Result) = readDeviceStatus("readSignalStrength", reply)
+    internal fun readDeviceInfo(reply: MethodChannel.Result) = readDeviceStatus("readDeviceInfo", reply)
 
     private fun readDeviceStatus(operation: String, reply: MethodChannel.Result) {
         val worker = channel
@@ -285,7 +286,7 @@ class CalendarRelayService : Service() {
         worker.invokeMethod(operation, null, object : MethodChannel.Result {
             override fun success(result: Any?) { end(); reply.success(result) }
             override fun error(code: String, message: String?, details: Any?) { end(); reply.error(code, message, details) }
-            override fun notImplemented() { end(); reply.error("WORKER_UNAVAILABLE", "Battery read unavailable.", null) }
+            override fun notImplemented() { end(); reply.error("WORKER_UNAVAILABLE", "Device read unavailable.", null) }
         })
     }
 

@@ -77,6 +77,7 @@ internal abstract class Logger : Closeable {
     external fun destroyLoggerJNI(loggerPtr: Long)
 
 }
+
 /* Simple logger implementation for now, but otherwise a logger impl should be implemented via the host */
 internal class SimpleLogger : Logger() {
     override fun log(tag: String, message: String) {
@@ -88,6 +89,7 @@ internal class SimpleLogger : Logger() {
         Timber.tag("GoldenGate").log(level.priority, "%s: %s", level.name, message)
     }
 }
+
 internal enum class LogLevel(val priority : Int) {
     FATAL(Log.ERROR), // Not Log.ASSERT because that should only be used when the app is crashing.
     SEVERE(Log.ERROR),
@@ -111,3 +113,4 @@ internal enum class LogLevel(val priority : Int) {
         }
     }
 }
+

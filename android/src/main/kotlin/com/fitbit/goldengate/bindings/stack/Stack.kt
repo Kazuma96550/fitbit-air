@@ -1,5 +1,6 @@
 // Copyright 2017-2020 Fitbit, Inc
 // SPDX-License-Identifier: Apache-2.0
+// Modified for fitbit_air: optional per-stack TLS key resolver.
 
 package com.fitbit.goldengate.bindings.stack
 
@@ -9,7 +10,6 @@ import com.fitbit.goldengate.bindings.DataSinkDataSource
 import com.fitbit.goldengate.bindings.GoldenGateNativeException
 import com.fitbit.goldengate.bindings.GoldenGateNativeResult
 import com.fitbit.goldengate.bindings.NativeReference
-import com.fitbit.goldengate.bindings.NativeReferenceCreationResult
 import com.fitbit.goldengate.bindings.dtls.DtlsProtocolStatus
 import com.fitbit.goldengate.bindings.dtls.DtlsProtocolStatus.TlsProtocolState
 import com.fitbit.goldengate.bindings.dtls.DtlsProtocolStatus.TlsProtocolState.TLS_STATE_UNKNOWN
@@ -74,14 +74,14 @@ class Stack constructor(
             stackConfig.localPort,
             stackConfig.remoteAddress,
             stackConfig.remotePort,
-            tlsKeyResolver,
-            stackConfig.gattlinkRxWindowSize ?: 0,
-            stackConfig.gattlinkTxWindowSize ?: 0,
-            stackConfig.gattlinkBufferThresholdHysteresis ?: 0.0,
-            stackConfig.gattlinkExpectedAckTimeout ?: 0
+            tlsKeyResolver
         )
-        if (stackCreationResult.isSuccess) return stackCreationResult.pointer
-        throw GoldenGateNativeException(stackCreationResult.result.title, stackCreationResult.resultCode)
+        if(stackCreationResult.result < 0 ) {
+            val error = GoldenGateNativeResult.getNativeResultFrom(stackCreationResult.result)
+            throw GoldenGateNativeException(error.title, stackCreationResult.result)
+        } else {
+            return stackCreationResult.stackPointer
+        }
     }
 
     private fun attachEventListener() {
@@ -106,7 +106,7 @@ class Stack constructor(
      */
     fun start() {
         if (!stackStarted.getAndSet(true)) {
-            throwIfError(start(thisPointer), "Stack.start")
+            start(thisPointer)
         } else {
             Timber.w("Ignoring as Stack is already started")
         }
@@ -124,9 +124,9 @@ class Stack constructor(
             Timber.w("Not updating MTU. Stack started?: ${stackStarted.get()} Stack closed?: ${stackClosed.get()}")
             return false
         }
-        val result = updateMtu(mtu - GATT_HEADER_SIZE, thisPointer)
-        Timber.d("Updated stack MTU. Result: $result new stack mtu: $mtu - $GATT_HEADER_SIZE")
-        return result == GoldenGateNativeResult.GG_SUCCESS.code
+        val success = updateMtu(mtu - GATT_HEADER_SIZE, thisPointer)
+        Timber.d("Updated stack MTU. Success?: $success new stack mtu: $mtu - $GATT_HEADER_SIZE")
+        return success
     }
 
     /**
@@ -160,7 +160,7 @@ class Stack constructor(
             return
         }
         Timber.d("Closing stack")
-        throwIfError(destroy(thisPointer), "Stack.destroy")
+        destroy(thisPointer)
     }
 
     /*
@@ -195,25 +195,13 @@ class Stack constructor(
             remoteAddress: Inet4Address,
             remotePort: Int,
             tlsKeyResolver: TlsKeyResolver
-            , gattlinkRxWindowSize: Int,
-            gattlinkTxWindowSize: Int,
-            gattlinkBufferThresholdHysteresis: Double,
-            gattlinkExpectedAckTimeout: Int
-    ): NativeReferenceCreationResult
+    ): StackCreationResult
 
-    private external fun destroy(selfPtr: Long): Int
-    private external fun start(selfPtr: Long): Int
+    private external fun destroy(selfPtr: Long)
+    private external fun start(selfPtr: Long)
     private external fun attachEventListener(clazz: Class<Stack> = Stack::class.java, selfPtr: Long): Int
     private external fun getTopPortAsDataSink(selfPtr: Long): Long
     private external fun getTopPortAsDataSource(selfPtr: Long): Long
 
-    private external fun updateMtu(mtu: Int, selfPtr: Long): Int
-
-    private fun throwIfError(code: Int, operation: String): Int {
-        val result = GoldenGateNativeResult.getNativeResultFrom(code)
-        if (result != GoldenGateNativeResult.GG_SUCCESS) {
-            throw GoldenGateNativeException("$operation failed: ${result.title}", code)
-        }
-        return code
-    }
+    private external fun updateMtu(mtu: Int, selfPtr: Long): Boolean
 }

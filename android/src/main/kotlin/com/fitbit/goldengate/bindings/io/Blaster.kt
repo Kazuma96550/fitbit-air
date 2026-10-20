@@ -107,3 +107,4 @@ class Blaster(
     private external fun destroy(selfPtr: Long)
 
 }
+

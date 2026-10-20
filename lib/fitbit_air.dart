@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 /// A small Android bridge for directly controlling a paired Fitbit Air.
@@ -7,6 +8,33 @@ import 'package:flutter/services.dart';
 /// APIs. Wrist-tap detection is not yet implemented.
 class FitbitAir {
   FitbitAir._();
+
+  /// Air firmware versions this package version was verified with. Other
+  /// versions may work; show users that they are untested, and suggest an
+  /// update if commands keep failing with [AirFailureKind.compatibility].
+  static const testedFirmware = {'67.20001.253.2'};
+
+  /// Adds the licenses of the bundled native transport (Golden Gate, Mbed TLS
+  /// and lwIP) to Flutter's license page. Their terms require apps that ship
+  /// the binaries to include these texts; call this once, for example in
+  /// `main()`.
+  static void registerLicenses() {
+    LicenseRegistry.addLicense(() async* {
+      Future<String> load(String path) =>
+          rootBundle.loadString('packages/fitbit_air/$path');
+      yield LicenseEntryWithLineBreaks(
+        const ['Golden Gate'],
+        '${await load('third_party/golden-gate/NOTICE')}\n\n'
+        '${await load('LICENSE-APACHE-2.0')}',
+      );
+      yield LicenseEntryWithLineBreaks(const [
+        'Mbed TLS',
+      ], await load('third_party/mbedtls/LICENSE'));
+      yield LicenseEntryWithLineBreaks(const [
+        'lwIP',
+      ], await load('third_party/lwip/COPYING'));
+    });
+  }
 
   static const MethodChannel _channel = MethodChannel('fitbit_air');
   static const EventChannel _heartRateChannel = EventChannel(
@@ -99,13 +127,12 @@ class FitbitAir {
   static Future<AirBattery> readBattery() async =>
       AirBattery.fromMap(await _invokeMap('readBattery'));
 
-  static void Function(Object) _streamError(String fallback) =>
-      (Object error) {
-        if (error is PlatformException) {
-          throw FitbitAirException(error.code, error.message ?? fallback);
-        }
-        throw error;
-      };
+  static void Function(Object) _streamError(String fallback) => (Object error) {
+    if (error is PlatformException) {
+      throw FitbitAirException(error.code, error.message ?? fallback);
+    }
+    throw error;
+  };
 
   /// Cancels the active operation and closes its Bluetooth client.
   /// The pending read completes with a `CANCELLED` exception. Haptic write
@@ -520,12 +547,68 @@ class VibrationResult {
   );
 }
 
+/// What a [FitbitAirException] means for the user.
+enum AirFailureKind {
+  /// Worth retrying later: the Air was busy, out of range, or Google Health
+  /// was using the shared channel.
+  temporary,
+
+  /// The user needs to fix something: Bluetooth, a permission or pairing.
+  setup,
+
+  /// The Air or phone answered in a way this package version does not
+  /// expect, for example after a firmware update or on an unsupported
+  /// processor. A single occurrence can still be a glitch; when it repeats,
+  /// suggest checking for an app update.
+  compatibility,
+
+  /// Not classified.
+  unknown;
+
+  /// Classifies a native error [code].
+  static AirFailureKind of(String code) => switch (code) {
+    'BUSY' ||
+    'TIMEOUT' ||
+    'CANCELLED' ||
+    'HANDSHAKE_TIMEOUT' ||
+    'GATT_CONNECT' ||
+    'GATT_DISCONNECTED' ||
+    'CHANNEL_CONNECT' ||
+    'CHANNEL_DISCONNECTED' ||
+    'CHANNEL_TIMEOUT' ||
+    'HEART_RATE_TIMEOUT' ||
+    'SCAN_FAILED' ||
+    'RSSI' => temporary,
+    'AIR_NOT_FOUND' ||
+    'BLUETOOTH_OFF' ||
+    'BLUETOOTH_PERMISSION' ||
+    'HEART_RATE_UNAVAILABLE' => setup,
+    'NATIVE_UNAVAILABLE' ||
+    'GOLDENGATE' ||
+    'GOLDENGATE_TX' ||
+    'DTLS' ||
+    'TRACKER_CHANNEL' ||
+    'CHANNEL_UNAVAILABLE' ||
+    'HAPTIC_READ_FAILED' ||
+    'HAPTIC_WRITE_FAILED' ||
+    'HAPTIC_TAP_FAILED' ||
+    'HAPTIC_PULSE_FAILED' ||
+    'HAPTIC_FAILED' ||
+    'BATTERY_READ_FAILED' ||
+    'HEART_RATE_FORMAT' => compatibility,
+    _ => unknown,
+  };
+}
+
 /// A device or transport error returned by the native Android implementation.
 class FitbitAirException implements Exception {
   const FitbitAirException(this.code, this.message);
 
   final String code;
   final String message;
+
+  /// What this error means for the user; see [AirFailureKind].
+  AirFailureKind get kind => AirFailureKind.of(code);
 
   @override
   String toString() => 'FitbitAirException($code): $message';

@@ -1,7 +1,13 @@
-## Unreleased
+## 0.2.0
 
 ### Package
 
+- Bundle the Golden Gate transport, built reproducibly from its public
+  Apache-2.0 source for arm64-v8a, armeabi-v7a and x86_64. The plugin no
+  longer copies or loads `libxp.so` from the installed Google Health app, so
+  Google Health updates cannot break it. Verified on a Pixel 7 Pro: battery
+  read, single tap, two-pulse restore and handoff; Google Health synced
+  normally right after commands.
 - Add `FitbitAir.keepLinkWarm(bool)`: a listen-only link that commands reuse,
   skipping connection setup and the channel observation. With it, commands
   also request the fast link as soon as they start. On the Air's idle link a
@@ -10,10 +16,31 @@
   The fast link is held about 3.5–4 s per command, then released to low power.
 - Start immediately once the shared channel has been silent for 0.3 s instead
   of always observing 0.75 s.
+- Add `AirFailureKind` and `FitbitAirException.kind`, grouping error codes
+  into temporary, setup, compatibility and unknown, and
+  `FitbitAir.testedFirmware`, the Air firmware versions this release was
+  verified with.
+- Report `NATIVE_UNAVAILABLE` when the transport cannot load on a device
+  instead of the generic `GOLDENGATE` error.
+- Add `FitbitAir.registerLicenses()`, which adds the Golden Gate, Mbed TLS
+  and lwIP licenses to Flutter's license page; apps shipping the plugin must
+  include them. Modified upstream binding files now say what changed.
 
 ### Example app
 
 - The relay keeps the link warm while it runs, so alerts arrive sooner.
+- Home shows when the Air is out of range while notifications run, and when
+  two alerts in a row were not confirmed. Only repeated compatibility errors
+  suggest an update, with a **Check for updates** action.
+- A notice appears once when the Air runs firmware this release was not
+  tested with, unless a battery read or vibration has already succeeded on
+  it here ("works on your Air"). The firmware is read at most daily and shown
+  on the Device tab as tested, works on your Air, or not yet tested.
+- Issue templates for problems and for reports on new Air firmware.
+- **View licenses** in About lists the bundled native code and VADER.
+- About explains typical delay, range and the firmware risk, shows the tested
+  and current firmware, and links to releases and issue reports. Setup sets
+  the same expectations.
 
 - Add an opt-in **Message tone** rule: an on-device English/German keyword
   heuristic marks relayed messages as urgent, negative or neutral, and each

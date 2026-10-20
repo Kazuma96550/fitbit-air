@@ -4,9 +4,6 @@
 package com.fitbit.goldengate.bindings.coap
 
 import com.fitbit.goldengate.bindings.NativeReferenceWithCallback
-import com.fitbit.goldengate.bindings.NativeReferenceCreationResult
-import com.fitbit.goldengate.bindings.GoldenGateNativeException
-import com.fitbit.goldengate.bindings.GoldenGateNativeResult
 import com.fitbit.goldengate.bindings.util.isNotNull
 import timber.log.Timber
 import java.io.Closeable
@@ -28,11 +25,7 @@ class CoapGroupRequestFilter : NativeReferenceWithCallback, Closeable {
     }
 
     init {
-        val created = create()
-        if (!created.isSuccess) {
-            throw GoldenGateNativeException("CoapGroupRequestFilter creation failed: ${created.result.title}", created.resultCode)
-        }
-        thisPointerWrapper = created.pointer
+        thisPointerWrapper = create()
         this.setGroupTo(CoapGroupRequestFilterMode.GROUP_1)
     }
 
@@ -42,26 +35,19 @@ class CoapGroupRequestFilter : NativeReferenceWithCallback, Closeable {
      */
     fun setGroupTo(group: CoapGroupRequestFilterMode) {
         if (thisPointerWrapper.isNotNull()) {
-            checkResult(setGroup(thisPointerWrapper, group.value), "setGroup")
+            setGroup(thisPointerWrapper, group.value)
         }
     }
 
     override fun close() {
         if (thisPointerWrapper.isNotNull()) {
-            checkResult(destroy(thisPointerWrapper), "destroy")
+            destroy(thisPointerWrapper)
         }
     }
 
-    private fun checkResult(code: Int, operation: String) {
-        val result = GoldenGateNativeResult.getNativeResultFrom(code)
-        if (result != GoldenGateNativeResult.GG_SUCCESS) {
-            throw GoldenGateNativeException("CoapGroupRequestFilter.$operation failed: ${result.title}", code)
-        }
-    }
+    private external fun create(): Long
 
-    private external fun create(): NativeReferenceCreationResult
+    private external fun setGroup(selfPtr: Long, group: Byte)
 
-    private external fun setGroup(selfPtr: Long, group: Byte): Int
-
-    private external fun destroy(selfPtr: Long): Int
+    private external fun destroy(selfPtr: Long)
 }
