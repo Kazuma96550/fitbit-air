@@ -20,6 +20,10 @@ import sys
 UPSTREAM = "https://github.com/Google-Health-API/golden-gate.git"
 REVISION = "b8a6f2552e12aaf92c1549dc88a41c9b7e73f1aa"
 SUBMODULES = ["external/lwip", "external/mbedtls"]
+# Golden Gate pins Mbed TLS 2.28.0; use the final 2.28 LTS release (same API)
+# for its security fixes.
+MBEDTLS = "https://github.com/Mbed-TLS/mbedtls.git"
+MBEDTLS_REVISION = "2fc8413bfcb51354c8e679141b17b3f1a5942561"  # v2.28.10
 NDK_REVISION = "28.2.13676358"
 # Flutter supports no other Android ABIs.
 ABIS = ["arm64-v8a", "armeabi-v7a", "x86_64"]
@@ -54,6 +58,11 @@ def checkout(work):
         raise RuntimeError("Unexpected upstream revision")
     if output("git", "-C", source, "status", "--porcelain").strip():
         raise RuntimeError("Upstream checkout must be clean before building")
+    mbedtls = source / "external/mbedtls"
+    run("git", "fetch", "--depth", "1", MBEDTLS, MBEDTLS_REVISION, cwd=mbedtls)
+    run("git", "checkout", "--detach", MBEDTLS_REVISION, cwd=mbedtls)
+    if output("git", "-C", mbedtls, "rev-parse", "HEAD").strip() != MBEDTLS_REVISION:
+        raise RuntimeError("Unexpected Mbed TLS revision")
     return source
 
 

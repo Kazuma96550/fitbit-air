@@ -214,6 +214,7 @@ class MainActivity : FlutterActivity() {
                             val url = when (call.argument<String>("page")) {
                                 "releases" -> "$REPOSITORY_URL/releases"
                                 "issues" -> "$REPOSITORY_URL/issues"
+                                "privacy" -> "$REPOSITORY_URL/blob/main/PRIVACY.md"
                                 else -> REPOSITORY_URL
                             }
                             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))

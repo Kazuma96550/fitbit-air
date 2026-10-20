@@ -33,11 +33,14 @@ package: it turns phone notifications into a gentle vibration on your Fitbit Air
   glance, with research tools under Device → Developer tools.
 - **Runs in the background** as a foreground service once you grant
   notification access in its guided setup.
+- **Private by design:** no internet permission, no backup; notifications are
+  matched on the phone and never stored. See the [privacy policy](PRIVACY.md).
 
 <br clear="right">
 
-To try it, connect an Android phone with the Air already paired in Google
-Health, then:
+Download the signed APK from [GitHub releases](https://github.com/ThoreKoritzius/fitbit-air/releases)
+(verify it with the `.sha256` file), or build it yourself: connect an Android
+phone with the Air already paired in Google Health, then:
 
 ```bash
 cd example
@@ -351,7 +354,7 @@ exports; see the [demo and agent guide](doc/demo.md).
 
 The plugin bundles its own Golden Gate transport (`libgg.so` and `libxp.so`),
 built from the public Apache-2.0 source at commit
-`b8a6f2552e12aaf92c1549dc88a41c9b7e73f1aa` with pinned mbedTLS and lwIP. It
+`b8a6f2552e12aaf92c1549dc88a41c9b7e73f1aa` with Mbed TLS 2.28.10 and lwIP. It
 loads no code from Google Health or any other app. The build is reproducible:
 [`tool/native/build.py`](tool/native/build.py) rebuilds the libraries with a
 pinned NDK, and CI checks that the output is byte-identical to the committed

@@ -5,7 +5,8 @@
 - Bundle the Golden Gate transport, built reproducibly from its public
   Apache-2.0 source for arm64-v8a, armeabi-v7a and x86_64. The plugin no
   longer copies or loads `libxp.so` from the installed Google Health app, so
-  Google Health updates cannot break it. Verified on a Pixel 7 Pro: battery
+  Google Health updates cannot break it. Mbed TLS is the final 2.28 LTS
+  release (2.28.10) instead of Golden Gate's 2.28.0. Verified on a Pixel 7 Pro: battery
   read, single tap, two-pulse restore and handoff; Google Health synced
   normally right after commands.
 - Add `FitbitAir.keepLinkWarm(bool)`: a listen-only link that commands reuse,
@@ -38,6 +39,14 @@
   on the Device tab as tested, works on your Air, or not yet tested.
 - Issue templates for problems and for reports on new Air firmware.
 - **View licenses** in About lists the bundled native code and VADER.
+- Final app ID `dev.airpulse.airrelay` for Google Play and GitHub releases
+  (installs next to earlier example builds). Release builds use your own key
+  from `key.properties` or CI secrets; a tag builds a signed APK for GitHub
+  releases and an App Bundle for Play ([release guide](doc/release.md)).
+- Privacy: the notification-access step shows a prominent disclosure with a
+  link to the new [privacy policy](PRIVACY.md); app data is excluded from
+  cloud backup and device transfer. [Play submission notes](doc/play-store.md)
+  cover data safety and the foreground-service declaration.
 - About explains typical delay, range and the firmware risk, shows the tested
   and current firmware, and links to releases and issue reports. Setup sets
   the same expectations.

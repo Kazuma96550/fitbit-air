@@ -1248,6 +1248,15 @@ class _DemoPageState extends State<DemoPage> with WidgetsBindingObserver {
                             label: const Text('Check for updates'),
                           ),
                           TextButton.icon(
+                            key: const ValueKey('about-privacy'),
+                            onPressed: () => _ui(_controller.openPrivacyPolicy),
+                            icon: const Icon(
+                              Icons.privacy_tip_outlined,
+                              size: 18,
+                            ),
+                            label: const Text('Privacy policy'),
+                          ),
+                          TextButton.icon(
                             key: const ValueKey('about-report'),
                             onPressed: () => _ui(_controller.openIssues),
                             icon: const Icon(

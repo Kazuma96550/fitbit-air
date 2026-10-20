@@ -25,9 +25,10 @@ adaptations: a per-stack TLS key resolver and logging cleanups.
 
 ## Mbed TLS (statically linked into `libgg.so`)
 
-- Source: https://github.com/Mbed-TLS/mbedtls (Golden Gate submodule pin)
-- License: Apache License 2.0, see
-  [`third_party/mbedtls/LICENSE`](third_party/mbedtls/LICENSE)
+- Source: https://github.com/Mbed-TLS/mbedtls, release 2.28.10
+  (`2fc8413bfcb51354c8e679141b17b3f1a5942561`)
+- License: dual Apache-2.0 OR GPL-2.0-or-later; used here under Apache-2.0.
+  See [`third_party/mbedtls/LICENSE`](third_party/mbedtls/LICENSE)
 
 ## lwIP (statically linked into `libgg.so`)
 

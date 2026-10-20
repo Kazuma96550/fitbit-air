@@ -329,10 +329,52 @@ class _RelaySetupPageState extends State<RelaySetupPage> {
                           controls,
                         ),
                         const SizedBox(height: 16),
-                        Text(
-                          'Android notification access covers all apps, including in the background. Air Relay matches your rules on this phone. Notifications are not uploaded; saved chat names stay here.',
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(color: colors.onSurfaceVariant),
+                        // Play User Data policy: prominent disclosure shown
+                        // before the request; the button below is the consent.
+                        Container(
+                          key: const ValueKey('notification-disclosure'),
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: colors.surfaceContainerHighest,
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(
+                                    Icons.privacy_tip_outlined,
+                                    color: colors.primary,
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Text(
+                                      'How Air Relay uses your notifications',
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.titleSmall,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              const Text(
+                                'With notification access, Air Relay reads the notifications on this phone from all apps, including their app name, title and text, also while it runs in the background. It uses them only to decide which ones vibrate your Air.\n\n'
+                                'Everything stays on this phone. Air Relay has no internet access, and never stores, uploads or shares notification content. It keeps only a short local history (app, time, result and, if you turn on Message tone, its category) and the chat names you choose.',
+                              ),
+                              TextButton(
+                                key: const ValueKey('setup-privacy-policy'),
+                                style: TextButton.styleFrom(
+                                  padding: EdgeInsets.zero,
+                                ),
+                                onPressed: blocked
+                                    ? null
+                                    : () => run(state.openPrivacyPolicy),
+                                child: const Text('Privacy policy'),
+                              ),
+                            ],
+                          ),
                         ),
                         if (access && controls)
                           TextButton(
