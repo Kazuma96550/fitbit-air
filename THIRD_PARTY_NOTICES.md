@@ -36,6 +36,9 @@ adaptations: a per-stack TLS key resolver and logging cleanups.
 - License: BSD 3-Clause, see [`third_party/lwip/COPYING`](third_party/lwip/COPYING).
   Apps that ship this plugin must reproduce this notice.
 
+Apps can show all three licenses on Flutter's license page by calling
+`FitbitAir.registerLicenses()` once at startup; the example app does.
+
 ## VADER sentiment lexicon (example app)
 
 - Source: https://github.com/cjhutto/vaderSentiment

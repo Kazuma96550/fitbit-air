@@ -1,5 +1,7 @@
 // Copyright 2017-2020 Fitbit, Inc
 // SPDX-License-Identifier: Apache-2.0
+// Modified for fitbit_air: PublishSubject instead of BehaviorSubject, so a
+// new subscriber never receives a stale packet.
 
 package com.fitbit.goldengate.bindings.io
 

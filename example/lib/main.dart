@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:fitbit_air/fitbit_air.dart';
 import 'package:fitbit_air/fitbit_air_commands.dart';
 import 'package:fitbit_air/fitbit_air_diagnostics.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -15,7 +16,15 @@ import 'demo/setup_page.dart';
 import 'demo/relay_operation_queue.dart';
 import 'demo/device_overview.dart';
 
-void main() => runApp(const DemoApp());
+void main() {
+  FitbitAir.registerLicenses();
+  LicenseRegistry.addLicense(() async* {
+    yield LicenseEntryWithLineBreaks(const [
+      'VADER sentiment lexicon',
+    ], await rootBundle.loadString('assets/licenses/vader-LICENSE.txt'));
+  });
+  runApp(const DemoApp());
+}
 
 /// Runs in a separate service-owned engine without any Flutter screen.
 @pragma('vm:entry-point')

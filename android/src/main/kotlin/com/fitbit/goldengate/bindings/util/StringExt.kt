@@ -1,5 +1,6 @@
 // Copyright 2017-2020 Fitbit, Inc
 // SPDX-License-Identifier: Apache-2.0
+// Modified for fitbit_air: uppercase() replaces the deprecated toUpperCase().
 
 package com.fitbit.goldengate.bindings.util
 

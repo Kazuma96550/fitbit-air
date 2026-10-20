@@ -391,3 +391,7 @@ Plugin code is MIT licensed. Adapted upstream source and the bundled Golden Gate
 libraries retain their Apache-2.0 license; the libraries also contain mbedTLS
 (Apache-2.0) and lwIP (BSD-3-Clause). See
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+
+Apps that ship the plugin must include those license texts. Call
+`FitbitAir.registerLicenses()` once at startup to add them to Flutter's
+license page (`showLicensePage` or the About dialog).

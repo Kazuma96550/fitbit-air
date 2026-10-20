@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 /// A small Android bridge for directly controlling a paired Fitbit Air.
@@ -12,6 +13,28 @@ class FitbitAir {
   /// versions may work; show users that they are untested, and suggest an
   /// update if commands keep failing with [AirFailureKind.compatibility].
   static const testedFirmware = {'67.20001.253.2'};
+
+  /// Adds the licenses of the bundled native transport (Golden Gate, Mbed TLS
+  /// and lwIP) to Flutter's license page. Their terms require apps that ship
+  /// the binaries to include these texts; call this once, for example in
+  /// `main()`.
+  static void registerLicenses() {
+    LicenseRegistry.addLicense(() async* {
+      Future<String> load(String path) =>
+          rootBundle.loadString('packages/fitbit_air/$path');
+      yield LicenseEntryWithLineBreaks(
+        const ['Golden Gate'],
+        '${await load('third_party/golden-gate/NOTICE')}\n\n'
+        '${await load('LICENSE-APACHE-2.0')}',
+      );
+      yield LicenseEntryWithLineBreaks(const [
+        'Mbed TLS',
+      ], await load('third_party/mbedtls/LICENSE'));
+      yield LicenseEntryWithLineBreaks(const [
+        'lwIP',
+      ], await load('third_party/lwip/COPYING'));
+    });
+  }
 
   static const MethodChannel _channel = MethodChannel('fitbit_air');
   static const EventChannel _heartRateChannel = EventChannel(
@@ -104,13 +127,12 @@ class FitbitAir {
   static Future<AirBattery> readBattery() async =>
       AirBattery.fromMap(await _invokeMap('readBattery'));
 
-  static void Function(Object) _streamError(String fallback) =>
-      (Object error) {
-        if (error is PlatformException) {
-          throw FitbitAirException(error.code, error.message ?? fallback);
-        }
-        throw error;
-      };
+  static void Function(Object) _streamError(String fallback) => (Object error) {
+    if (error is PlatformException) {
+      throw FitbitAirException(error.code, error.message ?? fallback);
+    }
+    throw error;
+  };
 
   /// Cancels the active operation and closes its Bluetooth client.
   /// The pending read completes with a `CANCELLED` exception. Haptic write

@@ -22,6 +22,9 @@
   verified with.
 - Report `NATIVE_UNAVAILABLE` when the transport cannot load on a device
   instead of the generic `GOLDENGATE` error.
+- Add `FitbitAir.registerLicenses()`, which adds the Golden Gate, Mbed TLS
+  and lwIP licenses to Flutter's license page; apps shipping the plugin must
+  include them. Modified upstream binding files now say what changed.
 
 ### Example app
 
@@ -34,6 +37,7 @@
   it here ("works on your Air"). The firmware is read at most daily and shown
   on the Device tab as tested, works on your Air, or not yet tested.
 - Issue templates for problems and for reports on new Air firmware.
+- **View licenses** in About lists the bundled native code and VADER.
 - About explains typical delay, range and the firmware risk, shows the tested
   and current firmware, and links to releases and issue reports. Setup sets
   the same expectations.
