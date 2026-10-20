@@ -5,7 +5,8 @@
 - Bundle the Golden Gate transport, built reproducibly from its public
   Apache-2.0 source for arm64-v8a, armeabi-v7a and x86_64. The plugin no
   longer copies or loads `libxp.so` from the installed Google Health app, so
-  Google Health updates cannot break it. Verified on a Pixel 7 Pro: battery
+  Google Health updates cannot break it. Mbed TLS is the final 2.28 LTS
+  release (2.28.10) instead of Golden Gate's 2.28.0. Verified on a Pixel 7 Pro: battery
   read, single tap, two-pulse restore and handoff; Google Health synced
   normally right after commands.
 - Add `FitbitAir.keepLinkWarm(bool)`: a listen-only link that commands reuse,
