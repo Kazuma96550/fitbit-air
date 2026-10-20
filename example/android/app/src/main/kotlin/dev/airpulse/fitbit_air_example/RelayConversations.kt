@@ -7,9 +7,11 @@ import android.os.SystemClock
 import android.os.Handler
 import android.os.Looper
 import org.json.JSONArray
-import org.json.JSONObject
 
-/** Opt-in local metadata capture. No message text is read, stored or exported. */
+/**
+ * Finds chats from WhatsApp notifications so the user can save them; saved chats
+ * live in [RelayRuleStore]. Metadata only: no message text is read, stored or exported.
+ */
 internal object RelayConversations {
     private data class Chat(val id: String, val packageName: String, val label: String, val kind: String = "shortcut") {
         fun toMap() = mapOf("id" to id, "packageName" to packageName, "label" to label, "kind" to kind)
@@ -21,19 +23,25 @@ internal object RelayConversations {
     private val handler = Handler(Looper.getMainLooper())
     private val expiry = Runnable { finishCapture() }
     private val clearResults = Runnable { candidates.clear() }
-    private fun prefs(context: Context) = context.getSharedPreferences("relay_conversations", Context.MODE_PRIVATE)
-
-    private fun saved(context: Context): List<Chat> = runCatching {
-        val array = JSONArray(prefs(context).getString("allowed", "[]"))
-        (0 until minOf(array.length(), 64)).map { index ->
-            val item = array.getJSONObject(index)
-            Chat(item.getString("id"), item.getString("packageName"), item.getString("label"), item.optString("kind", "shortcut"))
-        }
-    }.getOrDefault(emptyList())
-
+    private fun legacyPrefs(context: Context) = context.getSharedPreferences("relay_conversations", Context.MODE_PRIVATE)
     private fun modePrefs(context: Context) = context.getSharedPreferences("calendar_relay", Context.MODE_PRIVATE)
-    fun restricted(context: Context) = modePrefs(context).getBoolean("restricted_conversations", false)
-    fun allowed(context: Context) = saved(context).map { it.id }.toSet()
+
+    /** Saved chats and the "Selected" mode from before they moved into [RelayRuleStore]. */
+    fun legacy(context: Context): Pair<Map<String, SavedChat>, Boolean> {
+        val chats = runCatching {
+            val array = JSONArray(legacyPrefs(context).getString("allowed", "[]"))
+            (0 until minOf(array.length(), 64)).associate { index ->
+                val item = array.getJSONObject(index)
+                item.getString("id") to SavedChat(item.getString("packageName"), item.getString("label"), item.optString("kind", "shortcut"))
+            }
+        }.getOrDefault(emptyMap())
+        return chats to modePrefs(context).getBoolean("restricted_conversations", false)
+    }
+
+    fun dropLegacy(context: Context) {
+        legacyPrefs(context).edit().remove("allowed").apply()
+        modePrefs(context).edit().remove("restricted_conversations").apply()
+    }
 
     private fun title(notification: Notification): String? =
         (notification.extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)
@@ -51,7 +59,6 @@ internal object RelayConversations {
     fun captureError() { if (window.listening(SystemClock.elapsedRealtime())) count("errors") }
 
     fun capture(context: Context, enabled: Boolean) {
-        check(!CalendarRelayService.isRunning) { "Stop the relay before capturing conversations." }
         if (enabled) {
             check(CalendarRelayService.hasAccess(context) && CalendarNotificationListener.connected) {
                 "Enable notification access and wait for connection first."
@@ -102,36 +109,14 @@ internal object RelayConversations {
         }
     }
 
-    fun setRestricted(context: Context, enabled: Boolean) {
-        modePrefs(context).edit().putBoolean("restricted_conversations", enabled).apply()
-    }
+    /** A chat found in the last capture, while results are still kept (five minutes). */
+    fun candidate(id: String): SavedChat? = candidates[id]?.takeIf { window.selectable(SystemClock.elapsedRealtime()) }
+        ?.let { SavedChat(it.packageName, it.label, it.kind) }
 
-    fun select(context: Context, id: String, enabled: Boolean, allowNameMatch: Boolean = false) {
-        val chats = saved(context).associateBy { it.id }.toMutableMap()
-        if (enabled) {
-            check(window.selectable(SystemClock.elapsedRealtime())) { "Capture a fresh notification first." }
-            val chat = requireNotNull(candidates[id]) { "Capture a fresh notification first." }
-            require(chat.kind != "name" || allowNameMatch) { "Confirm exact name matching first." }
-            require(chats.size < 64 || id in chats) { "Select up to 64 conversations." }
-            chats[id] = chat
-        } else chats.remove(id)
-        val array = JSONArray()
-        chats.values.forEach { array.put(JSONObject(it.toMap())) }
-        prefs(context).edit().putString("allowed", array.toString()).apply()
-    }
-
-    fun clear(context: Context) {
-        prefs(context).edit().remove("allowed").apply()
-        stopCapture()
-        diagnostics.clear()
-        unsupported = 0
-    }
-
-    fun status(context: Context): Map<String, Any> {
+    fun status(): Map<String, Any> {
         val remaining = window.remaining(SystemClock.elapsedRealtime())
         if (!window.selectable(SystemClock.elapsedRealtime())) candidates.clear()
-        return mapOf("restricted" to restricted(context), "captureRemainingMillis" to remaining,
-            "unsupported" to unsupported, "diagnostics" to diagnostics.toMap(), "allowed" to saved(context).map { it.toMap() },
-            "candidates" to candidates.values.map { it.toMap() })
+        return mapOf("captureRemainingMillis" to remaining, "unsupported" to unsupported,
+            "diagnostics" to diagnostics.toMap(), "candidates" to candidates.values.map { it.toMap() })
     }
 }

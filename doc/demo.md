@@ -7,7 +7,7 @@ notification filtering and Android lifecycle management are not package APIs.
 
 - **Home:** relay status, Start/Stop, timed pause, default vibration preview,
   setup checks and recent outcomes.
-- **Rules:** selected apps, per-app/chat vibration presets, WhatsApp capture and
+- **Rules:** selected apps, per-app/chat vibration presets, WhatsApp people and
   restrictions, and daily quiet hours. App edits apply to new alerts while on.
 - **Device:** pairing, device controls/information, heart rate and historical
   wrist observation. **Developer tools** opens Lab.
@@ -154,85 +154,69 @@ revision needs its own physical acceptance test. Tag/publish 0.1.2 only after th
 checklist passes. Automatic reboot recovery and durable replay protection remain
 future work.
 
-## Selected WhatsApp conversations (after 0.1.2)
+## WhatsApp people
 
-This example-only feature supports WhatsApp and WhatsApp Business. Other app
-selections retain their existing behavior.
+This example-only feature supports WhatsApp and WhatsApp Business. Other apps
+keep their app rule. Changes apply immediately, also while the relay is running.
 
-1. Open **Rules > WhatsApp people**, above the app list. Choose **All chats** or
-   **Selected**. An empty Selected list allows no WhatsApp notifications.
-2. Tap **Add people**. The app checks unread notifications and listens for up to
-   60 seconds. If the relay is running, confirm **Stop and continue** first.
-   Leave a message unread, or receive a new message while that chat is closed.
-3. Tap a found person to add them. Name-only matches require confirmation.
-   Close discovery to stop listening. Saved people appear in one list where you
-   can edit their vibration, mute them, or remove them. Results remain available
-   for five minutes. Start the relay from Home when you finish.
-4. An available **Conversation ID** rule matches the app-scoped Android shortcut
-   ID. Existing selections from dev.1 keep their original IDs.
-5. If WhatsApp provides message-notification metadata and a chat title without
-   a conversation ID, the app offers an **Exact name** rule. Enabling it requires
-   explicit confirmation. It matches the exact notification chat title and can
-   match any other chat with the same title. Rename changes can stop matching;
-   title formats may vary between notification updates. This is a less reliable
-   option, not an equivalent stable identity. The native bridge also requires
-   `allowNameMatch: true` before saving such a rule. No silent downgrade occurs.
-6. Start the relay and test a fresh message with the phone locked. Have someone
-   from an unselected chat send a message too: that chat should not vibrate.
+1. Open **Rules > WhatsApp people**. Saved people and groups are listed with their
+   vibration; tap one to change it (or mute it), or tap **×** to remove it.
+2. **Everyone else** controls chats you have not saved. On, they vibrate with the
+   app vibration. Off (silent), only saved chats vibrate; with nobody saved, no
+   WhatsApp chat vibrates.
+3. Tap **Add person or group**. The sheet lists chats from current WhatsApp
+   notifications and listens for new ones for a minute. Tap **Add** next to a
+   chat; it starts with the app vibration, and tapping it again changes that.
+   If someone is missing, ask them to send a message, or leave one of their
+   messages unread, then tap **Listen again**. Closing the sheet stops listening;
+   found chats stay addable for five minutes.
+4. A chat is matched by its conversation ID when WhatsApp provides one. Otherwise
+   it is **Matched by name**: the exact notification chat name is used, so
+   renaming the chat stops matching and another chat with the same name matches
+   too. The page explains this when such a chat is saved.
+5. Test a fresh message with the phone locked, and one from a chat you have not
+   saved, with **Everyone else** on and off.
 
-Selecting a direct chat provides person-level filtering. Selecting a group allows
-**all senders in that group**, not one member. Sender matching inside a group is
-not implemented. Duplicate chat titles are ambiguous for exact-name rules: use
-conversation IDs when available or avoid selecting ambiguous names. Name rules
-use the current notification's conversation title (or title), never any sender
-found in historical messages. They require message metadata; generic app titles,
-blank titles and titles longer than 512 characters are rejected. Nonmatching or
-unusable metadata is skipped in restricted mode. WhatsApp must actually post a
-usable notification; this experimental relay is not a delivery guarantee.
+A saved direct chat is one person; a saved group covers everyone in it. Sender
+matching inside a group is not implemented. Name matching uses the current
+notification's conversation title (or title), never senders from message
+history, and needs message metadata; generic app titles, blank titles and titles
+over 512 characters are rejected.
 
-**Troubleshooting** retains safe counts for notifications seen, unread snapshot,
-summaries, ongoing notifications, missing IDs, usable name-only candidates,
-unusable metadata and parse/access errors. These counts distinguish “listener
-received nothing” from “received an unsupported notification”. They remain visible
-after listening ends and can be copied with **Copy sanitized debug report**.
-Counts contain no names, IDs, notification keys, titles, or message text. Snapshot
-inspection is capture-only: it never queues haptics. Relay startup still records
-existing notifications as a baseline, and freshness/duplicate checks still apply
-to newly posted notifications.
+**Nobody found?** appears when listening finished without results. It explains
+whether no WhatsApp notification arrived, notifications lacked chat details, or
+only summaries arrived, and **Copy sanitized debug report** copies the safe
+counts (notifications seen, unread snapshot, summaries, ongoing, missing IDs,
+name-only, unusable, errors). Counts contain no names, IDs, notification keys,
+titles or message text. Finding chats never queues vibrations.
 
-Capture holds up to 32 candidates in memory. Unsaved results are discarded after
-the selection window, listener disconnection, relay start, explicit forgetting or
-process death. Up to 64 selected names and hashed rule IDs persist in app-private
-preferences until removed or app data is cleared. Message bodies are not read by
-capture. Conversation preferences are excluded from Android cloud backup and
-device transfer. The restriction toggle is stored separately, so a restored
-restricted setup with no chats remains restricted. Forgetting chats does not
-turn off the restriction. Existing app selections and notification access survive
-an upgrade.
+Finding holds up to 32 chats in memory; unsaved results are discarded after five
+minutes, listener disconnection or process death. Up to 64 saved chats (label,
+app, match type, vibration and a hashed rule ID) are stored with the relay rules
+in app-private preferences, which are excluded from cloud backup and device
+transfer. Raw shortcut IDs and exact titles are hashed with app/type namespaces;
+the original stable-ID hash format is preserved. Rules saved by earlier versions,
+where saved chats and the **All chats/Selected** mode were stored separately, are
+merged once on upgrade: **Selected** becomes **Everyone else: silent**.
 
-Reports include only restriction state, selected-chat count and allowlisted
-numeric capture diagnostics, never names, IDs or candidate lists. Raw shortcut
-IDs and exact title rules are hashed with app/type namespaces before storage.
-The preexisting stable-ID hash format is preserved for upgrades.
+Reports include only whether everyone else is silent, the saved-chat count, the
+number of chats with their own vibration and the capture counts, never names,
+IDs or found chats.
 
-For agent-driven local setup, use `DemoController.configureConversations` with
-`captureConversations` (`enabled`), `restrictConversations` (`enabled`),
-`selectConversation` (`id`, `enabled`, optional explicit `allowNameMatch`), or
-`clearConversations`. The native bridge and controller reject mutations while
-the relay is running. Stable UI keys include `conversation-picker`,
-`restrict-conversations`, `capture-conversations`, `conversation-<id>`,
-`confirm-name-match`, `cancel-name-match`, `capture-diagnostics`,
-`capture-details`, `copy-capture-report` and `clear-conversations`. Private
-capture data is available only in local controller state; do not copy names/IDs
-into test logs or PRs.
+For agent-driven local setup, `DemoController` offers `findChats(listen)`,
+`saveChat(id, preset)` (adds a found chat or changes a saved chat's vibration;
+`null` uses the app vibration), `removeChat(id)` and
+`setEveryoneElseSilent(silent)`. Stable UI keys include `conversation-picker`,
+`everyone-else`, `add-chat`, `chat-<id>`, `remove-chat-<id>`,
+`confirm-remove-chat`, `candidate-<id>`, `add-<id>`, `listen-again`,
+`close-add-chat`, `capture-details` and `copy-capture-report`. Private names and
+IDs exist only in local controller state; do not copy them into test logs or PRs.
 
-Physical acceptance remains pending. Test active/unread notification discovery,
-new messages, return after the listening window, missing-ID diagnostics, name-rule
-confirmation/cancellation, allowed versus unselected chats, repeated messages,
-selected/unselected groups, Business/app separation, private notifications,
-process restart, removal/forgetting, all-chat mode and unchanged Calendar behavior.
-Inspect reports for identity leaks. Local tests cannot establish what metadata
-WhatsApp supplies on the paired phone.
+Physical acceptance remains pending. Test finding unread and new messages,
+listening again, missing-ID chats, saved versus unsaved chats with Everyone else
+on and off, edits while the relay runs, groups, Business/app separation, private
+notifications, upgrade from a Selected setup, process restart and removal. Local
+tests cannot establish what metadata WhatsApp supplies on the paired phone.
 
 ### Investigating Health sync after relay use (dev.3)
 

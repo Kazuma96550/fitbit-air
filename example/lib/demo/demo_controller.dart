@@ -426,12 +426,12 @@ class DemoController extends ChangeNotifier {
   String pulseStyle = 'single';
   List<Map<String, Object?>> apps = [];
   List<Map<String, Object?>> history = [];
-  bool restrictedConversations = false;
   int captureRemainingMillis = 0;
   int unsupportedConversations = 0;
   Map<String, int> captureDiagnostics = {};
-  List<Map<String, Object?>> allowedConversations = [];
-  List<Map<String, Object?>> conversationCandidates = [];
+
+  /// Chats found in WhatsApp notifications while finding chats; saved ones are in [settings].
+  List<SavedChat> conversationCandidates = [];
   int secureDurationSeconds = 30;
   Timer? _poll;
   bool _disposed = false;
@@ -607,7 +607,6 @@ class DemoController extends ChangeNotifier {
       final conversations = Map<String, Object?>.from(
         state['conversations'] as Map? ?? const {},
       );
-      restrictedConversations = conversations['restricted'] == true;
       captureRemainingMillis =
           conversations['captureRemainingMillis'] as int? ?? 0;
       unsupportedConversations = conversations['unsupported'] as int? ?? 0;
@@ -627,12 +626,10 @@ class DemoController extends ChangeNotifier {
               conversations['diagnostics'] as Map? ?? const {},
             ).map((key, value) => MapEntry(key, value is int ? value : 0))
             ..removeWhere((key, value) => !diagnosticKeys.contains(key));
-      allowedConversations = (conversations['allowed'] as List? ?? [])
-          .map((item) => Map<String, Object?>.from(item as Map))
-          .toList();
-      conversationCandidates = (conversations['candidates'] as List? ?? [])
-          .map((item) => Map<String, Object?>.from(item as Map))
-          .toList();
+      conversationCandidates = [
+        for (final item in conversations['candidates'] as List? ?? const [])
+          SavedChat.fromMap(item as Map),
+      ];
       history = (state['history'] as List? ?? [])
           .map((entry) => Map<String, Object?>.from(entry as Map))
           .toList();
@@ -734,8 +731,17 @@ class DemoController extends ChangeNotifier {
     'enabled': enabled,
     'preset': preset?.id,
   });
-  Future<void> saveChatRule(String id, VibrationPreset? preset) =>
-      _relayCall('saveChatRule', {'id': id, 'preset': preset?.id});
+
+  /// Adds a found chat, or changes a saved chat's vibration. Applies while the relay runs.
+  Future<void> saveChat(String id, VibrationPreset? preset) =>
+      _relayCall('saveChat', {'id': id, 'preset': preset?.id});
+  Future<void> removeChat(String id) => _relayCall('removeChat', {'id': id});
+  Future<void> setEveryoneElseSilent(bool silent) =>
+      _relayCall('setEveryoneElseSilent', {'silent': silent});
+
+  /// Lists chats from current WhatsApp notifications and listens for new ones for a minute.
+  Future<void> findChats(bool listen) =>
+      _relayCall('captureConversations', {'enabled': listen});
   Future<void> saveDefaultPreset(VibrationPreset preset) =>
       _relayCall('saveDefaultPreset', {'preset': preset.id});
   Future<void> setPause(int minutes) =>
@@ -820,21 +826,6 @@ class DemoController extends ChangeNotifier {
   void recordWristObservation(AirWristPresenceEvent observation) {
     lastWristObservation = observation;
     _changed();
-  }
-
-  Future<void> configureConversations(String method, [Object? arguments]) {
-    if (!const {
-      'captureConversations',
-      'restrictConversations',
-      'selectConversation',
-      'clearConversations',
-    }.contains(method)) {
-      throw ArgumentError.value(method);
-    }
-    if (relayRunning || changingRelay) {
-      throw StateError('Stop the relay before changing conversation rules.');
-    }
-    return _relayCall(method, arguments);
   }
 
   Future<void> _relayCall(String method, [Object? arguments]) async {
@@ -1144,15 +1135,15 @@ class DemoController extends ChangeNotifier {
       'history': [
         for (final entry in history) {...entry}..remove('tone'),
       ],
-      'restrictedConversations': restrictedConversations,
-      'allowedConversationCount': allowedConversations.length,
+      'everyoneElseSilent': settings.everyoneElseSilent,
+      'savedChatCount': settings.chats.length,
       'captureDiagnostics': captureDiagnostics,
     },
     'transport': transportDiagnostics,
     'settings': {
       'defaultPreset': settings.defaultPreset.id,
       'appRuleCount': settings.apps.length,
-      'chatOverrideCount': settings.chats.length,
+      'chatOverrideCount': settings.chats.where((c) => c.preset != null).length,
       'silenceReason': settings.silenceReason,
       'quietEnabled': settings.quietEnabled,
       'toneEnabled': settings.toneEnabled,

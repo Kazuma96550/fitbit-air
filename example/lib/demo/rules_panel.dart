@@ -235,26 +235,34 @@ List<Widget> _toneRules(
       key: const ValueKey('message-tone'),
       contentPadding: EdgeInsets.zero,
       secondary: const Icon(Icons.priority_high),
-      title: const Text('Message tone'),
+      title: Wrap(
+        spacing: 8,
+        runSpacing: 4,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [const Text('Message tone'), _experimentalLabel(context)],
+      ),
       subtitle: const Text(
         'Reads message text on this phone to vary the vibration for urgent or negative messages. Text is never stored or shared.',
       ),
       value: s.toneEnabled,
       onChanged: state.changingRelay
           ? null
-          : (value) => perform(
-              () => state.saveToneRules(
-                enabled: value,
-                // Suggest a starting point the first time it is switched on.
-                urgent: value && fresh
-                    ? VibrationPreset.doublePulse
-                    : s.toneUrgent,
-                negative: value && fresh
-                    ? VibrationPreset.high
-                    : s.toneNegative,
-                neutral: s.toneNeutral,
-              ),
-            ),
+          : (value) async {
+              if (value && !await _confirmMessageTone(context)) return;
+              perform(
+                () => state.saveToneRules(
+                  enabled: value,
+                  // Suggest a starting point the first time it is switched on.
+                  urgent: value && fresh
+                      ? VibrationPreset.doublePulse
+                      : s.toneUrgent,
+                  negative: value && fresh
+                      ? VibrationPreset.high
+                      : s.toneNegative,
+                  neutral: s.toneNeutral,
+                ),
+              );
+            },
     ),
     if (s.toneEnabled) ...[
       row(
@@ -278,6 +286,51 @@ List<Widget> _toneRules(
     ],
   ];
 }
+
+Widget _experimentalLabel(BuildContext context) {
+  final colors = Theme.of(context).colorScheme;
+  return Container(
+    key: const ValueKey('message-tone-experimental'),
+    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+    decoration: BoxDecoration(
+      border: Border.all(color: colors.outline),
+      borderRadius: BorderRadius.circular(6),
+    ),
+    child: Text(
+      'Experimental',
+      style: Theme.of(
+        context,
+      ).textTheme.labelSmall?.copyWith(color: colors.onSurfaceVariant),
+    ),
+  );
+}
+
+/// Explicit consent each time message text reading is switched on.
+Future<bool> _confirmMessageTone(BuildContext context) async =>
+    await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        key: const ValueKey('message-tone-consent'),
+        title: const Text('Read message text?'),
+        content: const Text(
+          'Air Relay will read the text of notifications from your chosen apps to pick a vibration for urgent or negative messages.\n\n'
+          'The text is checked on this phone, in memory, and is never saved or sent; only the category (urgent, negative or neutral) appears in your history. '
+          'It’s experimental and will sometimes misjudge a message. You can turn it off anytime.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            key: const ValueKey('message-tone-confirm'),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Turn on'),
+          ),
+        ],
+      ),
+    ) ??
+    false;
 
 String formatMinute(BuildContext context, int minute) =>
     TimeOfDay(hour: minute ~/ 60, minute: minute % 60).format(context);

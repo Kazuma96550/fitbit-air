@@ -183,7 +183,7 @@ void main() {
       );
       await tester.tap(find.byKey(const ValueKey('conversation-picker')));
       await tester.pumpAndSettle();
-      expect(find.text('Who can reach your wrist?'), findsOneWidget);
+      expect(find.byKey(const ValueKey('everyone-else')), findsOneWidget);
       expect(tester.takeException(), isNull);
       await tester.pageBack();
       await tester.pumpAndSettle();

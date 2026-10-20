@@ -61,7 +61,8 @@ void main() {
     rules = {
       'defaultPreset': 'single',
       'apps': <String, Object?>{},
-      'chats': <String, Object?>{},
+      'chats': <Map<String, Object?>>[],
+      'everyoneElseSilent': false,
       'pauseUntil': 0,
       'quietEnabled': false,
       'startMinute': 1320,
@@ -70,10 +71,8 @@ void main() {
     lastSelection = null;
     lastTapArguments = null;
     conversations = {
-      'restricted': false,
       'captureRemainingMillis': 0,
       'unsupported': 0,
-      'allowed': <Map<String, Object?>>[],
       'candidates': <Map<String, Object?>>[],
     };
     history = [];
@@ -113,8 +112,8 @@ void main() {
             case 'completeSetup':
               setupCompleted = true;
               return null;
-            case 'restrictConversations':
-              conversations['restricted'] = (call.arguments as Map)['enabled'];
+            case 'setEveryoneElseSilent':
+              rules['everyoneElseSilent'] = (call.arguments as Map)['silent'];
               return null;
             case 'captureConversations':
               conversations['captureRemainingMillis'] =
@@ -128,13 +127,28 @@ void main() {
                 },
               ];
               return null;
-            case 'selectConversation':
-              lastSelection = Map<Object?, Object?>.from(call.arguments as Map);
-              conversations['allowed'] = conversations['candidates'];
+            case 'saveChat':
+              final args = call.arguments as Map;
+              lastSelection = Map<Object?, Object?>.from(args);
+              final chats = rules['chats'] as List;
+              final index = chats.indexWhere(
+                (chat) => (chat as Map)['id'] == args['id'],
+              );
+              if (index >= 0) {
+                (chats[index] as Map)['preset'] = args['preset'];
+              } else {
+                final found = (conversations['candidates'] as List)
+                    .cast<Map>()
+                    .firstWhere((chat) => chat['id'] == args['id']);
+                chats.add(
+                  Map<String, Object?>.from(found)..['preset'] = args['preset'],
+                );
+              }
               return null;
-            case 'clearConversations':
-              conversations['allowed'] = <Map<String, Object?>>[];
-              conversations['candidates'] = <Map<String, Object?>>[];
+            case 'removeChat':
+              (rules['chats'] as List).removeWhere(
+                (chat) => (chat as Map)['id'] == (call.arguments as Map)['id'],
+              );
               return null;
             case 'apps':
               return [
@@ -162,14 +176,6 @@ void main() {
                 selected.remove(pkg);
               }
               return null;
-            case 'saveChatRule':
-              final args = call.arguments as Map;
-              if (args['preset'] == null) {
-                (rules['chats'] as Map).remove(args['id']);
-              } else {
-                (rules['chats'] as Map)[args['id']] = args['preset'];
-              }
-              return null;
             case 'saveDefaultPreset':
               pulseStyle = (call.arguments as Map)['preset'] as String;
               return null;
@@ -181,6 +187,15 @@ void main() {
                   ? 0
                   : DateTime.now().millisecondsSinceEpoch + minutes * 60000;
               rules['silenceReason'] = minutes == 0 ? null : 'paused';
+              return null;
+            case 'saveToneRules':
+              final args = call.arguments as Map;
+              rules.addAll({
+                'toneEnabled': args['enabled'],
+                'toneUrgent': args['urgent'],
+                'toneNegative': args['negative'],
+                'toneNeutral': args['neutral'],
+              });
               return null;
             case 'saveQuietHours':
               final args = call.arguments as Map;
@@ -268,12 +283,12 @@ void main() {
     }
     if (key == 'app-picker' ||
         key == 'conversation-picker' ||
-        (key == 'capture-conversations' &&
-            find.text('Who can reach your wrist?').evaluate().isEmpty)) {
+        (key == 'add-chat' &&
+            find.byKey(const ValueKey('everyone-else')).evaluate().isEmpty)) {
       await tester.tap(find.byKey(const ValueKey('nav-rules')));
       await tester.pumpAndSettle();
       if (key == 'app-picker') return;
-      if (key == 'capture-conversations') {
+      if (key == 'add-chat') {
         await tester.tap(find.byKey(const ValueKey('conversation-picker')));
         await tester.pumpAndSettle();
       }
@@ -883,91 +898,86 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
   testWidgets(
-    'capture and select chats locally without leaking report identities',
+    'find and add chats while the relay runs without leaking report identities',
     (tester) async {
       access = true;
+      running = true;
+      selected.add('com.whatsapp');
       await mount(tester);
-      await tap(tester, 'conversation-picker');
-      await tester.tap(find.text('Selected'));
-      await tester.pumpAndSettle();
-      expect(controller.restrictedConversations, isTrue);
-      await tap(tester, 'capture-conversations');
+      await tap(tester, 'add-chat');
       expect(controller.captureRemainingMillis, 60000);
-      await tester.enterText(
-        find.byKey(const ValueKey('chat-search')),
-        'Nobody',
-      );
-      await tester.pumpAndSettle();
-      expect(
-        find.text('No matching people found. Try another name.'),
-        findsOneWidget,
-      );
-      await tester.enterText(
-        find.byKey(const ValueKey('chat-search')),
-        'alice',
-      );
-      await tester.pumpAndSettle();
-      await tap(tester, 'conversation-abcdef012345');
-      expect(controller.allowedConversations.single['label'], 'Private Alice');
+      expect(find.text('Listening for new messages…'), findsOneWidget);
+      await tap(tester, 'add-abcdef012345');
+      expect(controller.settings.chats.single.label, 'Private Alice');
+      expect(find.textContaining('Added · App vibration'), findsOneWidget);
       expect(controller.exportJson(), isNot(contains('Private Alice')));
       expect(controller.exportJson(), isNot(contains('abcdef012345')));
-      expect(
-        controller.report()['relay'],
-        containsPair('allowedConversationCount', 1),
-      );
-      await tap(tester, 'done-adding-people');
+      expect(controller.report()['relay'], containsPair('savedChatCount', 1));
+      await tap(tester, 'close-add-chat');
       expect(controller.captureRemainingMillis, 0);
-      expect(
-        find.byKey(const ValueKey('chat-rule-abcdef012345')),
-        findsOneWidget,
-      );
-      expect(controller.restrictedConversations, isTrue);
+      expect(find.byKey(const ValueKey('chat-abcdef012345')), findsOneWidget);
+      // Edits apply live: the relay was never stopped.
+      expect(running, isTrue);
+      expect(calls, isNot(contains('stop')));
       await tester.pumpWidget(const SizedBox());
     },
   );
 
-  testWidgets('editing people asks before stopping an active relay', (
+  testWidgets('everyone else can be silenced without stopping the relay', (
     tester,
   ) async {
     access = true;
     running = true;
     await mount(tester);
     await tap(tester, 'conversation-picker');
-    await tap(tester, 'capture-conversations');
-    expect(find.text('Stop relay to edit people?'), findsOneWidget);
-    await tester.tap(find.text('Cancel'));
-    await tester.pumpAndSettle();
+    expect(find.text('Vibrates with the app vibration'), findsOneWidget);
+    await tap(tester, 'everyone-else');
+    expect(controller.settings.everyoneElseSilent, isTrue);
+    expect(find.textContaining('No WhatsApp chat can vibrate'), findsOneWidget);
+    expect(
+      controller.report()['relay'],
+      containsPair('everyoneElseSilent', true),
+    );
     expect(running, isTrue);
     expect(calls, isNot(contains('stop')));
-    expect(
-      () => controller.configureConversations('clearConversations'),
-      throwsStateError,
-    );
-    expect(calls, isNot(contains('clearConversations')));
     await tester.pumpWidget(const SizedBox());
   });
-  testWidgets(
-    'name-only chat requires confirmation and stays selectable after listening stops',
-    (tester) async {
-      access = true;
-      nameCandidate = true;
-      await mount(tester);
-      await tap(tester, 'capture-conversations');
-      conversations['captureRemainingMillis'] = 0;
-      await controller.refresh();
-      await tester.pumpAndSettle();
-      await tap(tester, 'conversation-abcdef012345');
-      expect(find.text('Match this chat by name?'), findsOneWidget);
-      await tap(tester, 'cancel-name-match');
-      expect(lastSelection, isNull);
-      await tap(tester, 'conversation-abcdef012345');
-      await tap(tester, 'confirm-name-match');
-      expect(lastSelection?['allowNameMatch'], isTrue);
-      expect(controller.allowedConversations, hasLength(1));
-      expect(controller.exportJson(), isNot(contains('Private Alice')));
-      await tester.pumpWidget(const SizedBox());
-    },
-  );
+
+  testWidgets('name-matched chats are added without a dialog and explained', (
+    tester,
+  ) async {
+    access = true;
+    nameCandidate = true;
+    await mount(tester);
+    await tap(tester, 'add-chat');
+    expect(find.text('Matched by name'), findsOneWidget);
+    await tap(tester, 'add-abcdef012345');
+    expect(lastSelection, {'id': 'abcdef012345', 'preset': null});
+    expect(controller.settings.chats.single.nameMatch, isTrue);
+    await tap(tester, 'close-add-chat');
+    expect(find.textContaining('"Matched by name" means'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('removing a saved chat asks first', (tester) async {
+    access = true;
+    rules['chats'] = [
+      {
+        'id': 'private-chat',
+        'label': 'Alice',
+        'packageName': 'com.whatsapp',
+        'kind': 'shortcut',
+        'preset': 'high',
+      },
+    ];
+    await mount(tester);
+    await tap(tester, 'conversation-picker');
+    expect(find.textContaining('One pulse · High'), findsOneWidget);
+    await tap(tester, 'remove-chat-private-chat');
+    await tap(tester, 'confirm-remove-chat');
+    expect(controller.settings.chats, isEmpty);
+    await tester.pumpWidget(const SizedBox());
+  });
 
   testWidgets('Home pause and resume preserve the running relay', (
     tester,
@@ -1014,17 +1024,15 @@ void main() {
     access = true;
     selected.add('com.whatsapp');
     (rules['apps'] as Map)['com.whatsapp'] = {'enabled': true, 'preset': 'low'};
-    conversations['allowed'] = [
+    rules['chats'] = [
       {'id': 'private-chat', 'label': 'Alice', 'packageName': 'com.whatsapp'},
     ];
     await mount(tester);
-    await tap(tester, 'nav-rules');
     await tap(tester, 'conversation-picker');
-    await tap(tester, 'chat-rule-private-chat');
-    expect(find.text('Use app vibration'), findsOneWidget);
+    await tap(tester, 'chat-private-chat');
     await tap(tester, 'preview-rule');
     expect(lastTapArguments, {'intensity': 2});
-    expect(calls, isNot(contains('saveChatRule')));
+    expect(calls, isNot(contains('saveChat')));
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -1048,24 +1056,44 @@ void main() {
     access = true;
     conversations['diagnostics'] = {'seen': 0, 'privateLabel': 'SECRET'};
     await mount(tester);
-    await tap(tester, 'nav-rules');
-    await tap(tester, 'capture-conversations');
+    await tap(tester, 'add-chat');
     conversations['candidates'] = <Map<String, Object?>>[];
+    conversations['captureRemainingMillis'] = 0;
     await controller.refresh();
     await tester.pumpAndSettle();
-    final target = find.byKey(const ValueKey('capture-diagnostics'));
-    await tester.scrollUntilVisible(
-      target,
-      200,
-      scrollable: find.byType(Scrollable).first,
-    );
-    await tester.pumpAndSettle();
+    await tap(tester, 'capture-details');
     expect(
-      find.textContaining('No WhatsApp notifications found'),
+      find.textContaining('No WhatsApp notifications arrived'),
       findsOneWidget,
     );
     expect(controller.captureDiagnostics, {'seen': 0});
     expect(controller.exportJson(), isNot(contains('SECRET')));
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('message tone asks before reading message text', (tester) async {
+    access = true;
+    await mount(tester);
+    await tap(tester, 'nav-rules');
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('message-tone')),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(
+      find.byKey(const ValueKey('message-tone-experimental')),
+      findsOneWidget,
+    );
+    await tap(tester, 'message-tone');
+    expect(find.byKey(const ValueKey('message-tone-consent')), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(calls, isNot(contains('saveToneRules')));
+    expect(controller.settings.toneEnabled, isFalse);
+    await tap(tester, 'message-tone');
+    await tap(tester, 'message-tone-confirm');
+    expect(calls, contains('saveToneRules'));
+    expect(controller.settings.toneEnabled, isTrue);
     await tester.pumpWidget(const SizedBox());
   });
 }

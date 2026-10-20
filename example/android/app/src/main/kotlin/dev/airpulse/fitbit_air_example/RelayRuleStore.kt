@@ -17,11 +17,21 @@ internal object RelayRuleStore {
             return config
         }
         // Corrupt or newer configs fail closed; never silently enable all chats/apps.
-        return runCatching { decode(JSONObject(raw)) }.getOrElse { RelayRuleConfig() }
+        val json = runCatching { JSONObject(raw) }.getOrNull() ?: return RelayRuleConfig()
+        if (json.optInt("version") == 1) {
+            // Version 1 kept saved chats and "Selected" mode outside this config.
+            val config = runCatching { decode(json, RelayConversations.legacy(context)) }.getOrElse { return RelayRuleConfig() }
+            write(context, config)
+            RelayConversations.dropLegacy(context)
+            return config
+        }
+        return runCatching { decode(json) }.getOrElse { RelayRuleConfig() }
     }
 
-    internal fun decode(json: JSONObject): RelayRuleConfig {
-        require(json.getInt("version") == 1)
+    /** [legacy] holds version 1's separately stored saved chats and "Selected" flag. */
+    internal fun decode(json: JSONObject, legacy: Pair<Map<String, SavedChat>, Boolean>? = null): RelayRuleConfig {
+        val version = json.getInt("version")
+        require(version == 2 || (version == 1 && legacy != null))
         val apps = json.getJSONObject("apps")
         val chats = json.getJSONObject("chats")
         val quiet = json.getJSONObject("silence")
@@ -34,9 +44,18 @@ internal object RelayRuleStore {
                 val value = apps.getJSONObject(key)
                 RelayAppRule(value.getBoolean("enabled"), if (value.isNull("preset")) null else RelayPreset.parse(value.getString("preset")))
             },
-            chats.keys().asSequence().associateWith { RelayPreset.parse(chats.getString(it)) },
+            if (version == 1) {
+                // Version 1 stored only presets here; labels came from the saved list.
+                val presets = chats.keys().asSequence().associateWith { RelayPreset.parse(chats.getString(it)) }
+                legacy!!.first.mapValues { (id, chat) -> chat.copy(preset = presets[id]) }
+            } else chats.keys().asSequence().associateWith { id ->
+                val chat = chats.getJSONObject(id)
+                SavedChat(chat.getString("packageName"), chat.getString("label"), chat.getString("kind"),
+                    if (chat.isNull("preset")) null else RelayPreset.parse(chat.getString("preset")))
+            },
             RelaySilence(quiet.getLong("pauseUntil"), quiet.getBoolean("quietEnabled"), quiet.getInt("startMinute"), quiet.getInt("endMinute")),
             RelayToneRules(tone?.getBoolean("enabled") ?: false, tonePreset("urgent"), tonePreset("negative"), tonePreset("neutral")),
+            if (version == 1) legacy!!.second else json.getBoolean("everyoneElseSilent"),
         )
     }
 
@@ -44,10 +63,13 @@ internal object RelayRuleStore {
         val apps = JSONObject()
         config.apps.forEach { (key, rule) -> apps.put(key, JSONObject().put("enabled", rule.enabled).put("preset", rule.preset?.id ?: JSONObject.NULL)) }
         val chats = JSONObject()
-        config.chats.forEach { (key, preset) -> chats.put(key, preset.id) }
+        config.chats.forEach { (id, chat) ->
+            chats.put(id, JSONObject().put("packageName", chat.packageName).put("label", chat.label)
+                .put("kind", chat.kind).put("preset", chat.preset?.id ?: JSONObject.NULL))
+        }
         val s = config.silence
-        val json = JSONObject().put("version", 1).put("defaultPreset", config.defaultPreset.id)
-            .put("apps", apps).put("chats", chats)
+        val json = JSONObject().put("version", 2).put("defaultPreset", config.defaultPreset.id)
+            .put("apps", apps).put("chats", chats).put("everyoneElseSilent", config.everyoneElseSilent)
             .put("silence", JSONObject().put("pauseUntil", s.pauseUntil).put("quietEnabled", s.quietEnabled)
                 .put("startMinute", s.startMinute).put("endMinute", s.endMinute))
         val t = config.tone
@@ -74,7 +96,11 @@ internal object RelayRuleStore {
         val c = read(context)
         return mapOf("defaultPreset" to c.defaultPreset.id,
             "apps" to c.apps.mapValues { (_, r) -> mapOf("enabled" to r.enabled, "preset" to r.preset?.id) },
-            "chats" to c.chats.mapValues { it.value.id },
+            "chats" to c.chats.map { (id, chat) ->
+                mapOf("id" to id, "packageName" to chat.packageName, "label" to chat.label, "kind" to chat.kind,
+                    "preset" to chat.preset?.id)
+            },
+            "everyoneElseSilent" to c.everyoneElseSilent,
             "pauseUntil" to c.silence.pauseUntil, "quietEnabled" to c.silence.quietEnabled,
             "startMinute" to c.silence.startMinute, "endMinute" to c.silence.endMinute,
             "silenceReason" to c.silence.reason(System.currentTimeMillis()),

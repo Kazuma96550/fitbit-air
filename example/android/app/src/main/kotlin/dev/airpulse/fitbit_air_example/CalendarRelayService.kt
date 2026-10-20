@@ -96,8 +96,6 @@ class CalendarRelayService : Service() {
             .addAction(Notification.Action.Builder(null, if (silence == "paused") "Resume" else "Pause 15 min", pause).build())
             .addAction(Notification.Action.Builder(null, "Stop", stop).build()).build()
     }
-    private var restrictedConversations = false
-    private var allowedConversations = emptySet<String>()
     private val handler = Handler(Looper.getMainLooper())
     private val coalescer = RelayCoalescer()
     private var holdingFollowUp = false
@@ -125,9 +123,6 @@ class CalendarRelayService : Service() {
             return START_NOT_STICKY
         }
         if (engine != null) return START_NOT_STICKY
-        RelayConversations.stopCapture()
-        restrictedConversations = RelayConversations.restricted(this)
-        allowedConversations = RelayConversations.allowed(this)
         selectedPackages = RelayRuleStore.read(this).selectedPackages
         toneEnabled = RelayRuleStore.read(this).tone.enabled
         if (toneEnabled) RelayToneLexicons.preload(this)
@@ -196,7 +191,7 @@ class CalendarRelayService : Service() {
         val now = System.currentTimeMillis()
         if (filter?.accept(packageName, key, postedAt, now, ongoing, summary, messageTimestamp) != true) return
         val config = RelayRuleStore.read(this)
-        val match = config.match(packageName, conversationIds, restrictedConversations, allowedConversations, tone)
+        val match = config.match(packageName, conversationIds, tone)
         val category = tone?.takeIf { config.tone.enabled }
         if (match == null) { record(nextId(), packageName, postedAt, "filtered", tone = category); return }
         val silence = config.silence.reason(now)
@@ -452,7 +447,7 @@ class CalendarRelayService : Service() {
             "selectedApps" to RelayRuleStore.read(context).selectedPackages.sorted(),
             "pulseStyle" to RelayRuleStore.read(context).defaultPreset.id,
             "rules" to RelayRuleStore.status(context),
-            "conversations" to RelayConversations.status(context),
+            "conversations" to RelayConversations.status(),
             "history" to RelayHistory.read(context).asReversed().map { it.toMap() },
             "bluetoothPermission" to bluetoothPermission(context),
             "bluetoothEnabled" to if (bluetoothPermission(context)) runCatching {
