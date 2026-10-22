@@ -9,8 +9,24 @@ import android.os.Build
 import android.Manifest
 import android.content.pm.PackageManager
 import android.provider.Settings
+import android.telecom.TelecomManager
 
 class MainActivity : FlutterActivity() {
+    /** Calls vibrate the Air only with the phone permission; asked when the phone app is selected. */
+    private fun requestCallPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT < 23) return
+        if (checkSelfPermission(Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED) return
+        val defaultDialer = runCatching { getSystemService(TelecomManager::class.java)?.defaultDialerPackage }.getOrNull()
+        if (RelayCalls.dialer(RelayRuleStore.read(this).selectedPackages, defaultDialer) == null) return
+        requestPermissions(arrayOf(Manifest.permission.READ_PHONE_STATE), CALL_PERMISSION_REQUEST)
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        // A running relay starts listening for calls right away instead of at the next minute tick.
+        if (requestCode == CALL_PERMISSION_REQUEST) CalendarRelayService.active?.settingsChanged()
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "fitbit_air_example/calendar")
@@ -208,6 +224,7 @@ class MainActivity : FlutterActivity() {
                                 (config.apps.keys + packages).associateWith { pkg ->
                                     (config.apps[pkg] ?: RelayAppRule(false)).copy(enabled = pkg in packages)
                                 }) }
+                            requestCallPermissionIfNeeded()
                             result.success(null)
                         }
                         "openRepository" -> {
@@ -230,6 +247,7 @@ class MainActivity : FlutterActivity() {
                                 result.error("NOTIFICATION_ACCESS", "Enable notification access and wait for connection first.", null)
                             } else {
                                 require(RelayRuleStore.read(this).selectedPackages.isNotEmpty()) { "Select at least one app first." }
+                                requestCallPermissionIfNeeded()
                                 CalendarRelayService.start(this)
                                 result.success(null)
                             }
@@ -264,5 +282,6 @@ class MainActivity : FlutterActivity() {
 
     private companion object {
         const val REPOSITORY_URL = "https://github.com/ThoreKoritzius/fitbit-air"
+        const val CALL_PERMISSION_REQUEST = 903
     }
 }

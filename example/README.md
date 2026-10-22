@@ -77,6 +77,19 @@ The demo discovers launcher apps without requesting `QUERY_ALL_PACKAGES`.
 7. Stop using **Stop notification relay** or the ongoing notification's **Stop**
    action. An active haptic finishes restoration first.
 
+### Incoming calls
+
+Incoming-call notifications are ongoing, so the notification path above never
+sees them. Instead, selecting your **phone app** (for example Phone on Samsung or
+Google) in **Choose notification apps** turns on call vibrations: Air Relay asks
+for the phone permission, used only to know when the phone rings, and while the
+relay runs it repeats a vibration for as long as the phone rings, stopping when
+the call is answered, rejected or missed, or after 60 seconds. Calls on every SIM
+count. They use the two-pulse vibration unless you choose another one for the
+phone app; muting the phone app or quiet hours silence them. Each vibration takes
+a few seconds to arrive, and history keeps the first vibration of each call plus
+any problem. Only phone calls are covered; calls in WhatsApp and other apps are not.
+
 Only alerts posted after the worker is ready are eligible. Other apps, group
 summaries, ongoing notifications and old notification reposts are ignored.
 On Android 11+, for standard MessagingStyle notifications, a newer message timestamp

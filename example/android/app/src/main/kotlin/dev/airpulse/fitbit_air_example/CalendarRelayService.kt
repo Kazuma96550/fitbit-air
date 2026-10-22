@@ -20,6 +20,8 @@ import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
 import android.provider.Settings
+import android.telecom.TelecomManager
+import android.telephony.TelephonyManager
 import io.flutter.FlutterInjector
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.engine.dart.DartExecutor
@@ -44,6 +46,13 @@ class CalendarRelayService : Service() {
     private val previewReplies = mutableMapOf<String, (RelayWorkerResult) -> Unit>()
     private val choices = mutableMapOf<String, RelayBurstChoice>()
     private var displayedSilence: String? = null
+    /** Phone-state receiver while listening for calls, or null. */
+    private var callReceiver: BroadcastReceiver? = null
+    /** When the current ring started; 0 while the phone is not ringing. */
+    private var ringingSince = 0L
+    /** Vibrations sent for the current ring. */
+    private var ringBuzzes = 0
+    private val callRepeat = Runnable { buzzCall() }
     private val silenceTick = Runnable { settingsChanged() }
     private val clockReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) { settingsChanged() }
@@ -79,6 +88,96 @@ class CalendarRelayService : Service() {
             val delay = if (until > now) minOf(60_000L - now % 60_000L, until - now) else 60_000L - now % 60_000L
             handler.postDelayed(silenceTick, maxOf(1L, delay))
         }
+        // Retried every minute, so a phone permission granted later takes effect.
+        if (ready && !stopping) registerCallListener()
+    }
+
+    /**
+     * Listens for the phone ringing once the phone permission is granted. The phone-state
+     * broadcast covers every SIM, unlike a call-state callback bound to the default SIM.
+     */
+    private fun registerCallListener() {
+        if (callReceiver != null || Build.VERSION.SDK_INT < 23) return
+        if (checkSelfPermission(Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) return
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                // Any state other than ringing (answered, rejected, missed) ends the vibrations.
+                if (intent?.getStringExtra(TelephonyManager.EXTRA_STATE) == TelephonyManager.EXTRA_STATE_RINGING) startRinging()
+                else stopRinging()
+            }
+        }
+        val phoneState = IntentFilter(TelephonyManager.ACTION_PHONE_STATE_CHANGED)
+        // A protected broadcast: only the system can send it.
+        runCatching {
+            if (Build.VERSION.SDK_INT >= 33) registerReceiver(receiver, phoneState, Context.RECEIVER_EXPORTED)
+            else registerReceiver(receiver, phoneState)
+        }.onSuccess { callReceiver = receiver }
+    }
+
+    private fun unregisterCallListener() {
+        stopRinging()
+        val receiver = callReceiver ?: return
+        callReceiver = null
+        runCatching { unregisterReceiver(receiver) }
+    }
+
+    private fun startRinging() {
+        if (!ready || stopping || ringingSince != 0L) return
+        ringingSince = System.currentTimeMillis()
+        ringBuzzes = 0
+        buzzCall()
+    }
+
+    private fun stopRinging() {
+        ringingSince = 0L
+        handler.removeCallbacks(callRepeat)
+    }
+
+    /**
+     * One vibration per round while the phone rings. The next round starts after the
+     * previous one finished, so call vibrations never queue up behind each other.
+     */
+    private fun buzzCall() {
+        val since = ringingSince
+        val worker = channel
+        if (since == 0L || !ready || stopping || worker == null) return
+        val now = System.currentTimeMillis()
+        val config = RelayRuleStore.read(this)
+        val defaultDialer = if (Build.VERSION.SDK_INT >= 23) runCatching {
+            getSystemService(TelecomManager::class.java)?.defaultDialerPackage
+        }.getOrNull() else null
+        val dialer = RelayCalls.dialer(config.selectedPackages, defaultDialer)
+        val preset = if (dialer == null) null else RelayCalls.preset(config, dialer)
+        if (dialer == null || preset == null || !RelayCalls.withinLimit(since, now)) {
+            stopRinging()
+            return
+        }
+        val id = nextId()
+        val match = RelayMatch(preset, 2)
+        val silence = config.silence.reason(now)
+        if (silence != null) {
+            record(id, dialer, since, silence, match = match)
+            stopRinging()
+            return
+        }
+        // History keeps the first vibration of each ring and any problem, not every repeat.
+        val first = ringBuzzes++ == 0
+        begin()
+        refreshDeadline()
+        fun finished(result: RelayWorkerResult) {
+            if (first || result.stage != "verified") record(id, dialer, since, result.stage, result.errorCode, match)
+            saveOutcome("Call vibration ${result.stage}${result.errorCode?.let { ": $it" } ?: ""}.")
+            if (ringingSince == since && !stopping) handler.postDelayed(callRepeat, RelayCalls.GAP_MILLIS)
+            end()
+        }
+        worker.invokeMethod("dispatch", mapOf(
+            "id" to id, "expiresAt" to now + RelayCalls.EXPIRY_MILLIS,
+            "kind" to if (preset == RelayPreset.DOUBLE) "preview" else "tap", "intensity" to preset.intensity
+        ), object : MethodChannel.Result {
+            override fun success(result: Any?) { finished(RelayWorkerResult.decode(result)) }
+            override fun error(code: String, message: String?, details: Any?) { finished(RelayWorkerResult("failed", "WORKER_ERROR")) }
+            override fun notImplemented() { finished(RelayWorkerResult("failed", "WORKER_UNAVAILABLE")) }
+        })
     }
 
     private fun buildNotification(): Notification {
@@ -350,6 +449,7 @@ class CalendarRelayService : Service() {
 
     fun requestStop(reason: String) {
         stopping = true
+        unregisterCallListener()
         saveOutcome(reason)
         channel?.invokeMethod("close", null)
         handler.removeCallbacks(silenceTick)
@@ -371,6 +471,7 @@ class CalendarRelayService : Service() {
         previewReplies.clear()
         replies.forEach { it(RelayWorkerResult("failed", "SERVICE_STOPPED")) }
         unregisterReceiver(clockReceiver)
+        unregisterCallListener()
         handler.removeCallbacks(silenceTick)
         if (active === this) active = null
         handler.removeCallbacks(watchdog)
